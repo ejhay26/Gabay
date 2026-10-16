@@ -1,11 +1,9 @@
 package dev.gabay.app.ui
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.Immutable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -21,14 +19,21 @@ import androidx.compose.ui.unit.sp
 
 object GabayColors {
     val BgObsidian = Color(0xFF0A0D10)
+    val BgCard = Color(0xFF0F141C)
+    val BgElevated = Color(0xFF141A24)
+    val BgInput = Color(0xFF1A222F)
     val SurfacePanel = Color(0xFF12161C)
     val SurfaceInteractive = Color(0xFF1A2028)
+    val BorderSubtle = Color(0xFF1A222D)
     val BorderHairline = Color(0xFF262E38)
     val TextPrimary = Color(0xFFF0F4F8)
     val TextSecondary = Color(0xFF8A94A6)
+    val TextMuted = Color(0xFF64748B)
     val AccentEmerald = Color(0xFF10B981)
     val AccentAmber = Color(0xFFF59E0B)
     val AccentCrimson = Color(0xFFEF4444)
+    val AccentRed = Color(0xFFEF4444)
+    val AccentCyan = Color(0xFF06B6D4)
 }
 
 object GabayShapes {
@@ -39,40 +44,76 @@ object GabayShapes {
 }
 
 object GabayTypography {
-    val SpeedometerReadout = TextStyle(
+    val SpeedNumber = TextStyle(
         fontFamily = FontFamily.Monospace,
         fontWeight = FontWeight.Bold,
-        fontSize = 32.sp,
+        fontSize = 44.sp,
         color = GabayColors.TextPrimary
     )
 
-    val PrimaryManeuverDistance = TextStyle(
+    val SpeedometerReadout = SpeedNumber
+
+    val ManeuverDistance = TextStyle(
         fontFamily = FontFamily.Monospace,
         fontWeight = FontWeight.Bold,
         fontSize = 28.sp,
         color = GabayColors.TextPrimary
     )
 
+    val PrimaryManeuverDistance = ManeuverDistance
+
     val StreetName = TextStyle(
         fontFamily = FontFamily.Default,
         fontWeight = FontWeight.SemiBold,
+        fontSize = 16.sp,
+        color = GabayColors.TextPrimary
+    )
+
+    val TelemetryValue = TextStyle(
+        fontFamily = FontFamily.Monospace,
+        fontWeight = FontWeight.Bold,
         fontSize = 18.sp,
         color = GabayColors.TextPrimary
     )
 
-    val HudMicroLabel = TextStyle(
-        fontFamily = FontFamily.Default,
-        fontWeight = FontWeight.Bold,
+    val MonospaceLabel = TextStyle(
+        fontFamily = FontFamily.Monospace,
+        fontWeight = FontWeight.Normal,
         fontSize = 10.sp,
         letterSpacing = 1.2.sp,
-        color = GabayColors.TextSecondary
+        color = GabayColors.TextMuted
     )
+
+    val HudMicroLabel = MonospaceLabel
 
     val TelemetryUnit = TextStyle(
         fontFamily = FontFamily.Monospace,
         fontWeight = FontWeight.Normal,
-        fontSize = 12.sp,
+        fontSize = 11.sp,
         color = GabayColors.TextSecondary
+    )
+
+    val BadgeText = TextStyle(
+        fontFamily = FontFamily.Monospace,
+        fontWeight = FontWeight.Bold,
+        fontSize = 10.sp,
+        letterSpacing = 0.8.sp,
+        color = GabayColors.AccentAmber
+    )
+
+    val PillText = TextStyle(
+        fontFamily = FontFamily.Default,
+        fontWeight = FontWeight.Bold,
+        fontSize = 12.sp,
+        letterSpacing = 0.5.sp,
+        color = GabayColors.TextPrimary
+    )
+
+    val CoordinateDisplay = TextStyle(
+        fontFamily = FontFamily.Monospace,
+        fontWeight = FontWeight.SemiBold,
+        fontSize = 13.sp,
+        color = GabayColors.AccentCyan
     )
 }
 

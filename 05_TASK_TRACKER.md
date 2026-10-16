@@ -56,26 +56,26 @@ Commit rule: Every verified fix or completed task MUST be committed and pushed t
 - [x] Commit & push Phase 3 deliverables to remote
 
 ## Phase 4: Android App Shell, MapLibre Canvas, Topography & Philippines Elastic Border
-- [ ] Unified Tactical Dark Theme (`Theme.kt`) with exact color tokens and typography scale
-- [ ] MapLibre Native SDK integration with offline PMTiles protocol reader
-- [ ] Philippines border gating (`116.5, 4.5` to `127.0, 21.5`) with smooth elastic bounce-back constraint
-- [ ] Vector street rendering, 3D building extrusions, single-zoom macro satellite toggle `[SAT]`, and topography toggle `[TOPO]`
-- [ ] ADB deployment to physical device (`69ydd6nfaycagajz`)
-- [ ] Zero crash / `UnsatisfiedLinkError` logcat verification
-- [ ] Check A: `uiautomator` screen hierarchy bounds check
-- [ ] Check B: `screencap` visual screenshot inspection against 5-Point Production Visual Rubric (Multimodal review)
-- [ ] Sync verified screenshots to `docs/screenshots/`
-- [ ] Commit & push Phase 4 deliverables to remote
+- [x] Unified Tactical Dark Theme (`Theme.kt`) with exact color tokens and typography scale
+- [x] MapLibre Native SDK integration with offline PMTiles protocol reader
+- [x] Philippines border gating (`116.5, 4.5` to `127.0, 21.5`) with smooth elastic bounce-back constraint
+- [x] Vector street rendering, 3D building extrusions, single-zoom macro satellite toggle `[SAT]`, and topography toggle `[TOPO]`
+- [x] ADB deployment to physical device (`69ydd6nfaycagajz`)
+- [x] Zero crash / `UnsatisfiedLinkError` logcat verification
+- [x] Check A: `uiautomator` screen hierarchy bounds check
+- [x] Check B: `screencap` visual screenshot inspection against 5-Point Production Visual Rubric (Multimodal review)
+- [x] Sync verified screenshots to `docs/screenshots/`
+- [x] Commit & push Phase 4 deliverables to remote
 
 ## Phase 5: Cockpit HUD, Navigation Telemetry, & Mode Bar
-- [ ] Top Maneuver Banner: Sharp direction vectors from Global Icon Registry, distance in meters/km, road name, avoidance badges
-- [ ] Bottom Cockpit Dock: 3-column grid with live tabular speed (`tnum`), heading, remaining distance, rolling pace window
-- [ ] Glove-friendly interactive mode pills (`[SCOOTER]`, `[CAR]`, `[SAT]`, `[TOPO]`, `[3D]`, `[GABAY VOICE]`) with min 48dp touch targets
-- [ ] `PinSheet.kt`: Long-press coordinate inspector, clipboard copy, route creation
-- [ ] `NavigationService.kt`: Persistent 1Hz ForegroundService passing GPS to `rust_core` snapper
-- [ ] ADB deploy and automated XML bounds check + multimodal screenshot visual audit
-- [ ] Sync verified screenshots to `docs/screenshots/`
-- [ ] Commit & push Phase 5 deliverables to remote
+- [x] Top Maneuver Banner: Sharp direction vectors from Global Icon Registry, distance in meters/km, road name, avoidance badges
+- [x] Bottom Cockpit Dock: 3-column grid with live tabular speed (`tnum`), heading, remaining distance, rolling pace window
+- [x] Glove-friendly interactive mode pills (`[SCOOTER]`, `[CAR]`, `[SAT]`, `[TOPO]`, `[3D]`, `[GABAY VOICE]`) with min 48dp touch targets
+- [x] `PinSheet.kt`: Long-press coordinate inspector, clipboard copy, route creation
+- [x] `NavigationService.kt`: Persistent 1Hz ForegroundService passing GPS to `rust_core` snapper
+- [x] ADB deploy and automated XML bounds check + multimodal screenshot visual audit
+- [x] Sync verified screenshots to `docs/screenshots/`
+- [x] Commit & push Phase 5 deliverables to remote
 
 ## Phase 6: Voice Co-Pilot, TTS Audio Ducking, Full Simulated Drive & Documentation
 - [ ] `AudioController.kt`: Offline Android TTS with `AudioFocusRequest` audio ducking

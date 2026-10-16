@@ -47,8 +47,8 @@ if ($Phase -ge 4) {
     New-Item -ItemType Directory -Force -Path ".agent_qa", "docs/screenshots" | Out-Null
     
     adb shell uiautomator dump /sdcard/window_dump.xml
-    adb pull /sdcard/window_dump.xml .agent_qa/phase_${Phase}_layout.xml
-    adb exec-out screencap -p > .agent_qa/phase_${Phase}_screen.png
+    adb shell screencap -p /sdcard/phase_screen.png
+    adb pull /sdcard/phase_screen.png .agent_qa/phase_${Phase}_screen.png
     Copy-Item .agent_qa/phase_${Phase}_screen.png "docs/screenshots/phase_${Phase}_screen.png" -Force
 
     Write-Host "[OK] Verification artifacts saved to .agent_qa/ and docs/screenshots/"
