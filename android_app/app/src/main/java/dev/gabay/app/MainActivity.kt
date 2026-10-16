@@ -10,6 +10,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import dev.gabay.app.audio.AudioController
 import dev.gabay.app.map.MapCanvas
@@ -78,6 +79,8 @@ fun CockpitScreen(
     audioController: AudioController,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
+
     // Rider & Vehicle States
     var selectedMode by remember { mutableStateOf(VehicleMode.SCOOTER) }
     var isSatelliteActive by remember { mutableStateOf(false) }
@@ -185,6 +188,7 @@ fun CockpitScreen(
                     if (route != null && route.success) {
                         activeRoute = route
                         engine?.setActiveRoute(route)
+                        NavigationService.start(context)
                         audioController.speakTerseCue("ROUTE CALCULATED. PROCEED TO ${route.maneuvers.firstOrNull()?.roadName ?: "ROUTE"}")
                     }
                     pinInfo = null
@@ -232,9 +236,27 @@ fun CockpitScreen(
                 onToggleTopo = { isTopoActive = !isTopoActive },
                 onToggle3d = { is3dActive = !is3dActive },
                 onRecenterGps = {
-                    // Reset to user GPS location
-                    userLat = 14.5547
-                    userLon = 121.0244
+                    if (activeRoute == null) {
+                        val start = LatLng(14.5547, 121.0244)
+                        val dest = LatLng(14.5869, 121.0614)
+                        val opts = RouteOptions(
+                            mode = selectedMode,
+                            avoidTolls = (selectedMode == VehicleMode.SCOOTER),
+                            avoidExpressways = (selectedMode == VehicleMode.SCOOTER),
+                            avoidFerries = false
+                        )
+                        val route = engine?.calculateRoute(start, dest, opts)
+                        if (route != null && route.success) {
+                            activeRoute = route
+                            destinationPin = dest
+                            engine?.setActiveRoute(route)
+                            NavigationService.start(context)
+                            audioController.speakTerseCue("NAVIGATION DEMO ACTIVE. IN 350 METERS PROCEED TO AYALA AVENUE")
+                        }
+                    } else {
+                        userLat = 14.5547
+                        userLon = 121.0244
+                    }
                 },
                 onVoiceCoPilot = {
                     val response = engine?.askCopilot("Where is nearest fuel station?")

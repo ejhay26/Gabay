@@ -101,9 +101,9 @@ Gabay is not locked to one geography in source code; it dynamically adapts to an
 ---
 
 ## 7. App Screens & UI Visuals
-
-| 3D Cockpit Navigation | Topography Elevation View | Low-Storage Satellite Peek |
+ 
+| Live Route Telemetry | Pin Inspector & Search | Glove Mode & Co-Pilot |
 | :---: | :---: | :---: |
-| ![Cockpit View](screenshots/cockpit_3d.png) | ![Topography View](screenshots/topography_mode.png) | ![Satellite Peek](screenshots/satellite_peek.png) |
+| ![Live Route Telemetry](screenshots/phase_6_simulated_drive.png) | ![Pin Inspector](screenshots/phase_4_pin_sheet.png) | ![Glove Mode & Voice Co-Pilot](screenshots/phase_5_glove_bar.png) |
 
-*(Screenshots captured directly from the live device during Phase QA audits)*
+*(Screenshots captured directly from the live physical device during Phase QA audits)*

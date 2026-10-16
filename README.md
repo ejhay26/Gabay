@@ -21,13 +21,13 @@ Gabay is an offline-first navigation engine engineered for the unique topography
 
 ---
 
-## Screenshots
+## Live Verified Screenshots
 
-| 3D Vector Cockpit | Topography & Contours | Macro Satellite Peek |
+| Live Route Telemetry | Pin Inspector & Search | Glove Mode & Co-Pilot |
 | :---: | :---: | :---: |
-| ![Cockpit View](docs/screenshots/cockpit_3d.png) | ![Topography View](docs/screenshots/topography_mode.png) | ![Satellite Peek](docs/screenshots/satellite_peek.png) |
+| ![Live Route Telemetry](docs/screenshots/phase_6_simulated_drive.png) | ![Pin Inspector](docs/screenshots/phase_4_pin_sheet.png) | ![Glove Mode & Voice Co-Pilot](docs/screenshots/phase_5_glove_bar.png) |
 
-*(Screenshots are updated and verified during automated Phase QA)*
+*(Screenshots captured from live physical hardware test runs and audited via multimodal inspection)*
 
 ---
 

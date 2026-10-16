@@ -78,9 +78,9 @@ Commit rule: Every verified fix or completed task MUST be committed and pushed t
 - [x] Commit & push Phase 5 deliverables to remote
 
 ## Phase 6: Voice Co-Pilot, TTS Audio Ducking, Full Simulated Drive & Documentation
-- [ ] `AudioController.kt`: Offline Android TTS with `AudioFocusRequest` audio ducking
-- [ ] Voice co-pilot integration: Rally-cockpit terse verbal cues (`"IN 200M RIGHT UNGKA FLYOVER"`, `"OFF-ROUTE +40M REROUTING"`)
-- [ ] Offline GPS track simulator for testing real Philippine route traversal
-- [ ] Verification script (`scripts/verify_phase.sh`) passing all gates
-- [ ] Comprehensive documentation finalization: `README.md`, `docs/ARCHITECTURE.md`, `docs/TECH_STACK.md`, `docs/USER_GUIDE.md` with verified live screenshots
-- [ ] Commit & push Phase 6 deliverables to remote
+- [x] `AudioController.kt`: Offline Android TTS with `AudioFocusRequest` audio ducking
+- [x] Voice co-pilot integration: Rally-cockpit terse verbal cues (`"IN 200M RIGHT UNGKA FLYOVER"`, `"OFF-ROUTE +40M REROUTING"`)
+- [x] Offline GPS track simulator for testing real Philippine route traversal
+- [x] Verification script (`scripts/verify_phase.ps1`) passing all gates
+- [x] Comprehensive documentation finalization: `README.md`, `docs/ARCHITECTURE.md`, `docs/TECH_STACK.md`, `docs/USER_GUIDE.md` with verified live screenshots
+- [x] Commit & push Phase 6 deliverables to remote
