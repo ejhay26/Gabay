@@ -73,8 +73,37 @@ The camera navigation area is locked strictly to the Philippines.
 
 ---
 
-## 5. Local AI Co-Pilot
+## 5. Local AI Co-Pilot & Voice Chat
 
-- **Hands-Free Trigger**: Tap `[GABAY VOICE]` in the bottom dock or let the automatic gatekeeper monitor your drive.
-- **Terse Rally Cockpit Output**: The co-pilot responds in concise, rally-style instructions without conversational fluff (e.g. `"IN 200M RIGHT UNGKA FLYOVER"`, `"OFF-ROUTE +40M REROUTING"`).
-- **Zero CPU Throttling**: The co-pilot is built on an event-driven two-tier architecture that sleeps during normal travel, preventing your device from heating up or wasting battery.
+- **Voice Query (`RECORD_AUDIO`):** Tap `[GABAY VOICE]` in the bottom dock or speak a voice trigger to ask tactical route questions (e.g. *"Nearest gas station"*, *"Reroute to avoid tollways"*).
+- **Audio Intercom Ducking:** Navigation announcements automatically duck background media/intercom volume to 20%, ensuring safety prompts are never missed over engine noise.
+- **Terse Rally Cockpit Output:** The co-pilot responds in concise, rally-style instructions without conversational fluff (e.g. `"IN 200M RIGHT UNGKA FLYOVER"`, `"OFF-ROUTE +40M REROUTING"`).
+- **Zero CPU Throttling:** Built on an event-driven two-tier architecture that sleeps during normal travel, preventing your device from heating up or wasting battery.
+
+---
+
+## 6. Using Gabay in Other Countries (Multi-Country Maps)
+
+Gabay is not locked to one geography in source code; it dynamically adapts to any region installed in your device vault:
+
+1. Obtain a vector PMTiles map of your country or province (e.g., from Protomaps or converted via `tilemaker`).
+2. Build or obtain the corresponding `.gabay` routing graph and `pois_fts.sqlite` database using `tools/map_builder`.
+3. Drop the files into `/sdcard/Documents/Gabay/`:
+   ```text
+   /sdcard/Documents/Gabay/
+   ├── <region>_vector.pmtiles
+   ├── <region>.gabay
+   ├── pois_fts.sqlite
+   └── model.gguf
+   ```
+4. On launch, Gabay inspects the vector PMTiles bounding box header, automatically configures the map canvas, binds the elastic bounce-back borders to your new country's boundaries, and routes using the local graph!
+
+---
+
+## 7. App Screens & UI Visuals
+
+| 3D Cockpit Navigation | Topography Elevation View | Low-Storage Satellite Peek |
+| :---: | :---: | :---: |
+| ![Cockpit View](screenshots/cockpit_3d.png) | ![Topography View](screenshots/topography_mode.png) | ![Satellite Peek](screenshots/satellite_peek.png) |
+
+*(Screenshots captured directly from the live device during Phase QA audits)*

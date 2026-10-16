@@ -67,15 +67,44 @@ All heavy spatial datasets reside on the device at `/sdcard/Documents/Gabay/`:
 
 ---
 
-## 4. Geographic Border Bounding & Elasticity
+## 4. Geographic Border Bounding & Multi-Country Extensibility
 
-The camera viewport is bounded strictly to the Philippine national territory:
-- **Bounding Box**: `[116.5, 4.5]` to `[127.0, 21.5]`.
-- **Elastic Bounce-Back**: Camera gesture listeners monitor screen pan events. If the camera center or focal point extends past national borders, a spring animation interpolates the viewport back within national borders, physically prohibiting navigation outside the Philippines.
+- **Default Flagship Territory (Philippines):** Bounded strictly to `[116.5, 4.5]` to `[127.0, 21.5]`.
+- **Elastic Spring Bounce-Back:** Camera gesture listeners monitor screen pan events. If the camera center or focal point extends past national borders, a spring animation interpolates the viewport back within national borders, physically prohibiting navigation outside the country.
+- **Universal Multi-Country Adoption:** The spatial engine dynamically reads the metadata header of the vector PMTiles file placed in `/sdcard/Documents/Gabay/`. PMTiles natively embed their geographic bounding box (`bounds: [min_lon, min_lat, max_lon, max_lat]`). If a user drops in map tiles and road graphs for Japan, Indonesia, or any other nation, Gabay automatically adapts its camera elastic boundaries to that country's exact borders without requiring code modifications.
 
 ---
 
-## 5. Binary Size & Minification Architecture
+## 5. Offline Routing & Distance Engine (`router.rs` & `tracker.rs`)
+
+1. **Multi-Modal Road Graph (A* / Dijkstra):**
+   - Evaluates weighted edge costs using geodesic distance (haversine formula in meters), road speed classifications, turn penalties, and one-way constraints.
+   - Mode-specific bitmasks:
+     - `[SCOOTER]`: Rejects expressways (SLEX, NLEX, Skyway) and tolls; prioritizes secondary roads and bypasses.
+     - `[CAR]`: Evaluates highways, tollways, and arterial streets.
+     - `[BIKE]` / `[WALK]`: Allows pedestrian paths and residential alleys.
+2. **1Hz Road Snapping & Telemetry Tracker:**
+   - Employs an R-Tree spatial index (`rstar`) to snap incoming GPS fixes to the nearest road segment within 25m.
+   - Detects off-route deviations (> 35m from the polyline) and automatically requests an asynchronous reroute.
+   - Computes real-time remaining distance in kilometers and calculates an adaptive rolling pace window (`~XX-YY MIN`) using Exponential Moving Averages (EMA).
+
+---
+
+## 6. Permissions & Voice Chat Pipeline
+
+1. **Android System Permissions:**
+   - `ACCESS_FINE_LOCATION` & `ACCESS_BACKGROUND_LOCATION`: 1Hz continuous GPS updates.
+   - `RECORD_AUDIO`: Voice chat interaction with the co-pilot co-pilot.
+   - `FOREGROUND_SERVICE` & `FOREGROUND_SERVICE_LOCATION`: Unkillable background navigation service.
+   - `MANAGE_EXTERNAL_STORAGE`: Direct read access to the `/sdcard/Documents/Gabay/` device vault.
+   - `WAKE_LOCK`: Keeps CPU active for turn prompts when the screen is dimmed.
+2. **Two-Way Voice Chat:**
+   - **Voice Input:** Rider taps `[GABAY VOICE]` or speaks to trigger audio capture. Audio is processed offline to identify route-related queries.
+   - **Tactical Audio Output:** Offline TTS synthesized through an Android `AudioFocusRequest` with `AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK` so music/intercom volume automatically ducks during navigation announcements.
+
+---
+
+## 7. Binary Size & Minification Architecture
 
 To guarantee fast installation and an ultra-lean footprint (< 20 MB APK):
 1. **R8 Code & Resource Shrinking**:
