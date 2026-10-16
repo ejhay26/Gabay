@@ -1,0 +1,17 @@
+[workspace]
+members = [
+    "tools/map_builder",
+    "rust_core",
+]
+resolver = "2"
+
+[profile.release]
+opt-level = "z"         # Optimize for binary size
+lto = true              # Thin/Full Link Time Optimization across crates
+codegen-units = 1       # Maximum dead-code elimination
+panic = "abort"         # Removes stack unwinding landing pads (-25% binary size)
+strip = "symbols"       # Strips symbol tables & debug metadata
+
+[profile.dev]
+opt-level = 1
+debug = 1
