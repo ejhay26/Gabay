@@ -17,9 +17,12 @@ object PmTilesServer {
     private var topoReader: PmTilesReader? = null
     private var satReader: PmTilesReader? = null
 
+    private var appContext: android.content.Context? = null
+
     @Synchronized
-    fun start(vaultDir: File) {
+    fun start(context: android.content.Context, vaultDir: File) {
         if (isRunning) return
+        appContext = context.applicationContext
 
         try {
             val vecFile = File(vaultDir, "philippines_vector.pmtiles")
@@ -71,8 +74,29 @@ object PmTilesServer {
                     val path = parts[1].split("?")[0]
                     val segments = path.trim('/').split('/')
 
+                    // Font Glyph Request: /fonts/{fontstack}/{range}.pbf
+                    if (segments.size >= 3 && segments[0] == "fonts") {
+                        val fontStack = java.net.URLDecoder.decode(segments[1], "UTF-8")
+                        val rangeWithExt = segments[2]
+                        val glyphBytes = loadFontGlyphs(fontStack, rangeWithExt)
+                        if (glyphBytes != null && glyphBytes.isNotEmpty()) {
+                            val out = BufferedOutputStream(s.getOutputStream())
+                            val headerBuilder = StringBuilder()
+                            headerBuilder.append("HTTP/1.1 200 OK\r\n")
+                            headerBuilder.append("Content-Type: application/x-protobuf\r\n")
+                            headerBuilder.append("Content-Length: ${glyphBytes.size}\r\n")
+                            headerBuilder.append("Access-Control-Allow-Origin: *\r\n")
+                            headerBuilder.append("Cache-Control: max-age=604800\r\n\r\n")
+                            out.write(headerBuilder.toString().toByteArray())
+                            out.write(glyphBytes)
+                            out.flush()
+                            return@use
+                        }
+                    }
+
+                    // Map Tile Request: /{layer}/{z}/{x}/{y}.{ext}
                     if (segments.size == 4) {
-                        val layer = segments[0]
+                        val layer = segments[0].lowercase()
                         val z = segments[1].toIntOrNull()
                         val x = segments[2].toIntOrNull()
                         val yWithExt = segments[3].split(".")[0]
@@ -81,8 +105,8 @@ object PmTilesServer {
                         if (z != null && x != null && y != null) {
                             val (tileBytes, contentType, isGzip) = when (layer) {
                                 "vector" -> Triple(vectorReader?.getTile(z, x, y), "application/x-protobuf", true)
-                                "topo" -> Triple(topoReader?.getTile(z, x, y), "image/webp", false)
-                                "satellite" -> Triple(satReader?.getTile(z, x, y), "image/jpeg", false)
+                                "topo", "topography" -> Triple(topoReader?.getTile(z, x, y), "image/webp", false)
+                                "satellite", "sat" -> Triple(satReader?.getTile(z, x, y), "image/jpeg", false)
                                 else -> Triple(null, "application/octet-stream", false)
                             }
 
@@ -115,6 +139,27 @@ object PmTilesServer {
                 // Ignore transient socket close
             }
         }
+    }
+
+    private fun loadFontGlyphs(fontStack: String, rangeWithExt: String): ByteArray? {
+        val ctx = appContext ?: return null
+        val candidates = listOf(
+            "fonts/$fontStack/$rangeWithExt",
+            "fonts/Noto Sans Medium/$rangeWithExt",
+            "fonts/Noto Sans Regular/$rangeWithExt",
+            "fonts/Noto Sans Medium/0-255.pbf",
+            "fonts/Noto Sans Regular/0-255.pbf"
+        )
+        for (candidate in candidates) {
+            try {
+                ctx.assets.open(candidate).use { input ->
+                    return input.readBytes()
+                }
+            } catch (e: Exception) {
+                // Try next candidate
+            }
+        }
+        return null
     }
 
     @Synchronized

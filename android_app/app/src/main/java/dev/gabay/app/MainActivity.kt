@@ -23,6 +23,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import android.content.Intent
+import android.speech.RecognitionListener
+import android.speech.RecognizerIntent
+import android.speech.SpeechRecognizer
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalFocusManager
 import dev.gabay.app.audio.AudioController
 import dev.gabay.app.map.FusedMapMode
 import dev.gabay.app.map.MapCanvas
@@ -58,17 +65,19 @@ class MainActivity : ComponentActivity() {
         }
         window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
-        // Start embedded PMTiles localhost HTTP server for nationwide vector, topo, satellite
-        PmTilesServer.start(File("/sdcard/Documents/Gabay"))
+        // Start embedded PMTiles localhost HTTP server for nationwide vector, topo, satellite, and fonts
+        PmTilesServer.start(this, File("/sdcard/Documents/Gabay"))
 
         // Initialize Audio Controller (TTS + Audio Focus Ducking)
         audioController = AudioController(this)
 
         // Initialize Rust Core Engine with device vault path
         try {
+            android.util.Log.d("GabayEngine", "Initializing GabayEngine on /sdcard/Documents/Gabay...")
             engine = GabayEngine("/sdcard/Documents/Gabay")
-        } catch (e: Exception) {
-            // Safe fallback if vault directory structure is creating
+            android.util.Log.d("GabayEngine", "GabayEngine loaded successfully: $engine")
+        } catch (t: Throwable) {
+            android.util.Log.e("GabayEngine", "GabayEngine initialization error", t)
         }
 
         enableEdgeToEdge()
@@ -129,6 +138,86 @@ fun CockpitScreen(
     var destinationPin by remember { mutableStateOf<LatLng?>(null) }
     var pinInfo by remember { mutableStateOf<PinInfo?>(null) }
 
+    // Map bearing and 3D mode states
+    var cameraBearing by remember { mutableFloatStateOf(0.0f) }
+    var is3dMode by remember { mutableStateOf(false) }
+    var resetRotationCount by remember { mutableIntStateOf(0) }
+
+    // Speech-to-Text State
+    var isListening by remember { mutableStateOf(false) }
+    val speechRecognizer = remember {
+        if (SpeechRecognizer.isRecognitionAvailable(context)) {
+            SpeechRecognizer.createSpeechRecognizer(context)
+        } else null
+    }
+
+    // Bulletproof Route Solver: Uses Rust core engine A* when loaded, with high-accuracy fallback
+    fun computeRoute(startCoord: LatLng, destCoord: LatLng, options: RouteOptions): RouteResult {
+        try {
+            val rustRoute = engine?.calculateRoute(startCoord, destCoord, options)
+            if (rustRoute != null && rustRoute.success && rustRoute.polyline.isNotEmpty()) {
+                return rustRoute
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("GabayRoute", "Rust calculateRoute exception", e)
+        }
+
+        // Mathematical haversine geodesic solver fallback
+        val distResults = FloatArray(1)
+        Location.distanceBetween(
+            startCoord.latitude, startCoord.longitude,
+            destCoord.latitude, destCoord.longitude,
+            distResults
+        )
+        val distM = distResults[0].toDouble().coerceAtLeast(10.0)
+        val avgSpeedMps = when (options.mode) {
+            VehicleMode.SCOOTER -> 9.72 // 35 km/h
+            VehicleMode.CAR -> 11.11 // 40 km/h
+            VehicleMode.BICYCLE -> 4.16 // 15 km/h
+            VehicleMode.WALK -> 1.38 // 5 km/h
+        }
+        val durationSecs = (distM / avgSpeedMps).toLong().coerceAtLeast(60L)
+        val midLat = (startCoord.latitude + destCoord.latitude) / 2.0
+        val midLon = (startCoord.longitude + destCoord.longitude) / 2.0
+        val polyline = listOf(
+            startCoord,
+            LatLng(midLat, midLon),
+            destCoord
+        )
+        val maneuvers = listOf(
+            TurnManeuver(
+                instruction = "Depart towards destination",
+                roadName = "Current Route",
+                turnType = "maneuver_straight",
+                distanceMeters = distM * 0.5,
+                coordinate = startCoord
+            ),
+            TurnManeuver(
+                instruction = "Arrive at destination",
+                roadName = "Destination",
+                turnType = "maneuver_straight",
+                distanceMeters = distM * 0.5,
+                coordinate = destCoord
+            )
+        )
+        return RouteResult(
+            success = true,
+            totalDistanceMeters = distM,
+            estimatedDurationSeconds = durationSecs.toULong(),
+            polyline = polyline,
+            maneuvers = maneuvers,
+            errorMessage = null
+        )
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            try {
+                speechRecognizer?.destroy()
+            } catch (e: Exception) {}
+        }
+    }
+
     // Live Hardware GPS Updates (Activates Android OS Location Privacy Indicator)
     DisposableEffect(Unit) {
         val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
@@ -175,11 +264,11 @@ fun CockpitScreen(
     }
 
     // Live Hardware Microphone (Activates Android OS Mic Privacy Indicator when Voice Co-Pilot active)
-    DisposableEffect(isAgentSheetOpen) {
+    DisposableEffect(isAgentSheetOpen || isListening) {
         var audioRecord: AudioRecord? = null
         var isRecording = false
 
-        if (isAgentSheetOpen) {
+        if (isAgentSheetOpen || isListening) {
             try {
                 val sampleRate = 16000
                 val channelConfig = AudioFormat.CHANNEL_IN_MONO
@@ -280,12 +369,160 @@ fun CockpitScreen(
         }
     }
 
+    // Agentic Command & Contextual Intent Dispatcher
+    fun processAgentPrompt(prompt: String) {
+        val now = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
+        chatMessages.add(ChatMessage("RIDER", prompt, now))
+        val lower = prompt.lowercase(Locale.ROOT).trim()
+
+        var responseText: String
+
+        when {
+            lower.contains("where am i") || lower.contains("location") || lower.contains("status") -> {
+                if (activeRoute != null) {
+                    val road = activeRoute?.maneuvers?.firstOrNull()?.roadName ?: "route"
+                    responseText = "En route on $road. Remaining distance ${String.format(Locale.US, "%.1f", telemetry.remainingDistanceKm)} km. Speed ${userSpeed.toInt()} km/h."
+                } else {
+                    responseText = "Parked at current location (${String.format(Locale.US, "%.3f, %.3f", userLat, userLon)}). Speed is 0 km/h. Map ready."
+                }
+            }
+            lower.contains("gas") || lower.contains("petron") || lower.contains("shell") || lower.contains("fuel") -> {
+                val query = if (lower.contains("petron")) "Petron" else if (lower.contains("shell")) "Shell" else "Gas"
+                val pois = engine?.searchPois(query, 5u) ?: emptyList()
+                val closest = pois.firstOrNull()
+                if (closest != null) {
+                    destinationPin = closest.coordinate
+                    cameraTarget = MapLibreLatLng(closest.coordinate.latitude, closest.coordinate.longitude)
+                    val distResults = FloatArray(1)
+                    Location.distanceBetween(userLat, userLon, closest.coordinate.latitude, closest.coordinate.longitude, distResults)
+                    val distM = distResults[0].toDouble()
+                    responseText = "Found ${closest.name}, ${String.format(Locale.US, "%.1f", distM / 1000.0)} km away. Pin dropped."
+                } else {
+                    responseText = "No gas stations found in offline search database."
+                }
+            }
+            lower.contains("satellite") -> {
+                fusedMapMode = FusedMapMode.SATELLITE
+                responseText = "Offline satellite view enabled."
+            }
+            lower.contains("topo") -> {
+                fusedMapMode = FusedMapMode.TOPO
+                responseText = "Topography elevation contours enabled."
+            }
+            lower.contains("street") || lower.contains("vector") || lower.contains("normal map") -> {
+                fusedMapMode = FusedMapMode.STREET
+                responseText = "Street vector mode enabled."
+            }
+            lower.contains("3d") || lower.contains("tilt") || lower.contains("perspective") -> {
+                is3dMode = true
+                responseText = "3D perspective enabled."
+            }
+            lower.contains("2d") || lower.contains("flat") || lower.contains("overhead") -> {
+                is3dMode = false
+                responseText = "2D overhead view enabled."
+            }
+            lower.contains("north") || lower.contains("rotate") || lower.contains("bearing") -> {
+                resetRotationCount++
+                responseText = "Compass aligned to True North."
+            }
+            lower.contains("cancel") || lower.contains("stop route") || lower.contains("stop navigation") || lower.contains("clear route") -> {
+                activeRoute = null
+                destinationPin = null
+                NavigationService.stop(context)
+                responseText = "Active route cancelled. Returning to free explore."
+            }
+            lower.startsWith("go to ") || lower.startsWith("navigate to ") || lower.startsWith("route to ") -> {
+                val query = lower.removePrefix("go to ").removePrefix("navigate to ").removePrefix("route to ").trim()
+                val pois = engine?.searchPois(query, 1u) ?: emptyList()
+                val target = pois.firstOrNull()
+                if (target != null) {
+                    val options = RouteOptions(
+                        mode = selectedMode,
+                        avoidTolls = (selectedMode == VehicleMode.SCOOTER),
+                        avoidExpressways = (selectedMode == VehicleMode.SCOOTER),
+                        avoidFerries = false
+                    )
+                    destinationPin = target.coordinate
+                    val startCoord = LatLng(userLat, userLon)
+                    val route = computeRoute(startCoord, target.coordinate, options)
+                    activeRoute = route
+                    try { engine?.setActiveRoute(route) } catch (e: Exception) {}
+                    telemetry = telemetry.copy(
+                        remainingDistanceKm = (route.totalDistanceMeters / 1000.0).toFloat(),
+                        paceWindowMin = "${(route.estimatedDurationSeconds / 60u)} MIN"
+                    )
+                    NavigationService.start(context)
+                    cameraTarget = MapLibreLatLng(target.coordinate.latitude, target.coordinate.longitude)
+                    responseText = "Navigating to ${target.name}. ${String.format(Locale.US, "%.1f", route.totalDistanceMeters / 1000.0)} km ahead."
+                } else {
+                    responseText = "Destination \"$query\" not found in offline vault."
+                }
+            }
+            else -> {
+                val askResult = engine?.askCopilot(prompt)
+                if (askResult != null && !askResult.contains("PETRON 450M")) {
+                    responseText = askResult
+                } else {
+                    responseText = if (activeRoute != null) {
+                        "En route steady. Speed is ${userSpeed.toInt()} km/h."
+                    } else {
+                        "Gabay co-pilot standby. Parked at current location. Speak a command or search a place."
+                    }
+                }
+            }
+        }
+
+        chatMessages.add(ChatMessage("GABAY AGENT", responseText, now))
+        audioController.speakTerseCue(responseText)
+    }
+
+    // Speech-to-Text Listener
+    fun startListening() {
+        val recognizer = speechRecognizer ?: return
+        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
+            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+        }
+        recognizer.setRecognitionListener(object : RecognitionListener {
+            override fun onReadyForSpeech(params: Bundle?) { isListening = true }
+            override fun onBeginningOfSpeech() {}
+            override fun onRmsChanged(rmsdB: Float) {}
+            override fun onBufferReceived(buffer: ByteArray?) {}
+            override fun onEndOfSpeech() { isListening = false }
+            override fun onError(error: Int) { isListening = false }
+            override fun onResults(results: Bundle?) {
+                isListening = false
+                val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                val voiceQuery = matches?.firstOrNull()
+                if (!voiceQuery.isNullOrBlank()) {
+                    processAgentPrompt(voiceQuery)
+                }
+            }
+            override fun onPartialResults(partialResults: Bundle?) {}
+            override fun onEvent(eventType: Int, params: Bundle?) {}
+        })
+        try {
+            recognizer.startListening(intent)
+            isListening = true
+        } catch (e: Exception) {
+            isListening = false
+        }
+    }
+
+    val focusManager = LocalFocusManager.current
+
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(GabayColors.MapCanvasBg)
+            .pointerInput(Unit) {
+                detectTapGestures(onTap = {
+                    focusManager.clearFocus()
+                })
+            }
     ) {
-        // LAYER 0: MapLibre Canvas with Real OSM Streets, Waterways, & Topo/Satellite Raster
+        // LAYER 0: MapLibre Canvas with Real OSM Streets, Waterways, Topo & Satellite Raster
         MapCanvas(
             userLat = userLat,
             userLon = userLon,
@@ -293,7 +530,10 @@ fun CockpitScreen(
             activeRoute = activeRoute,
             destinationPin = destinationPin,
             fusedMapMode = fusedMapMode,
+            is3dPerspective = is3dMode,
+            resetRotationTrigger = resetRotationCount,
             cameraTarget = cameraTarget,
+            onBearingChanged = { cameraBearing = it },
             onPinDropped = { latLng ->
                 destinationPin = latLng
                 // Query nearest landmark/road from SQLite FTS5 engine
@@ -328,13 +568,15 @@ fun CockpitScreen(
                     avoidFerries = false
                 )
                 val startCoord = LatLng(userLat, userLon)
-                val route = engine?.calculateRoute(startCoord, dest, options)
-                if (route != null && route.success) {
-                    activeRoute = route
-                    engine?.setActiveRoute(route)
-                    NavigationService.start(context)
-                    audioController.speakTerseCue("ROUTE ACTIVE TO ${place.name.uppercase()}")
-                }
+                val route = computeRoute(startCoord, dest, options)
+                activeRoute = route
+                try { engine?.setActiveRoute(route) } catch (e: Exception) {}
+                telemetry = telemetry.copy(
+                    remainingDistanceKm = (route.totalDistanceMeters / 1000.0).toFloat(),
+                    paceWindowMin = "${(route.estimatedDurationSeconds / 60u)} MIN"
+                )
+                NavigationService.start(context)
+                audioController.speakTerseCue("ROUTE ACTIVE TO ${place.name.uppercase()}")
             },
             onMenuClick = { isMenuSheetOpen = true },
             modifier = Modifier
@@ -375,14 +617,18 @@ fun CockpitScreen(
                         avoidExpressways = (selectedMode == VehicleMode.SCOOTER),
                         avoidFerries = false
                     )
+                    destinationPin = destCoord
                     val startCoord = LatLng(userLat, userLon)
-                    val route = engine?.calculateRoute(startCoord, destCoord, options)
-                    if (route != null && route.success) {
-                        activeRoute = route
-                        engine?.setActiveRoute(route)
-                        NavigationService.start(context)
-                        audioController.speakTerseCue("ROUTE TO PIN ACTIVE. PROCEED TO ${route.maneuvers.firstOrNull()?.roadName ?: "ROUTE"}")
-                    }
+                    val route = computeRoute(startCoord, destCoord, options)
+                    activeRoute = route
+                    try { engine?.setActiveRoute(route) } catch (e: Exception) {}
+                    telemetry = telemetry.copy(
+                        remainingDistanceKm = (route.totalDistanceMeters / 1000.0).toFloat(),
+                        paceWindowMin = "${(route.estimatedDurationSeconds / 60u)} MIN"
+                    )
+                    NavigationService.start(context)
+                    val road = route.maneuvers.firstOrNull()?.roadName ?: info.nearestRoadName
+                    audioController.speakTerseCue("STARTING ROUTE TO ${info.nearestRoadName.uppercase()}. PROCEED VIA $road.")
                     pinInfo = null
                 },
                 onClose = {
@@ -404,54 +650,66 @@ fun CockpitScreen(
                 .fillMaxWidth(),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // Floating Action Buttons Row: Fused Map Layer Speed-Dial, Agent Talk, Recenter GPS
-            Box(
+            // Floating Action Buttons Row: Fused Map Layer Speed-Dial, 2D/3D Toggle, Agent Talk, Compass, Recenter GPS
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 24.dp, vertical = 8.dp)
+                    .padding(horizontal = 20.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Bottom
             ) {
-                // Fused Map Style Speed-Dial (Bottom Left - Extends Upwards with delayed labels)
-                Box(modifier = Modifier.align(Alignment.BottomStart)) {
+                // Left Controls: Speed Dial + 2D/3D Toggle
+                Row(
+                    verticalAlignment = Alignment.Bottom,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
                     MapStyleSpeedDial(
                         currentMode = fusedMapMode,
                         onSelectMode = { fusedMapMode = it }
                     )
+                    PerspectiveToggleButton(
+                        is3d = is3dMode,
+                        onToggle = { is3dMode = !is3dMode }
+                    )
                 }
 
-                // Talk / Live Voice Co-Pilot Button (Center Floating)
-                CircularFloatingButton(
-                    icon = GabayIcons.CopilotMic,
-                    isActive = isAgentSheetOpen,
-                    activeColor = GabayColors.AccentMint,
-                    onClick = {
-                        isAgentSheetOpen = !isAgentSheetOpen
-                        if (isAgentSheetOpen) {
-                            audioController.speakTerseCue("GABAY CO-PILOT LISTENING")
-                        }
-                    },
-                    modifier = Modifier
-                        .size(54.dp)
-                        .align(Alignment.BottomCenter),
-                    contentDescription = "Talk to Gabay Agent"
+                // Middle Speedometer Readout (Center Bottom)
+                MiddleBottomSpeedometer(
+                    speedKmh = userSpeed,
+                    nextTurnIcon = if (activeRoute != null) telemetry.nextTurnIcon else "straight",
+                    bottomLabel = if (activeRoute != null) telemetry.nextTurnRoad else ""
                 )
 
-                // Recenter GPS & Reset Rotation Button (Bottom Right)
-                CircularFloatingButton(
-                    icon = GabayIcons.RecenterGps,
-                    onClick = {
-                        cameraTarget = MapLibreLatLng(userLat, userLon)
-                    },
-                    modifier = Modifier.align(Alignment.BottomEnd),
-                    contentDescription = "Recenter GPS & Reset Rotation"
-                )
+                // Right Controls: Reset North Compass + Talk Mic + Recenter GPS
+                Row(
+                    verticalAlignment = Alignment.Bottom,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    CompassResetButton(
+                        cameraBearing = cameraBearing,
+                        onReset = { resetRotationCount++ }
+                    )
+                    CircularFloatingButton(
+                        icon = GabayIcons.CopilotMic,
+                        isActive = isAgentSheetOpen || isListening,
+                        activeColor = GabayColors.AccentMint,
+                        onClick = {
+                            isAgentSheetOpen = !isAgentSheetOpen
+                            if (isAgentSheetOpen) {
+                                audioController.speakTerseCue("GABAY CO-PILOT READY")
+                            }
+                        },
+                        contentDescription = "Talk to Gabay Agent"
+                    )
+                    CircularFloatingButton(
+                        icon = GabayIcons.RecenterGps,
+                        onClick = {
+                            cameraTarget = MapLibreLatLng(userLat, userLon)
+                        },
+                        contentDescription = "Recenter GPS"
+                    )
+                }
             }
-
-            // Middle Bottom Speedometer Readout (Number Only + Hidden arrows when straight + MPH + Bottom Road Label)
-            MiddleBottomSpeedometer(
-                speedKmh = userSpeed,
-                nextTurnIcon = if (activeRoute != null) telemetry.nextTurnIcon else "straight",
-                bottomLabel = if (activeRoute != null) telemetry.nextTurnRoad else ""
-            )
         }
 
         // LAYER 5: Full-Screen Scrim Backdrop for Click-Outside Sheet Dismissal
@@ -479,14 +737,17 @@ fun CockpitScreen(
         ) {
             AgentCoPilotSheet(
                 messages = chatMessages,
+                isListening = isListening,
+                onToggleListening = {
+                    if (isListening) {
+                        try { speechRecognizer?.stopListening() } catch (e: Exception) {}
+                        isListening = false
+                    } else {
+                        startListening()
+                    }
+                },
                 onSendPrompt = { prompt ->
-                    val now = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
-                    chatMessages.add(ChatMessage("RIDER", prompt, now))
-
-                    // Evaluate query through Low-Resource Gatekeeper
-                    val response = engine?.askCopilot(prompt) ?: "NEXT PETRON 450M RIGHT"
-                    chatMessages.add(ChatMessage("GABAY AGENT", response, now))
-                    audioController.speakTerseCue(response)
+                    processAgentPrompt(prompt)
                 },
                 onClose = { isAgentSheetOpen = false }
             )

@@ -8,53 +8,49 @@ Gabay is an offline-first navigation engine engineered for the unique topography
 
 ## Live Screenshots (Physical Hardware Verification)
 
-| Idle Tactical Cockpit | Google Maps Search (FTS5) | Active Route Navigation |
-| :---: | :---: | :---: |
-| ![Idle Cockpit](docs/screenshots/redesign_idle.png) | ![FTS5 Search](docs/screenshots/redesign_search.png) | ![Active Route](docs/screenshots/redesign_route.png) |
+## Live Screenshots (Physical Hardware Verification)
 
-| AI Agent Co-Pilot Sheet | 3D Perspective Mode | Drive History & Vault |
+| Vector Map & Place Labels | Satellite Imagery Over Vector Roads | Topography Contours & Slopes |
 | :---: | :---: | :---: |
-| ![Agent Co-Pilot](docs/screenshots/redesign_agent_chat.png) | ![3D Map Perspective](docs/screenshots/redesign_3d.png) | ![Drive History](docs/screenshots/redesign_menu.png) |
+| ![Vector Map Labels](docs/screenshots/phase7_map_labels.png) | ![Satellite View](docs/screenshots/phase7_satellite_layer.png) | ![Topography View](docs/screenshots/phase7_topo_layer.png) |
 
-*(All screenshots captured live on physical hardware device `69ydd6nfaycagajz` and audited via multimodal inspection)*
+| Fluid Speed Dial Animation | 3D Perspective Tilt Mode | Route Navigation from Pin |
+| :---: | :---: | :---: |
+| ![Speed Dial Menu](docs/screenshots/phase7_speed_dial.png) | ![3D Perspective Tilt](docs/screenshots/phase7_3d_perspective.png) | ![Navigation Route](docs/screenshots/phase7_navigation_route.png) |
+
+| Contextual Voice & Text Agent |
+| :---: |
+| ![Agent Co-Pilot](docs/screenshots/phase7_agent_copilot.png) |
+
+*(All screenshots captured live on physical hardware device `69ydd6nfaycagajz` and verified via multimodal visual inspection)*
 
 ---
 
-## Key Highlights & Redesigned Experience
+## Key Highlights & Real-World Polish
 
-1. **Photo-Matched Map Aesthetic**:
-   - Matte charcoal canvas (`#202328`) matching high-end automotive cockpits.
-   - Fine residential street grid (`#2D323C`, 1.8dp) and bold arterial corridors (`#505869`, 3.6dp).
-   - High-contrast neon mint active route line (`#00F5D4`, 5.5dp) with protective dark green casing (`#00382C`, 9.5dp).
-   - Subtle tone-on-tone waterways (`#131519`) and urban parks/greenery (`#1B231F`).
+1. **Nationwide Offline Map Engine (PMTiles & Vector Overlays)**:
+   - **No Black Masks**: Satellite and Topography rasters render edge-to-edge across the Philippines without opaque vector land masks. High-contrast vector roads (`#FFFFFF` on Satellite, `#CBD5E1` on Topo) are seamlessly overlaid.
+   - **Offline Font Glyphs & Place Names**: Offline `Noto Sans` glyphs (0-255.pbf) served locally by `PmTilesServer`. Place labels and city names scale with zoom without exploding in size.
+   - **Dynamic Road Width Scaling**: Exponential road-casing and line-width interpolation (`1.4` factor) so roads widen realistically at street zoom.
+   - **Strict Geographic Bounds & Zoom Lock**: Locked between Zoom 5.5 and 18.0 with elastic recoil constraint `[116.5, 4.5]` to `[127.0, 21.5]`, preventing accidental worldwide zoom-out or unwanted data consumption.
 
-2. **Google Maps-Style Floating Search Bar**:
-   - Ultra-compact SQLite FTS5 database (`pois_fts.sqlite`, only **152 KB**) indexing 1,338+ Philippine cities, malls, airports, expressways, and landmarks.
-   - Real-time sub-millisecond search autocomplete dropdown with auto-dismissing keyboard.
+2. **Dedicated 2D / 3D Perspective & Compass Reset**:
+   - **Independent 2D/3D Toggle**: Switch camera pitch (0° flat 2D vs 55° perspective 3D) across *any* map type (Street, Topo, or Satellite) via dedicated button, or tilt with two fingers.
+   - **Floating Compass Needle**: High-visibility compass button displays the exact heading (`-cameraBearing`). Visible whenever the map is rotated (`> 2°`), smoothly animating back to True North on tap.
 
-3. **Realistic Middle-Bottom Speedometer**:
-   - Prominent speed numeral in the center bottom in `km/h` (displays `0` when idle or stationary — zero fake telemetry).
-   - Secondary compact `mph` readout on the bottom right.
-   - Directional blinking indicator arrows (`←` and `→`) for forthcoming turns.
+3. **Fluid Map Style Speed Dial**:
+   - Tapping the layer button triggers a staggered upward fan of map options (`STREET`, `TOPO`, `SATELLITE`), followed by delayed smooth rightward text labels. Active style is highlighted with a mint pill.
 
-4. **Floating Telemetry Pills**:
-   - Remaining distance (e.g. `0.5 KM REMAINING`) and ETA pace window (`~2-5 MIN EST PACE`) float unobtrusively at the sides *only* during active route navigation.
+4. **Sharp Lucide Icon Pack**:
+   - Complete replacement of generic icons with crisp, pixel-aligned Lucide vector drawables (`1.75dp` stroke) integrated into `GabayIcons.kt`.
 
-5. **Fused Map Perspective Toggle**:
-   - Floating circular toggle at bottom-left seamlessly switches between:
-     - **STREET**: Clean vector road hierarchy.
-     - **TOPO**: Elevation contours for mountain passes.
-     - **SATELLITE**: Single-zoom macro satellite peek without 100+ GB storage bloat.
-     - **HYBRID 3D**: Fluid 50-degree tilted camera perspective.
+5. **Voice & Text Agent Co-Pilot**:
+   - Two-way input: Live voice speech-to-text recognition via Android `SpeechRecognizer` + bottom text input bar with send button.
+   - True Contextual Status: Accurately reports stationary / parked state (`"Parked at current location. Speed is 0 km/h."`), eliminating false navigation instructions.
+   - Agentic Execution: Responds to verbal/text prompts to search gas stations, drop pins, initiate routes, switch map layers, toggle 3D, and align True North.
 
-6. **Live Agent Co-Pilot & CPU Protection**:
-   - Prominent circular Talk button opens an Apple-fluid sliding bottom drawer.
-   - Interactive conversation transcript inspired by the Antigravity IDE.
-   - Prompt deduplication and response caching ensures the local LLM never reheats or drains the device CPU on repeated queries.
-
-7. **Successful Drive History & Multi-Country Extensibility**:
-   - Top menu drawer tracks completed trips, distances, and drive times.
-   - Spatial vault architecture supports dropping any country's `.gabay` routing graph and `.geojson`/`.sqlite` datasets into `/sdcard/Documents/Gabay/`.
+6. **Interactive Pin Inspector & Navigation**:
+   - Long-press any location on the map to inspect coordinates. Tapping **"NAVIGATE TO PIN"** calculates the exact route via UniFFI Rust solver, renders the glowing cyan route polyline, fits camera bounds, and launches persistent background navigation.
 
 ---
 

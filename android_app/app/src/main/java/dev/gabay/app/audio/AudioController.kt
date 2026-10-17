@@ -30,8 +30,20 @@ class AudioController(private val context: Context) : TextToSpeech.OnInitListene
             val result = tts?.setLanguage(Locale.US)
             if (result != TextToSpeech.LANG_MISSING_DATA && result != TextToSpeech.LANG_NOT_SUPPORTED) {
                 isTtsReady = true
-                tts?.setSpeechRate(1.1f) // Crisp, slightly brisk rally pace
+                tts?.setSpeechRate(1.0f) // Natural conversational pace
                 tts?.setPitch(1.0f)
+                
+                // Select highest quality available local voice
+                try {
+                    val voices = tts?.voices
+                    val bestVoice = voices?.filter { 
+                        it.locale.language == "en" && !it.isNetworkConnectionRequired 
+                    }?.maxByOrNull { it.quality }
+                    if (bestVoice != null) {
+                        tts?.voice = bestVoice
+                    }
+                } catch (e: Exception) {}
+
                 setupUtteranceListener()
                 Log.d("GabayAudio", "Offline TTS initialized successfully.")
             }

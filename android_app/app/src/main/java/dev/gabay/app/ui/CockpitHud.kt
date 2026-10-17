@@ -18,6 +18,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -125,7 +126,12 @@ fun TopSearchBar(
             // Right: Clear or Search Icon
             if (query.isNotEmpty()) {
                 IconButton(
-                    onClick = { onQueryChange("") },
+                    onClick = {
+                        onQueryChange("")
+                        isSearchFocused = false
+                        focusManager.clearFocus()
+                        keyboardController?.hide()
+                    },
                     modifier = Modifier.size(36.dp)
                 ) {
                     Icon(
@@ -356,10 +362,9 @@ fun MapStyleSpeedDial(
     var isExpanded by remember { mutableStateOf(false) }
 
     val options = listOf(
-        Triple(FusedMapMode.HYBRID_3D, GabayIcons.Layer3d, "3D PERSPECTIVE"),
         Triple(FusedMapMode.SATELLITE, GabayIcons.LayerSatellite, "SATELLITE"),
         Triple(FusedMapMode.TOPO, GabayIcons.LayerTopo, "TOPOGRAPHY"),
-        Triple(FusedMapMode.STREET, GabayIcons.ModeCar, "STREET (VECTOR)")
+        Triple(FusedMapMode.STREET, GabayIcons.LayerVector, "STREET (VECTOR)")
     )
 
     Column(
@@ -415,10 +420,10 @@ fun MapStyleSpeedDial(
                         // Delayed text label extending sidewards to the right
                         AnimatedVisibility(
                             visible = isExpanded,
-                            enter = fadeIn(animationSpec = tween(200, delayMillis = index * 50)) +
+                            enter = fadeIn(animationSpec = tween(200, delayMillis = (index + 1) * 80)) +
                                     slideInHorizontally(
-                                        initialOffsetX = { -20 },
-                                        animationSpec = tween(200, delayMillis = index * 50)
+                                        initialOffsetX = { -30 },
+                                        animationSpec = tween(250, delayMillis = (index + 1) * 80)
                                     ),
                             exit = fadeOut() + slideOutHorizontally()
                         ) {
@@ -450,10 +455,9 @@ fun MapStyleSpeedDial(
 
         // Main Anchor Floating Button
         val mainIcon = when (currentMode) {
-            FusedMapMode.STREET -> GabayIcons.ModeCar
+            FusedMapMode.STREET, FusedMapMode.HYBRID_3D -> GabayIcons.LayerVector
             FusedMapMode.TOPO -> GabayIcons.LayerTopo
             FusedMapMode.SATELLITE -> GabayIcons.LayerSatellite
-            FusedMapMode.HYBRID_3D -> GabayIcons.Layer3d
         }
         CircularFloatingButton(
             icon = mainIcon,
@@ -461,6 +465,93 @@ fun MapStyleSpeedDial(
             isActive = isExpanded,
             contentDescription = "Map Style Options"
         )
+    }
+}
+
+/**
+ * Dedicated 2D / 3D Perspective Toggle Button
+ * Works across all map styles (Street, Topography, Satellite).
+ */
+@Composable
+fun PerspectiveToggleButton(
+    is3d: Boolean,
+    onToggle: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .size(48.dp)
+            .background(
+                if (is3d) GabayColors.AccentMint.copy(alpha = 0.25f) else GabayColors.UiCardGlass,
+                CircleShape
+            )
+            .border(
+                if (is3d) 1.5.dp else 1.dp,
+                if (is3d) GabayColors.AccentMint else GabayColors.UiBorder,
+                CircleShape
+            )
+            .clickable { onToggle() },
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = if (is3d) "3D" else "2D",
+            style = TextStyle(
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Black,
+                fontSize = 13.sp,
+                color = if (is3d) GabayColors.AccentMint else GabayColors.TextPrimary
+            )
+        )
+    }
+}
+
+/**
+ * Reset Rotation Button (Compass Needle)
+ * Visible whenever the map is rotated from True North. Needle points to North.
+ */
+@Composable
+fun CompassResetButton(
+    cameraBearing: Float,
+    onReset: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val isRotated = Math.abs(cameraBearing) > 2.0f
+
+    AnimatedVisibility(
+        visible = isRotated,
+        enter = fadeIn() + scaleIn(),
+        exit = fadeOut() + scaleOut()
+    ) {
+        Box(
+            modifier = modifier
+                .size(48.dp)
+                .background(GabayColors.UiCardGlass, CircleShape)
+                .border(1.dp, GabayColors.UiBorder, CircleShape)
+                .clickable { onReset() },
+            contentAlignment = Alignment.Center
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+                modifier = Modifier.rotate(-cameraBearing)
+            ) {
+                // Red North needle tip
+                Box(
+                    modifier = Modifier
+                        .width(4.dp)
+                        .height(10.dp)
+                        .background(Color(0xFFFF3B30), RoundedCornerShape(topStart = 2.dp, topEnd = 2.dp))
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                // White South needle base
+                Box(
+                    modifier = Modifier
+                        .width(4.dp)
+                        .height(10.dp)
+                        .background(Color(0xFFE2E8F0), RoundedCornerShape(bottomStart = 2.dp, bottomEnd = 2.dp))
+                )
+            }
+        }
     }
 }
 
@@ -541,14 +632,18 @@ fun FloatingTelemetryPill(
 @Composable
 fun AgentCoPilotSheet(
     messages: List<ChatMessage>,
+    isListening: Boolean = false,
+    onToggleListening: () -> Unit = {},
     onSendPrompt: (String) -> Unit,
     onClose: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    var inputText by remember { mutableStateOf("") }
+
     Card(
         modifier = modifier
             .fillMaxWidth()
-            .fillMaxHeight(0.65f),
+            .fillMaxHeight(0.70f),
         shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
         colors = CardDefaults.cardColors(containerColor = GabayColors.UiCard),
         border = CardDefaults.outlinedCardBorder().copy(brush = SolidColor(GabayColors.UiBorder))
@@ -578,17 +673,17 @@ fun AgentCoPilotSheet(
                     Box(
                         modifier = Modifier
                             .size(10.dp)
-                            .background(GabayColors.AccentMint, CircleShape)
+                            .background(if (isListening) Color(0xFFFF3B30) else GabayColors.AccentMint, CircleShape)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "GABAY CO-PILOT AGENT",
+                        text = if (isListening) "LISTENING TO VOICE..." else "GABAY CO-PILOT AGENT",
                         style = TextStyle(
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Bold,
                             fontSize = 13.sp,
                             letterSpacing = 1.1.sp,
-                            color = GabayColors.TextPrimary
+                            color = if (isListening) Color(0xFFFF3B30) else GabayColors.TextPrimary
                         )
                     )
                 }
@@ -608,14 +703,20 @@ fun AgentCoPilotSheet(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // Quick Prompt Action Pills
+            // Contextual Quick Action Pills
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                listOf("Nearest Gas", "Avoid Tollways", "ETA & Pace", "Traffic Ahead").forEach { prompt ->
+                listOf(
+                    "Where am I?",
+                    "Nearest Gas Station",
+                    "Satellite Mode",
+                    "3D Perspective",
+                    "Cancel Route"
+                ).forEach { prompt ->
                     Box(
                         modifier = Modifier
                             .background(GabayColors.UiInput, RoundedCornerShape(16.dp))
@@ -635,7 +736,7 @@ fun AgentCoPilotSheet(
                 }
             }
 
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
             // Conversation History Transcript List
             LazyColumn(
@@ -694,6 +795,80 @@ fun AgentCoPilotSheet(
                             )
                         }
                     }
+                }
+            }
+
+            // Real Interactive Command Bar (Voice Mic + Text Input + Send)
+            Spacer(modifier = Modifier.height(10.dp))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(GabayColors.UiInput, RoundedCornerShape(24.dp))
+                    .border(
+                        1.dp,
+                        if (isListening) Color(0xFFFF3B30) else GabayColors.UiBorder,
+                        RoundedCornerShape(24.dp)
+                    )
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Speech-to-Text Mic Trigger
+                IconButton(
+                    onClick = onToggleListening,
+                    modifier = Modifier.size(38.dp)
+                ) {
+                    Icon(
+                        imageVector = GabayIcons.CopilotMic,
+                        contentDescription = "Voice Input",
+                        tint = if (isListening) Color(0xFFFF3B30) else GabayColors.AccentMint,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(4.dp))
+
+                BasicTextField(
+                    value = inputText,
+                    onValueChange = { inputText = it },
+                    singleLine = true,
+                    textStyle = TextStyle(
+                        fontFamily = FontFamily.Default,
+                        fontSize = 13.sp,
+                        color = Color.White
+                    ),
+                    cursorBrush = SolidColor(GabayColors.AccentMint),
+                    modifier = Modifier.weight(1f),
+                    decorationBox = { innerTextField ->
+                        if (inputText.isEmpty()) {
+                            Text(
+                                text = if (isListening) "Listening to speech..." else "Ask co-pilot or command an action...",
+                                style = TextStyle(
+                                    fontFamily = FontFamily.Default,
+                                    fontSize = 13.sp,
+                                    color = if (isListening) Color(0xFFFF3B30) else GabayColors.TextMuted
+                                )
+                            )
+                        }
+                        innerTextField()
+                    }
+                )
+
+                // Send Message Button
+                IconButton(
+                    onClick = {
+                        if (inputText.isNotBlank()) {
+                            onSendPrompt(inputText.trim())
+                            inputText = ""
+                        }
+                    },
+                    modifier = Modifier.size(38.dp)
+                ) {
+                    Icon(
+                        imageVector = GabayIcons.Send,
+                        contentDescription = "Send",
+                        tint = if (inputText.isNotBlank()) GabayColors.AccentMint else GabayColors.TextMuted,
+                        modifier = Modifier.size(18.dp)
+                    )
                 }
             }
         }
