@@ -1,6 +1,9 @@
 # Autonomous Agent Specs & QA Artifacts
 .agent_qa/
 local_assets/
+0[1-5]_*.md
+0*.md
+AGENT_BOOTSTRAP.txt
 
 # Rust & Android Build Artifacts
 target/
