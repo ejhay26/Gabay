@@ -637,6 +637,8 @@ fun FloatingTelemetryPill(
 fun AgentCoPilotSheet(
     messages: List<ChatMessage>,
     isListening: Boolean = false,
+    audioRmsDb: Float = 0f,
+    partialSpeechText: String = "",
     onToggleListening: () -> Unit = {},
     onSendPrompt: (String) -> Unit,
     onClose: () -> Unit,
@@ -644,6 +646,13 @@ fun AgentCoPilotSheet(
 ) {
     var inputText by remember { mutableStateOf("") }
     var offsetY by remember { mutableFloatStateOf(0f) }
+
+    // Sync live voice partial transcription into active input field
+    LaunchedEffect(partialSpeechText) {
+        if (partialSpeechText.isNotBlank()) {
+            inputText = partialSpeechText
+        }
+    }
 
     Card(
         modifier = modifier
@@ -726,7 +735,52 @@ fun AgentCoPilotSheet(
                 }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            // Dynamic Neon Audio Waveform Visualizer (Appears when voice recognition is active)
+            if (isListening) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(GabayColors.UiCardElevated, RoundedCornerShape(12.dp))
+                        .border(1.dp, GabayColors.AccentMint.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+                        .padding(horizontal = 14.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    val normalizedDb = ((audioRmsDb + 2f) / 14f).coerceIn(0.15f, 1.0f)
+                    val barFactors = listOf(0.45f, 0.75f, 1.0f, 0.90f, 0.65f, 0.85f, 0.50f)
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        barFactors.forEach { factor ->
+                            val h = (6.dp + (18.dp * normalizedDb * factor))
+                            Box(
+                                modifier = Modifier
+                                    .width(4.dp)
+                                    .height(h)
+                                    .background(GabayColors.AccentMint, RoundedCornerShape(2.dp))
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.width(12.dp))
+
+                    Text(
+                        text = if (partialSpeechText.isNotBlank()) "\"$partialSpeechText\"" else "LISTENING... Speak your command",
+                        style = TextStyle(
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 11.sp,
+                            color = GabayColors.AccentMint
+                        ),
+                        maxLines = 1,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
 
             // Contextual Quick Action Pills
             Row(

@@ -18,10 +18,19 @@ import androidx.compose.ui.unit.dp
 import uniffi.gabay_core.LatLng
 import uniffi.gabay_core.PinInfo
 
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
+
 @Composable
 fun PinInspectorSheet(
     pinInfo: PinInfo,
+    isRouteActive: Boolean = false,
     onStartRoute: (LatLng) -> Unit,
+    onCancelRoute: () -> Unit = {},
+    onClearPin: () -> Unit = {},
     onClose: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -125,12 +134,12 @@ fun PinInspectorSheet(
                 }
             }
 
-            // Action: Route Here Button
+            // Action 1: Route / Reroute Here Button
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .defaultMinSize(minHeight = 48.dp)
-                    .background(GabayColors.AccentEmerald, RoundedCornerShape(6.dp))
+                    .defaultMinSize(minHeight = 46.dp)
+                    .background(GabayColors.AccentEmerald, RoundedCornerShape(8.dp))
                     .clickable { onStartRoute(pinInfo.coordinate) }
                     .padding(vertical = 12.dp),
                 contentAlignment = Alignment.Center
@@ -143,11 +152,72 @@ fun PinInspectorSheet(
                         imageVector = GabayIcons.RerouteActive,
                         contentDescription = "Route Here",
                         tint = GabayColors.BgObsidian,
-                        modifier = Modifier.size(20.dp)
+                        modifier = Modifier.size(18.dp)
                     )
                     Text(
-                        text = "NAVIGATE TO PIN",
+                        text = if (isRouteActive) "REROUTE TO PIN" else "NAVIGATE TO PIN",
                         style = GabayTypography.PillText.copy(color = GabayColors.BgObsidian)
+                    )
+                }
+            }
+
+            // Action 2 & 3: Cancel Route or Clear Pin Buttons
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                if (isRouteActive) {
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .defaultMinSize(minHeight = 42.dp)
+                            .background(Color(0xFF2A1111), RoundedCornerShape(8.dp))
+                            .border(1.dp, Color(0xFFFF3B30).copy(alpha = 0.7f), RoundedCornerShape(8.dp))
+                            .clickable { onCancelRoute() }
+                            .padding(vertical = 10.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                imageVector = GabayIcons.ActionClose,
+                                contentDescription = "Cancel Route",
+                                tint = Color(0xFFFF3B30),
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text(
+                                text = "CANCEL ROUTE",
+                                style = TextStyle(
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 11.sp,
+                                    color = Color(0xFFFF3B30)
+                                )
+                            )
+                        }
+                    }
+                }
+
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .defaultMinSize(minHeight = 42.dp)
+                        .background(GabayColors.BgElevated, RoundedCornerShape(8.dp))
+                        .border(1.dp, GabayColors.BorderSubtle, RoundedCornerShape(8.dp))
+                        .clickable { onClearPin() }
+                        .padding(vertical = 10.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "CLEAR PIN",
+                        style = TextStyle(
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 11.sp,
+                            color = GabayColors.TextSecondary
+                        )
                     )
                 }
             }

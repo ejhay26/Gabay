@@ -14,16 +14,24 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import android.content.Intent
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
@@ -139,13 +147,16 @@ fun CockpitScreen(
     var destinationPin by remember { mutableStateOf<LatLng?>(null) }
     var pinInfo by remember { mutableStateOf<PinInfo?>(null) }
 
-    // Map bearing and 3D mode states
+    // Map bearing, magnetic follow lock, and 3D mode states
     var cameraBearing by remember { mutableFloatStateOf(0.0f) }
     var is3dMode by remember { mutableStateOf(false) }
+    var isFollowingVehicle by remember { mutableStateOf(true) }
     var resetRotationCount by remember { mutableIntStateOf(0) }
 
-    // Speech-to-Text State
+    // Speech-to-Text State with live audio decibels and streaming partial results
     var isListening by remember { mutableStateOf(false) }
+    var audioRmsDb by remember { mutableFloatStateOf(0.0f) }
+    var partialSpeechText by remember { mutableStateOf("") }
     val speechRecognizer = remember {
         if (SpeechRecognizer.isRecognitionAvailable(context)) {
             SpeechRecognizer.createSpeechRecognizer(context)
@@ -164,25 +175,25 @@ fun CockpitScreen(
             android.util.Log.e("GabayRoute", "Rust calculateRoute exception", e)
         }
 
-        // 2. Direct SQLite Roads Query from device vault (Central Luzon & Nationwide Road Polylines)
+        // 2. Multi-Segment Chained Road Network Routing from device vault (Central Luzon & Nationwide Road Polylines)
         try {
             val dbFile = File("/sdcard/Documents/Gabay/pois_fts.sqlite")
             if (dbFile.exists()) {
                 val db = SQLiteDatabase.openDatabase(dbFile.absolutePath, null, SQLiteDatabase.OPEN_READONLY)
-                val pad = 0.05
+                val pad = 0.04
                 val minLat = minOf(startCoord.latitude, destCoord.latitude) - pad
                 val maxLat = maxOf(startCoord.latitude, destCoord.latitude) + pad
                 val minLon = minOf(startCoord.longitude, destCoord.longitude) - pad
                 val maxLon = maxOf(startCoord.longitude, destCoord.longitude) + pad
 
+                // Use covering spatial index on bounding box
                 val cursor = db.rawQuery(
-                    "SELECT name, kind, geometry FROM roads WHERE NOT (max_lat < ? OR min_lat > ? OR max_lon < ? OR min_lon > ?)",
-                    arrayOf(minLat.toString(), maxLat.toString(), minLon.toString(), maxLon.toString())
+                    "SELECT name, kind, geometry FROM roads WHERE min_lat <= ? AND max_lat >= ? AND min_lon <= ? AND max_lon >= ?",
+                    arrayOf(maxLat.toString(), minLat.toString(), maxLon.toString(), minLon.toString())
                 )
 
-                var bestScore = Double.MAX_VALUE
-                var bestRoadName = "Origin Road"
-                var bestRoadPts: List<LatLng>? = null
+                class RoadSegment(val name: String, val kind: String, val points: List<LatLng>)
+                val candidates = ArrayList<RoadSegment>()
 
                 if (cursor.moveToFirst()) {
                     do {
@@ -208,21 +219,7 @@ fun CockpitScreen(
                                 }
                             }
                             if (pts.size >= 2) {
-                                var minDStart = Float.MAX_VALUE
-                                var minDEnd = Float.MAX_VALUE
-                                val distResult = FloatArray(1)
-                                for (p in pts) {
-                                    Location.distanceBetween(startCoord.latitude, startCoord.longitude, p.latitude, p.longitude, distResult)
-                                    if (distResult[0] < minDStart) minDStart = distResult[0]
-                                    Location.distanceBetween(destCoord.latitude, destCoord.longitude, p.latitude, p.longitude, distResult)
-                                    if (distResult[0] < minDEnd) minDEnd = distResult[0]
-                                }
-                                val score = (minDStart + minDEnd).toDouble()
-                                if (score < bestScore) {
-                                    bestScore = score
-                                    bestRoadName = name
-                                    bestRoadPts = pts
-                                }
+                                candidates.add(RoadSegment(name, kind, pts))
                             }
                         }
                     } while (cursor.moveToNext())
@@ -230,42 +227,89 @@ fun CockpitScreen(
                 cursor.close()
                 db.close()
 
-                if (bestRoadPts != null && bestScore < 4000.0) {
-                    var idxStart = 0
-                    var minDStart = Float.MAX_VALUE
-                    var idxEnd = 0
-                    var minDEnd = Float.MAX_VALUE
+                if (candidates.isNotEmpty()) {
                     val distResult = FloatArray(1)
 
-                    for (i in bestRoadPts.indices) {
-                        val p = bestRoadPts[i]
-                        Location.distanceBetween(startCoord.latitude, startCoord.longitude, p.latitude, p.longitude, distResult)
-                        if (distResult[0] < minDStart) {
-                            minDStart = distResult[0]
-                            idxStart = i
-                        }
-                        Location.distanceBetween(destCoord.latitude, destCoord.longitude, p.latitude, p.longitude, distResult)
-                        if (distResult[0] < minDEnd) {
-                            minDEnd = distResult[0]
-                            idxEnd = i
+                    fun distBetween(p1: LatLng, p2: LatLng): Float {
+                        Location.distanceBetween(p1.latitude, p1.longitude, p2.latitude, p2.longitude, distResult)
+                        return distResult[0]
+                    }
+
+                    // 1. Find segment closest to start
+                    var bestStartDist = Float.MAX_VALUE
+                    var startIdx = 0
+                    for (i in candidates.indices) {
+                        for (p in candidates[i].points) {
+                            val d = distBetween(startCoord, p)
+                            if (d < bestStartDist) {
+                                bestStartDist = d
+                                startIdx = i
+                            }
                         }
                     }
 
+                    // 2. Chained road traversal towards destination
+                    val visited = HashSet<Int>()
+                    visited.add(startIdx)
+
+                    val chainedSegments = ArrayList<Pair<String, List<LatLng>>>()
+                    val firstSeg = candidates[startIdx]
+                    // Orient first segment forward towards dest
+                    val d0 = distBetween(firstSeg.points.first(), destCoord)
+                    val d1 = distBetween(firstSeg.points.last(), destCoord)
+                    val firstPts = if (d1 <= d0) firstSeg.points else firstSeg.points.reversed()
+                    chainedSegments.add(Pair(firstSeg.name, firstPts))
+
+                    var currentTip = firstPts.last()
+
+                    for (step in 0 until 40) {
+                        if (distBetween(currentTip, destCoord) < 550f) break
+
+                        var bestStepDist = Float.MAX_VALUE
+                        var nextIdx = -1
+                        var flip = false
+                        val currentDestDist = distBetween(currentTip, destCoord)
+
+                        for (i in candidates.indices) {
+                            if (visited.contains(i)) continue
+                            val candPts = candidates[i].points
+                            val candD0 = distBetween(currentTip, candPts.first())
+                            val candD1 = distBetween(currentTip, candPts.last())
+                            val minTipDist = minOf(candD0, candD1)
+
+                            if (minTipDist < 450f && minTipDist < bestStepDist) {
+                                val otherTip = if (candD0 < candD1) candPts.last() else candPts.first()
+                                if (distBetween(otherTip, destCoord) <= currentDestDist + 150f) {
+                                    bestStepDist = minTipDist
+                                    nextIdx = i
+                                    flip = (candD1 < candD0)
+                                }
+                            }
+                        }
+
+                        if (nextIdx == -1) break
+                        visited.add(nextIdx)
+                        val nextSeg = candidates[nextIdx]
+                        val nextPts = if (flip) nextSeg.points.reversed() else nextSeg.points
+                        chainedSegments.add(Pair(nextSeg.name, nextPts))
+                        currentTip = nextPts.last()
+                    }
+
+                    // 3. Assemble continuous curved polyline
                     val polyline = ArrayList<LatLng>()
                     polyline.add(startCoord)
-                    if (idxStart <= idxEnd) {
-                        for (i in idxStart..idxEnd) polyline.add(bestRoadPts[i])
-                    } else {
-                        for (i in idxStart downTo idxEnd) polyline.add(bestRoadPts[i])
+                    for ((_, pts) in chainedSegments) {
+                        for (p in pts) {
+                            if (polyline.isEmpty() || distBetween(polyline.last(), p) > 6f) {
+                                polyline.add(p)
+                            }
+                        }
                     }
                     polyline.add(destCoord)
 
                     var totalMeters = 0.0
                     for (i in 0 until polyline.size - 1) {
-                        val p1 = polyline[i]
-                        val p2 = polyline[i + 1]
-                        Location.distanceBetween(p1.latitude, p1.longitude, p2.latitude, p2.longitude, distResult)
-                        totalMeters += distResult[0]
+                        totalMeters += distBetween(polyline[i], polyline[i + 1])
                     }
 
                     val avgSpeedMps = when (options.mode) {
@@ -275,23 +319,24 @@ fun CockpitScreen(
                         VehicleMode.WALK -> 1.38 // 5 km/h
                     }
                     val durationSecs = (totalMeters / avgSpeedMps).toLong().coerceAtLeast(60L)
-                    val displayName = if (bestRoadName != "Road") bestRoadName else "Connecting Arterial"
 
-                    val maneuvers = listOf(
-                        TurnManeuver(
-                            instruction = "Depart onto $displayName",
-                            roadName = displayName,
-                            turnType = "maneuver_straight",
-                            distanceMeters = totalMeters * 0.4,
-                            coordinate = startCoord
-                        ),
-                        TurnManeuver(
-                            instruction = "Continue on $displayName",
-                            roadName = displayName,
-                            turnType = "maneuver_straight",
-                            distanceMeters = totalMeters * 0.6,
-                            coordinate = polyline[polyline.size / 2]
-                        ),
+                    // 4. Generate turn maneuvers with real street names
+                    val maneuvers = ArrayList<TurnManeuver>()
+                    for (i in chainedSegments.indices) {
+                        val (name, pts) = chainedSegments[i]
+                        val roadName = if (name != "Road" && name.isNotBlank()) name else "Connecting Road"
+                        val segDist = totalMeters / chainedSegments.size.toDouble()
+                        maneuvers.add(
+                            TurnManeuver(
+                                instruction = if (i == 0) "Depart onto $roadName" else "Continue on $roadName",
+                                roadName = roadName,
+                                turnType = "maneuver_straight",
+                                distanceMeters = segDist,
+                                coordinate = pts.first()
+                            )
+                        )
+                    }
+                    maneuvers.add(
                         TurnManeuver(
                             instruction = "Arrive at destination",
                             roadName = "Destination",
@@ -312,7 +357,7 @@ fun CockpitScreen(
                 }
             }
         } catch (e: Exception) {
-            android.util.Log.e("GabayRoute", "SQLite road search error", e)
+            android.util.Log.e("GabayRoute", "SQLite multi-segment road route error", e)
         }
 
         // Mathematical haversine geodesic solver fallback
@@ -596,11 +641,36 @@ fun CockpitScreen(
                 resetRotationCount++
                 responseText = "Compass aligned to True North."
             }
-            lower.contains("cancel") || lower.contains("stop route") || lower.contains("stop navigation") || lower.contains("clear route") -> {
+            lower.contains("follow") || lower.contains("magnet") || lower.contains("track") || lower.contains("recenter") -> {
+                isFollowingVehicle = true
+                cameraTarget = MapLibreLatLng(userLat, userLon)
+                responseText = "Magnetic camera tracking engaged. Map will pan and auto-rotate with your vehicle heading."
+            }
+            lower.contains("cancel") || lower.contains("stop route") || lower.contains("stop navigation") || lower.contains("clear route") || lower.contains("clear pin") || lower.contains("remove pin") -> {
                 activeRoute = null
                 destinationPin = null
+                pinInfo = null
                 NavigationService.stop(context)
-                responseText = "Active route cancelled. Returning to free explore."
+                responseText = "Active route and pinned destination cleared. Returning to free explore."
+            }
+            lower.contains("who are you") || lower.contains("what are you") || lower.contains("what can you do") || lower.contains("help") -> {
+                responseText = "I am Gabay, your 100% offline tactical Philippine navigation co-pilot. I guide your routes, track speed and heading, search 23,000+ local places, and control map views hands-free."
+            }
+            lower.contains("hello") || lower.contains("hi") || lower.contains("kamusta") || lower.contains("magandang") -> {
+                responseText = "Kamusta rider! Co-pilot active and tracking Philippine road network offline. Where would you like to go?"
+            }
+            lower.contains("salamat") || lower.contains("thank you") || lower.contains("thanks") -> {
+                responseText = "Walang anuman! Ride safely and keep your eyes on the road."
+            }
+            lower.contains("weather") || lower.contains("rain") || lower.contains("ulan") -> {
+                responseText = "Operating offline. Keep safe following distance on wet asphalt."
+            }
+            lower.contains("traffic") -> {
+                responseText = if (activeRoute != null) {
+                    "Monitoring local road corridors. Current speed ${userSpeed.toInt()} km/h on ${activeRoute?.maneuvers?.firstOrNull()?.roadName ?: "route"}."
+                } else {
+                    "No active route. Local roads in your vicinity are open."
+                }
             }
             lower.startsWith("go to ") || lower.startsWith("navigate to ") || lower.startsWith("route to ") -> {
                 val query = lower.removePrefix("go to ").removePrefix("navigate to ").removePrefix("route to ").trim()
@@ -614,6 +684,7 @@ fun CockpitScreen(
                         avoidFerries = false
                     )
                     destinationPin = target.coordinate
+                    isFollowingVehicle = true
                     val startCoord = LatLng(userLat, userLon)
                     val route = computeRoute(startCoord, target.coordinate, options)
                     activeRoute = route
@@ -624,20 +695,37 @@ fun CockpitScreen(
                     )
                     NavigationService.start(context)
                     cameraTarget = MapLibreLatLng(target.coordinate.latitude, target.coordinate.longitude)
-                    responseText = "Navigating to ${target.name}. ${String.format(Locale.US, "%.1f", route.totalDistanceMeters / 1000.0)} km ahead."
+                    responseText = "Navigating to ${target.name}. ${String.format(Locale.US, "%.1f", route.totalDistanceMeters / 1000.0)} km ahead via connected roads."
                 } else {
                     responseText = "Destination \"$query\" not found in offline vault."
                 }
             }
             else -> {
-                val askResult = engine?.askCopilot(prompt)
-                if (askResult != null && !askResult.contains("PETRON 450M") && !askResult.contains("ORIGIN ROAD")) {
-                    responseText = askResult
+                val searchKey = lower
+                    .removePrefix("where is ").removePrefix("where's ")
+                    .removePrefix("find ").removePrefix("search ")
+                    .removePrefix("is there a ").removePrefix("is there any ")
+                    .removePrefix("tell me about ").removePrefix("take me to ")
+                    .trim()
+                val pois = if (searchKey.length >= 2) engine?.searchPois(searchKey, 3u) ?: emptyList() else emptyList()
+                val match = pois.firstOrNull()
+                if (match != null) {
+                    destinationPin = match.coordinate
+                    cameraTarget = MapLibreLatLng(match.coordinate.latitude, match.coordinate.longitude)
+                    val distResults = FloatArray(1)
+                    Location.distanceBetween(userLat, userLon, match.coordinate.latitude, match.coordinate.longitude, distResults)
+                    val km = distResults[0] / 1000.0
+                    responseText = "Found ${match.name} (${match.category}), ${String.format(Locale.US, "%.1f", km)} km away. Pin dropped. Say 'navigate to ${match.name}' to start route."
                 } else {
-                    responseText = if (activeRoute != null) {
-                        "En route on ${activeRoute?.maneuvers?.firstOrNull()?.roadName ?: "route"}. Speed is ${userSpeed.toInt()} km/h."
+                    val askResult = engine?.askCopilot(prompt)
+                    if (askResult != null && !askResult.contains("PETRON 450M") && !askResult.contains("ORIGIN ROAD") && !askResult.contains("STANDBY")) {
+                        responseText = askResult
                     } else {
-                        "Gabay co-pilot standby. Parked at current location. Speak a command or search a place."
+                        responseText = if (activeRoute != null) {
+                            "En route on ${activeRoute?.maneuvers?.firstOrNull()?.roadName ?: "route"}. Remaining distance ${String.format(Locale.US, "%.1f", telemetry.remainingDistanceKm)} km. Speed ${userSpeed.toInt()} km/h."
+                        } else {
+                            "I heard \"$prompt\". No matching location found in offline vault. You can ask for gas stations, food, hospitals, or speak a destination to navigate."
+                        }
                     }
                 }
             }
@@ -673,28 +761,41 @@ fun CockpitScreen(
                 android.util.Log.d("GabayVoice", "Ready for speech")
             }
             override fun onBeginningOfSpeech() {
+                isListening = true
                 android.util.Log.d("GabayVoice", "Beginning of speech")
             }
-            override fun onRmsChanged(rmsdB: Float) {}
+            override fun onRmsChanged(rmsdB: Float) {
+                audioRmsDb = rmsdB
+            }
             override fun onBufferReceived(buffer: ByteArray?) {}
             override fun onEndOfSpeech() {
-                isListening = false
+                audioRmsDb = 0f
                 android.util.Log.d("GabayVoice", "End of speech")
             }
             override fun onError(error: Int) {
                 isListening = false
+                audioRmsDb = 0f
+                partialSpeechText = ""
                 android.util.Log.w("GabayVoice", "SpeechRecognizer error code: $error")
             }
             override fun onResults(results: Bundle?) {
                 isListening = false
+                audioRmsDb = 0f
                 val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                val voiceQuery = matches?.firstOrNull()
+                val voiceQuery = matches?.firstOrNull() ?: partialSpeechText
+                partialSpeechText = ""
                 android.util.Log.d("GabayVoice", "Speech recognition result: $voiceQuery")
                 if (!voiceQuery.isNullOrBlank()) {
                     processAgentPrompt(voiceQuery)
                 }
             }
-            override fun onPartialResults(partialResults: Bundle?) {}
+            override fun onPartialResults(partialResults: Bundle?) {
+                val matches = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                val partial = matches?.firstOrNull()
+                if (!partial.isNullOrBlank()) {
+                    partialSpeechText = partial
+                }
+            }
             override fun onEvent(eventType: Int, params: Bundle?) {}
         })
 
@@ -728,18 +829,36 @@ fun CockpitScreen(
             destinationPin = destinationPin,
             fusedMapMode = fusedMapMode,
             is3dPerspective = is3dMode,
+            isFollowingVehicle = isFollowingVehicle,
             resetRotationTrigger = resetRotationCount,
             cameraTarget = cameraTarget,
             onBearingChanged = { cameraBearing = it },
+            onFollowModeChanged = { isFollowingVehicle = it },
             onPinDropped = { latLng ->
                 destinationPin = latLng
-                // Query nearest landmark/road from SQLite FTS5 engine
-                val pois = engine?.searchPois("Ayala", 1u) ?: emptyList()
-                val landmarkName = pois.firstOrNull()?.name ?: "Pinned Destination"
+                // Query nearest landmark/road from SQLite FTS5 engine using real spatial coordinates
+                var landmarkName = "Pinned Destination"
+                try {
+                    val dbFile = File("/sdcard/Documents/Gabay/pois_fts.sqlite")
+                    if (dbFile.exists()) {
+                        val db = SQLiteDatabase.openDatabase(dbFile.absolutePath, null, SQLiteDatabase.OPEN_READONLY)
+                        val pad = 0.03
+                        val cursor = db.rawQuery(
+                            "SELECT name FROM pois WHERE latitude BETWEEN ? AND ? AND longitude BETWEEN ? AND ? LIMIT 1",
+                            arrayOf((latLng.latitude - pad).toString(), (latLng.latitude + pad).toString(), (latLng.longitude - pad).toString(), (latLng.longitude + pad).toString())
+                        )
+                        if (cursor.moveToFirst()) {
+                            landmarkName = cursor.getString(0) ?: "Pinned Destination"
+                        }
+                        cursor.close()
+                        db.close()
+                    }
+                } catch (e: Exception) {}
+
                 pinInfo = PinInfo(
                     coordinate = latLng,
                     nearestRoadName = landmarkName,
-                    barangay = "Local Barangay",
+                    barangay = "Local Vicinity",
                     cityOrMunicipality = "Philippines"
                 )
             },
@@ -754,6 +873,7 @@ fun CockpitScreen(
             onSelectPlace = { place ->
                 val dest = place.coordinate
                 destinationPin = dest
+                isFollowingVehicle = true
                 cameraTarget = MapLibreLatLng(dest.latitude, dest.longitude)
                 searchQuery = ""
 
@@ -781,21 +901,60 @@ fun CockpitScreen(
                 .statusBarsPadding()
         )
 
-        // LAYER 2: Floating Distance & Pace Pills (ONLY Visible When Route Is Active, placed below search bar)
+        // LAYER 2: Floating Distance, Cancel Route, & Pace Pills (ONLY Visible When Route Is Active)
         if (activeRoute != null) {
             Row(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .statusBarsPadding()
                     .padding(top = 64.dp)
-                    .padding(horizontal = 20.dp)
+                    .padding(horizontal = 16.dp)
                     .fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 FloatingTelemetryPill(
                     value = String.format(Locale.US, "%.1f", telemetry.remainingDistanceKm),
                     unit = "KM REMAINING"
                 )
+
+                // Direct Instant Route Cancellation Button
+                Box(
+                    modifier = Modifier
+                        .background(Color(0xFF2A1010), RoundedCornerShape(20.dp))
+                        .border(1.dp, Color(0xFFFF3B30).copy(alpha = 0.8f), RoundedCornerShape(20.dp))
+                        .clickable {
+                            activeRoute = null
+                            destinationPin = null
+                            pinInfo = null
+                            NavigationService.stop(context)
+                            audioController.speakTerseCue("ROUTE CANCELLED")
+                        }
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Icon(
+                            imageVector = GabayIcons.ActionClose,
+                            contentDescription = "Cancel Route",
+                            tint = Color(0xFFFF3B30),
+                            modifier = Modifier.size(13.dp)
+                        )
+                        Text(
+                            text = "END ROUTE",
+                            style = TextStyle(
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 11.sp,
+                                color = Color(0xFFFF3B30)
+                            )
+                        )
+                    }
+                }
+
                 FloatingTelemetryPill(
                     value = telemetry.paceWindowMin,
                     unit = "EST PACE"
@@ -807,6 +966,7 @@ fun CockpitScreen(
         pinInfo?.let { info ->
             PinInspectorSheet(
                 pinInfo = info,
+                isRouteActive = (activeRoute != null),
                 onStartRoute = { destCoord ->
                     val options = RouteOptions(
                         mode = selectedMode,
@@ -815,6 +975,7 @@ fun CockpitScreen(
                         avoidFerries = false
                     )
                     destinationPin = destCoord
+                    isFollowingVehicle = true
                     val startCoord = LatLng(userLat, userLon)
                     val route = computeRoute(startCoord, destCoord, options)
                     activeRoute = route
@@ -828,9 +989,19 @@ fun CockpitScreen(
                     audioController.speakTerseCue("STARTING ROUTE TO ${info.nearestRoadName.uppercase()}. PROCEED VIA $road.")
                     pinInfo = null
                 },
+                onCancelRoute = {
+                    activeRoute = null
+                    destinationPin = null
+                    pinInfo = null
+                    NavigationService.stop(context)
+                    audioController.speakTerseCue("ROUTE CANCELLED")
+                },
+                onClearPin = {
+                    destinationPin = null
+                    pinInfo = null
+                },
                 onClose = {
                     pinInfo = null
-                    destinationPin = null
                 },
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
@@ -900,10 +1071,13 @@ fun CockpitScreen(
                     )
                     CircularFloatingButton(
                         icon = GabayIcons.RecenterGps,
+                        isActive = isFollowingVehicle,
+                        activeColor = GabayColors.AccentMint,
                         onClick = {
+                            isFollowingVehicle = true
                             cameraTarget = MapLibreLatLng(userLat, userLon)
                         },
-                        contentDescription = "Recenter GPS"
+                        contentDescription = "Recenter GPS & Magnetic Lock"
                     )
                 }
             }
@@ -935,10 +1109,14 @@ fun CockpitScreen(
             AgentCoPilotSheet(
                 messages = chatMessages,
                 isListening = isListening,
+                audioRmsDb = audioRmsDb,
+                partialSpeechText = partialSpeechText,
                 onToggleListening = {
                     if (isListening) {
                         try { speechRecognizer?.stopListening() } catch (e: Exception) {}
                         isListening = false
+                        audioRmsDb = 0f
+                        partialSpeechText = ""
                     } else {
                         startListening()
                     }

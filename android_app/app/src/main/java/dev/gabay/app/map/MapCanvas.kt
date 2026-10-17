@@ -95,9 +95,11 @@ fun MapCanvas(
     destinationPin: uniffi.gabay_core.LatLng?,
     fusedMapMode: FusedMapMode,
     is3dPerspective: Boolean = false,
+    isFollowingVehicle: Boolean = true,
     resetRotationTrigger: Int = 0,
     cameraTarget: LatLng?,
     onBearingChanged: (Float) -> Unit = {},
+    onFollowModeChanged: (Boolean) -> Unit = {},
     onPinDropped: (uniffi.gabay_core.LatLng) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -258,14 +260,30 @@ fun MapCanvas(
         }
     }
 
-    // React to user GPS position updates
-    LaunchedEffect(userLat, userLon, userHeading, mapInstance) {
+    // React to user GPS position & continuous magnetic follow / auto-rotation updates
+    LaunchedEffect(userLat, userLon, userHeading, isFollowingVehicle, is3dPerspective, mapInstance) {
         val map = mapInstance ?: return@LaunchedEffect
         val style = map.style ?: return@LaunchedEffect
 
         val userSource = style.getSourceAs<GeoJsonSource>("user_source")
         val point = Point.fromLngLat(userLon, userLat)
         userSource?.setGeoJson(FeatureCollection.fromFeature(Feature.fromGeometry(point)))
+
+        if (isFollowingVehicle) {
+            val targetTilt = if (is3dPerspective) 55.0 else 0.0
+            val targetBearing = userHeading.toDouble()
+            val currentPos = map.cameraPosition
+            val navZoom = if (currentPos.zoom < 13.5) 15.5 else currentPos.zoom
+
+            val newPos = CameraPosition.Builder()
+                .target(LatLng(userLat, userLon))
+                .zoom(navZoom)
+                .bearing(targetBearing)
+                .tilt(targetTilt)
+                .build()
+
+            map.easeCamera(CameraUpdateFactory.newCameraPosition(newPos), 350)
+        }
     }
 
     AndroidView(
@@ -274,7 +292,7 @@ fun MapCanvas(
                 mapViewInstance = this
                 getMapAsync { map ->
                     mapInstance = map
-                    setupTacticalMap(map, ctx, userLat, userLon, onBearingChanged, onPinDropped)
+                    setupTacticalMap(map, ctx, userLat, userLon, onBearingChanged, onFollowModeChanged, onPinDropped)
                 }
             }
         },
@@ -304,6 +322,7 @@ private fun setupTacticalMap(
     initialLat: Double,
     initialLon: Double,
     onBearingChanged: (Float) -> Unit,
+    onFollowModeChanged: (Boolean) -> Unit,
     onPinDropped: (uniffi.gabay_core.LatLng) -> Unit
 ) {
     // Disable default compass (managed by tactical HUD)
@@ -324,6 +343,13 @@ private fun setupTacticalMap(
     // Camera movement callback to track live map bearing
     map.addOnCameraMoveListener {
         onBearingChanged(map.cameraPosition.bearing.toFloat())
+    }
+
+    // When rider manually gestures or pans the map, temporarily disengage magnetic lock
+    map.addOnCameraMoveStartedListener { reason ->
+        if (reason == MapLibreMap.OnCameraMoveStartedListener.REASON_API_GESTURE) {
+            onFollowModeChanged(false)
+        }
     }
 
     // Initial Philippine Camera centered on user location
@@ -433,6 +459,10 @@ private fun setupTacticalMap(
           "type": "line",
           "source": "protomaps_vector",
           "source-layer": "roads",
+          "layout": {
+            "line-cap": "round",
+            "line-join": "round"
+          },
           "paint": {
             "line-color": "#11141A",
             "line-width": [
@@ -452,6 +482,10 @@ private fun setupTacticalMap(
           "type": "line",
           "source": "protomaps_vector",
           "source-layer": "roads",
+          "layout": {
+            "line-cap": "round",
+            "line-join": "round"
+          },
           "paint": {
             "line-color": "#5C657A",
             "line-width": [

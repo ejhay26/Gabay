@@ -74,8 +74,12 @@ impl CoPilotGatekeeper {
                 }
             } else if lower.contains("gas") || lower.contains("fuel") || lower.contains("petron") || lower.contains("shell") {
                 return "SEARCHING CLOSEST GAS STATIONS".to_string();
-            } else if lower.contains("toll") || lower.contains("expressway") {
-                return "AVOIDING TOLLS — BYPASS ACTIVE".to_string();
+            } else if lower.contains("cancel") || lower.contains("stop") {
+                return "ACTIVE ROUTE CANCELLED — FREE EXPLORE".to_string();
+            } else if lower.contains("follow") || lower.contains("magnet") || lower.contains("recenter") {
+                return "MAGNETIC CAMERA TRACKING ENGAGED".to_string();
+            } else if lower.contains("who are you") || lower.contains("help") {
+                return "GABAY OFFLINE PHILIPPINE NAVIGATION CO-PILOT ACTIVE".to_string();
             } else {
                 if telemetry.remaining_distance_km > 0.0 {
                     return format!("PROCEEDING ON ROUTE — {}", telemetry.next_turn_road.to_uppercase());

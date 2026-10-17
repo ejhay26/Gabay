@@ -25,7 +25,7 @@ The app requests `MANAGE_EXTERNAL_STORAGE` and `ACCESS_FINE_LOCATION` on first l
 
 ---
 
-## 2. Redesigned Cockpit HUD
+## 2. Redesigned Cockpit HUD & Magnetic Follow Mode
 
 The Gabay interface is engineered for high visibility in all lighting conditions and weathers, matching automotive dark cockpits with Apple-style fluid micro-interactions:
 
@@ -33,6 +33,9 @@ The Gabay interface is engineered for high visibility in all lighting conditions
 ┌────────────────────────────────────────────────────────┐
 │  [≡]  Search places, roads, landmarks...          [⌕]  │ Top Floating Search Bar (FTS5)
 └────────────────────────────────────────────────────────┘
+          ┌───────────────────────────────────┐
+          │  [✕] END ROUTE (1-Tap Dismiss)    │ Floating Route Pill
+          └───────────────────────────────────┘
      ┌──────────────┐                  ┌──────────────┐
      │ 0.5 KM REM.  │                  │ ~2-5 MIN EST │ Floating Telemetry Pills (Active Route)
      └──────────────┘                  └──────────────┘
@@ -53,16 +56,18 @@ The Gabay interface is engineered for high visibility in all lighting conditions
                    └───────────────────────┘
 ```
 
-### Visual Components Breakdown
-- **Top Google Maps-Style Search Bar**: Floating pill with rounded corners (26dp), left Menu button, clear button, and real-time SQLite FTS5 autocomplete suggestions. Tapping outside or clearing immediately dismisses the software keyboard.
-- **Middle-Bottom Speedometer**: Large clean speed numeral in `km/h` (displays `0` when stationary — zero fake telemetry). Small `mph` readout on bottom right. Directional blinking arrows (`←` and `→`) for forthcoming turns.
-- **Floating Telemetry Pills**: Remaining distance (e.g. `3.0 KM REMAINING`) and dynamic ETA pace (`~12-16 MIN EST PACE`) float at the sides only during active navigation.
+### Visual Components & Magnetic Follow Breakdown
+- **Magnetic Camera Follow (2D & 3D)**: Camera is magnetically locked to vehicle GPS coordinates. When moving, the camera auto-pans and smoothly rotates with your vehicle heading (`bearing`) in both 2D overhead (heading-up) and 3D 55° perspective.
+- **Touch Gesture Disconnect & Recenter Snap**: Touching or panning the map freely releases the magnetic lock for survey. Tapping the neon mint `[🎯]` button instantly snaps the camera back to vehicle position and re-locks magnetic heading tracking.
+- **Instant Route Cancellation**: During an active route, a prominent red `[✕ END ROUTE]` tactical pill appears below the search bar. Tapping it instantly clears the route polyline and telemetry pills.
+- **Top Search Bar**: Floating pill with rounded corners (26dp), left Menu button, clear button, and real-time SQLite FTS5 autocomplete suggestions.
+- **Middle-Bottom Speedometer**: Large clean speed numeral in `km/h` (displays `0` when stationary — zero fake telemetry). Directional blinking arrows (`←` and `→`) for forthcoming turns.
 - **Action Buttons Dock**:
   - **Map Style Speed Dial `[🗂]`**: Staggered upward animation offering `STREET`, `TOPO`, and `SATELLITE` modes with delayed rightward text badges.
   - **Compass Needle `[🧭]`**: Automatically appears when map rotation exceeds 2°. Shows North heading indicator and smoothly eases back to 0° True North when tapped.
-  - **Center Mic / Co-Pilot `[🎙]`**: Opens the two-way voice and text agent co-pilot drawer.
+  - **Center Mic / Co-Pilot `[🎙]`**: Opens the two-way voice and text agent co-pilot drawer with live decibel waveform meter.
   - **2D / 3D Perspective Toggle `[📐]`**: Seamlessly transitions camera pitch between 0° overhead 2D and 55° tilted 3D on any active map layer.
-  - **Recenter GPS `[🎯]`**: Re-centers camera onto vehicle coordinates.
+  - **Recenter GPS `[🎯]`**: Highlights in neon mint when magnetic follow is locked; re-engages lock upon tap.
 
 ---
 
@@ -77,23 +82,27 @@ Tapping the `[≡]` Menu button on the top search bar opens the **Gabay Cockpit 
 ## 4. Local AI Co-Pilot & Natural Voice Agent
 
 Tapping the circular microphone button `[🎙]` opens the **Live Agent Co-Pilot Sheet**:
-- **Voice & Text Input**: Hold or tap the voice mic to speak, or type into the integrated text input bar.
-- **Contextual Awareness**: Real-time parked vs. moving status. When stationary, the agent correctly reports: *"Parked at current location (15.261, 120.910). Speed is 0 km/h. Map ready."*
-- **Agentic Commands**:
-  - *"Find nearest gas station"* -> Performs live spatial query and pins nearest fuel station.
-  - *"Navigate to pin"* / *"Start route"* -> Computes road route and initiates navigation.
-  - *"Switch to satellite"* / *"Switch to topo"* / *"Switch to street"* -> Toggles layer.
-  - *"Toggle 3D"* -> Tilts camera to 55° perspective.
+- **Live Decibel Waveform Visualizer**: A 7-bar dynamic neon mint audio equalizer visualizer reacts in real time to your voice volume (`onRmsChanged`), confirming that your microphone is actively receiving sound.
+- **Streaming Transcription**: Displays live partial speech text on screen as you talk before the sentence finishes.
+- **Intelligent Offline Intent Parsing**:
+  - *"Where am I?"* / *"What is my location?"* -> Reports reverse-geocoded barangay, municipality, coordinates, and vehicle status.
+  - *"Find nearest gas station / restaurant / hospital"* -> Performs live spatial query over 23,558 POIs and drops a pin on the closest match.
+  - *"Navigate to pin"* / *"Start route"* -> Computes connected road route and initiates navigation.
+  - *"Cancel route"* / *"Stop navigating"* -> Instantly dismisses active route.
+  - *"Switch to satellite / topo / street"* -> Switches map layer.
+  - *"Toggle 3D"* -> Tilts camera to 55° perspective with auto-rotation.
   - *"Point north"* -> Resets bearing to True North.
-  - *"Cancel route"* -> Stops active navigation session.
 
 ---
 
 ## 5. Long-Press Pin Inspector & Route Creation
 
 1. Long-press any location on the map to drop a tactical pin.
-2. The **Pin Inspector Sheet** appears with exact coordinates, distance from vehicle, and a copy button.
-3. Tap **"NAVIGATE TO PIN"**: The offline Rust engine computes an A* route from your position, displays the glowing cyan route polyline, fits camera bounds, and begins turn-by-turn navigation.
+2. The **Pin Inspector Sheet** appears with the reverse-geocoded place name, exact coordinates, and distance from vehicle.
+3. Actions:
+   - **"NAVIGATE TO PIN" / "REROUTE TO PIN"**: Computes a continuous, road-following route from vehicle position along real indexed road polylines, displays the glowing cyan route polyline, fits camera bounds, and begins turn-by-turn navigation.
+   - **"CANCEL ROUTE"**: Dismisses the active navigation session directly from the pin sheet.
+   - **"CLEAR PIN"**: Removes the pin marker from the map.
 
 ---
 
