@@ -17,3 +17,5 @@ local.properties
 *.gabay
 *.gguf
 *.osm.pbf
+vault_output/
+.kotlin/

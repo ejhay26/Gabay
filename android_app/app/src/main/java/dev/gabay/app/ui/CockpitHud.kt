@@ -1,365 +1,729 @@
 package dev.gabay.app.ui
 
+import androidx.compose.animation.*
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Icon
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.gabay.app.map.FusedMapMode
 import uniffi.gabay_core.HudTelemetry
+import uniffi.gabay_core.PoiSearchResult
 import uniffi.gabay_core.VehicleMode
 
+data class ChatMessage(
+    val sender: String, // "RIDER" or "GABAY AGENT"
+    val text: String,
+    val timestamp: String
+)
+
+data class DriveHistoryItem(
+    val title: String,
+    val distanceKm: Float,
+    val durationMin: Int,
+    val date: String
+)
+
+/**
+ * Top Search Bar (Google Maps Style + Apple OS Fluidity)
+ * Includes Menu icon, live search text field, and SQLite FTS5 live suggestions dropdown.
+ */
 @Composable
-fun TopManeuverBanner(
-    telemetry: HudTelemetry,
-    vehicleMode: VehicleMode,
+fun TopSearchBar(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    searchResults: List<PoiSearchResult>,
+    onSelectPlace: (PoiSearchResult) -> Unit,
+    onMenuClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 10.dp)
-            .background(GabayColors.BgCard, RoundedCornerShape(8.dp))
-            .border(1.dp, GabayColors.BorderSubtle, RoundedCornerShape(8.dp))
-            .padding(14.dp)
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // Maneuver Icon
-            val maneuverIcon: ImageVector = when (telemetry.nextTurnIcon) {
-                "maneuver_left" -> GabayIcons.ManeuverLeft
-                "maneuver_right" -> GabayIcons.ManeuverRight
-                "maneuver_slight_left" -> GabayIcons.ManeuverSlightLeft
-                "maneuver_slight_right" -> GabayIcons.ManeuverSlightRight
-                "maneuver_u_turn" -> GabayIcons.ManeuverUTurn
-                "maneuver_fork" -> GabayIcons.ManeuverFork
-                else -> GabayIcons.ManeuverStraight
-            }
+    var isSearchFocused by remember { mutableStateOf(false) }
+    val keyboardController = LocalSoftwareKeyboardController.current
+    val focusManager = LocalFocusManager.current
 
-            Box(
-                modifier = Modifier
-                    .size(48.dp)
-                    .background(GabayColors.BgInput, RoundedCornerShape(6.dp))
-                    .border(1.dp, GabayColors.BorderSubtle, RoundedCornerShape(6.dp)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = maneuverIcon,
-                    contentDescription = "Maneuver",
-                    tint = if (telemetry.isOffRoute) GabayColors.AccentRed else GabayColors.AccentEmerald,
-                    modifier = Modifier.size(28.dp)
-                )
-            }
-
-            Spacer(modifier = Modifier.width(14.dp))
-
-            // Direction text and distance
-            Column(modifier = Modifier.weight(1f)) {
-                val distText = if (telemetry.nextTurnDistanceM >= 1000f) {
-                    String.format("%.1f KM", telemetry.nextTurnDistanceM / 1000f)
-                } else {
-                    "${telemetry.nextTurnDistanceM.toInt()} M"
-                }
-
-                Text(
-                    text = distText,
-                    style = GabayTypography.ManeuverDistance,
-                    color = GabayColors.TextPrimary
-                )
-
-                Text(
-                    text = telemetry.nextTurnRoad.uppercase(),
-                    style = GabayTypography.StreetName,
-                    color = GabayColors.TextSecondary,
-                    maxLines = 1
-                )
-            }
-
-            // Avoidance badges
-            Column(
-                horizontalAlignment = Alignment.End,
-                verticalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                if (vehicleMode == VehicleMode.SCOOTER) {
-                    AvoidanceBadge(text = "NO TOLL")
-                    AvoidanceBadge(text = "NO SKYWAY")
-                } else {
-                    AvoidanceBadge(text = "OPTIMAL")
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun AvoidanceBadge(text: String) {
-    Box(
-        modifier = Modifier
-            .background(GabayColors.BgElevated, RoundedCornerShape(4.dp))
-            .border(1.dp, GabayColors.BorderSubtle, RoundedCornerShape(4.dp))
-            .padding(horizontal = 6.dp, vertical = 2.dp)
-    ) {
-        Text(
-            text = text,
-            style = GabayTypography.BadgeText,
-            color = GabayColors.AccentAmber
-        )
-    }
-}
-
-@Composable
-fun BottomCockpitDock(
-    telemetry: HudTelemetry,
-    modifier: Modifier = Modifier
-) {
-    Box(
+    Column(
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp)
-            .background(GabayColors.BgCard, RoundedCornerShape(12.dp))
-            .border(1.dp, GabayColors.BorderSubtle, RoundedCornerShape(12.dp))
-            .padding(vertical = 12.dp, horizontal = 8.dp)
     ) {
+        // Floating Rounded Search Bar Card
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(52.dp)
+                .background(GabayColors.UiCardGlass, RoundedCornerShape(26.dp))
+                .border(1.dp, GabayColors.UiBorder, RoundedCornerShape(26.dp))
+                .padding(horizontal = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Speed Column
-            Column(
-                modifier = Modifier.weight(1f),
-                horizontalAlignment = Alignment.CenterHorizontally
+            // Left: Circular Menu Button
+            IconButton(
+                onClick = onMenuClick,
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
             ) {
-                Text(
-                    text = "LIVE SPEED",
-                    style = GabayTypography.MonospaceLabel,
-                    color = GabayColors.TextMuted
-                )
-                Text(
-                    text = telemetry.liveSpeedKmh.toInt().toString(),
-                    style = GabayTypography.SpeedNumber,
-                    color = if (telemetry.liveSpeedKmh > 60f) GabayColors.AccentAmber else GabayColors.TextPrimary
-                )
-                Text(
-                    text = "KM/H",
-                    style = GabayTypography.TelemetryUnit,
-                    color = GabayColors.TextSecondary
+                Icon(
+                    imageVector = GabayIcons.Menu,
+                    contentDescription = "Menu",
+                    tint = GabayColors.TextPrimary,
+                    modifier = Modifier.size(20.dp)
                 )
             }
 
-            // Divider
+            Spacer(modifier = Modifier.width(6.dp))
+
+            // Middle: Search Input Field
             Box(
                 modifier = Modifier
-                    .width(1.dp)
-                    .height(48.dp)
-                    .background(GabayColors.BorderSubtle)
-            )
-
-            // Heading Column
-            Column(
-                modifier = Modifier.weight(1f),
-                horizontalAlignment = Alignment.CenterHorizontally
+                    .weight(1f)
+                    .fillMaxHeight(),
+                contentAlignment = Alignment.CenterStart
             ) {
-                Text(
-                    text = "HEADING",
-                    style = GabayTypography.MonospaceLabel,
-                    color = GabayColors.TextMuted
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = GabayIcons.CompassHeading,
-                        contentDescription = "Compass",
-                        tint = GabayColors.AccentCyan,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
+                if (query.isEmpty()) {
                     Text(
-                        text = "${telemetry.headingCardinal} ${telemetry.headingDegrees.toInt()}°",
-                        style = GabayTypography.TelemetryValue,
-                        color = GabayColors.TextPrimary
+                        text = "Search places, roads, landmarks...",
+                        style = GabayTypography.SearchPlaceholder,
+                        maxLines = 1
                     )
                 }
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = if (telemetry.isOffRoute) "OFF-ROUTE" else "ON-TRACK",
-                    style = GabayTypography.BadgeText,
-                    color = if (telemetry.isOffRoute) GabayColors.AccentRed else GabayColors.AccentEmerald
+                BasicTextField(
+                    value = query,
+                    onValueChange = {
+                        onQueryChange(it)
+                        isSearchFocused = true
+                    },
+                    singleLine = true,
+                    textStyle = GabayTypography.SearchText,
+                    cursorBrush = SolidColor(GabayColors.AccentMint),
+                    modifier = Modifier.fillMaxWidth()
                 )
             }
 
-            // Divider
-            Box(
-                modifier = Modifier
-                    .width(1.dp)
-                    .height(48.dp)
-                    .background(GabayColors.BorderSubtle)
-            )
+            // Right: Clear or Search Icon
+            if (query.isNotEmpty()) {
+                IconButton(
+                    onClick = { onQueryChange("") },
+                    modifier = Modifier.size(36.dp)
+                ) {
+                    Icon(
+                        imageVector = GabayIcons.ActionClose,
+                        contentDescription = "Clear",
+                        tint = GabayColors.TextSecondary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            } else {
+                IconButton(
+                    onClick = {},
+                    modifier = Modifier.size(36.dp)
+                ) {
+                    Icon(
+                        imageVector = GabayIcons.SearchPoi,
+                        contentDescription = "Search",
+                        tint = GabayColors.TextSecondary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+        }
 
-            // Distance & Pace Column
-            Column(
-                modifier = Modifier.weight(1.2f),
-                horizontalAlignment = Alignment.CenterHorizontally
+        // Search Results Dropdown (SQLite FTS5 Results)
+        AnimatedVisibility(
+            visible = query.isNotBlank() && searchResults.isNotEmpty(),
+            enter = fadeIn() + expandVertically(),
+            exit = fadeOut() + shrinkVertically()
+        ) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp),
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(containerColor = GabayColors.UiCardElevated),
+                border = CardDefaults.outlinedCardBorder().copy(brush = SolidColor(GabayColors.UiBorder))
             ) {
-                Text(
-                    text = "REMAINING / PACE",
-                    style = GabayTypography.MonospaceLabel,
-                    color = GabayColors.TextMuted
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = String.format("%.1f KM", telemetry.remainingDistanceKm),
-                    style = GabayTypography.TelemetryValue,
-                    color = GabayColors.TextPrimary
-                )
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = telemetry.paceWindowMin,
-                    style = GabayTypography.MonospaceLabel.copy(fontSize = 12.sp),
-                    color = GabayColors.AccentEmerald
-                )
+                Column(modifier = Modifier.padding(vertical = 6.dp)) {
+                    searchResults.take(5).forEach { place ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    onSelectPlace(place)
+                                    isSearchFocused = false
+                                    keyboardController?.hide()
+                                    focusManager.clearFocus()
+                                }
+                                .padding(horizontal = 16.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .background(GabayColors.UiInput, CircleShape)
+                                    .border(1.dp, GabayColors.UiBorder, CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = GabayIcons.DestinationPin,
+                                    contentDescription = null,
+                                    tint = GabayColors.AccentMint,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = place.name,
+                                    style = GabayTypography.StreetName.copy(fontSize = 14.sp),
+                                    color = GabayColors.TextPrimary,
+                                    maxLines = 1
+                                )
+                                Text(
+                                    text = place.category,
+                                    style = GabayTypography.MonospaceLabel.copy(fontSize = 11.sp),
+                                    color = GabayColors.TextMuted,
+                                    maxLines = 1
+                                )
+                            }
+                        }
+                    }
+                }
             }
         }
     }
 }
 
+/**
+ * Redesigned Middle Bottom Speedometer (Number Only + MPH + Turn Arrows)
+ * Matches the user requirement: "Live speed (no text) is in the middle bottom in km/h and a very little one on the bottom right to also show miles/h then it will show or blink arrows on either sides whenever we need to turn"
+ */
 @Composable
-fun GloveModeBar(
-    selectedMode: VehicleMode,
-    isSatelliteActive: Boolean,
-    isTopoActive: Boolean,
-    is3dActive: Boolean,
-    onModeSelect: (VehicleMode) -> Unit,
-    onToggleSat: () -> Unit,
-    onToggleTopo: () -> Unit,
-    onToggle3d: () -> Unit,
-    onRecenterGps: () -> Unit,
-    onVoiceCoPilot: () -> Unit,
+fun MiddleBottomSpeedometer(
+    speedKmh: Float,
+    nextTurnIcon: String,
     modifier: Modifier = Modifier
 ) {
-    val scrollState = rememberScrollState()
+    val speedInt = if (speedKmh < 1.0f) 0 else speedKmh.toInt()
+    val speedMph = (speedInt * 0.621371f).toInt()
+
+    val isTurnLeft = nextTurnIcon.contains("left")
+    val isTurnRight = nextTurnIcon.contains("right")
+
+    // Infinite transition for turn arrow pulse
+    val infiniteTransition = rememberInfiniteTransition(label = "TurnArrowPulse")
+    val pulseAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.35f,
+        targetValue = 1.0f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(400, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "Alpha"
+    )
+
     Row(
         modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 6.dp)
-            .horizontalScroll(scrollState),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .background(GabayColors.UiCardGlass, RoundedCornerShape(32.dp))
+            .border(1.dp, GabayColors.UiBorder, RoundedCornerShape(32.dp))
+            .padding(horizontal = 20.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center
     ) {
-        // Mode: Scooter
-        ModePill(
-            label = "SCOOTER",
-            icon = GabayIcons.ModeScooter,
-            isActive = selectedMode == VehicleMode.SCOOTER,
-            onClick = { onModeSelect(VehicleMode.SCOOTER) }
-        )
+        // Left Flanking Turn Arrow
+        Box(
+            modifier = Modifier
+                .size(42.dp)
+                .background(
+                    if (isTurnLeft) GabayColors.AccentMint.copy(alpha = 0.2f * pulseAlpha) else Color.Transparent,
+                    CircleShape
+                )
+                .border(
+                    1.dp,
+                    if (isTurnLeft) GabayColors.AccentMint.copy(alpha = pulseAlpha) else GabayColors.UiBorder.copy(alpha = 0.4f),
+                    CircleShape
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = GabayIcons.TurnArrowLeft,
+                contentDescription = "Turn Left",
+                tint = if (isTurnLeft) GabayColors.AccentMint else GabayColors.TextMuted.copy(alpha = 0.4f),
+                modifier = Modifier.size(20.dp)
+            )
+        }
 
-        // Mode: Car
-        ModePill(
-            label = "CAR",
-            icon = GabayIcons.ModeCar,
-            isActive = selectedMode == VehicleMode.CAR,
-            onClick = { onModeSelect(VehicleMode.CAR) }
-        )
+        Spacer(modifier = Modifier.width(18.dp))
 
-        // Mode: Walk
-        ModePill(
-            label = "WALK",
-            icon = GabayIcons.ModeWalk,
-            isActive = selectedMode == VehicleMode.WALK,
-            onClick = { onModeSelect(VehicleMode.WALK) }
-        )
+        // Large Speed Readout (NUMBER ONLY, NO "LIVE SPEED" LABEL)
+        Row(
+            verticalAlignment = Alignment.Bottom,
+            horizontalArrangement = Arrangement.Center
+        ) {
+            Text(
+                text = "$speedInt",
+                style = GabayTypography.SpeedHuge,
+                color = Color.White
+            )
+            Spacer(modifier = Modifier.width(4.dp))
+            Column(
+                modifier = Modifier.padding(bottom = 8.dp),
+                horizontalAlignment = Alignment.Start
+            ) {
+                Text(
+                    text = "KM/H",
+                    style = TextStyle(
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 11.sp,
+                        color = GabayColors.TextSecondary
+                    )
+                )
+                Text(
+                    text = "$speedMph mph",
+                    style = GabayTypography.SpeedMph
+                )
+            }
+        }
 
-        // Layer: Macro Satellite Peek
-        ModePill(
-            label = "SAT",
-            icon = GabayIcons.LayerSatellite,
-            isActive = isSatelliteActive,
-            onClick = onToggleSat
-        )
+        Spacer(modifier = Modifier.width(18.dp))
 
-        // Layer: Topography Contours
-        ModePill(
-            label = "TOPO",
-            icon = GabayIcons.LayerTopo,
-            isActive = isTopoActive,
-            onClick = onToggleTopo
-        )
+        // Right Flanking Turn Arrow
+        Box(
+            modifier = Modifier
+                .size(42.dp)
+                .background(
+                    if (isTurnRight) GabayColors.AccentMint.copy(alpha = 0.2f * pulseAlpha) else Color.Transparent,
+                    CircleShape
+                )
+                .border(
+                    1.dp,
+                    if (isTurnRight) GabayColors.AccentMint.copy(alpha = pulseAlpha) else GabayColors.UiBorder.copy(alpha = 0.4f),
+                    CircleShape
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = GabayIcons.TurnArrowRight,
+                contentDescription = "Turn Right",
+                tint = if (isTurnRight) GabayColors.AccentMint else GabayColors.TextMuted.copy(alpha = 0.4f),
+                modifier = Modifier.size(20.dp)
+            )
+        }
+    }
+}
 
-        // Layer: 3D Extrusions
-        ModePill(
-            label = "3D",
-            icon = GabayIcons.Layer3d,
-            isActive = is3dActive,
-            onClick = onToggle3d
-        )
+/**
+ * Floating Circular Action Button (Apple OS Fluid Roundness)
+ */
+@Composable
+fun CircularFloatingButton(
+    icon: ImageVector,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    isActive: Boolean = false,
+    activeColor: Color = GabayColors.AccentMint,
+    contentDescription: String? = null
+) {
+    val bgColor = if (isActive) activeColor.copy(alpha = 0.25f) else GabayColors.UiCardGlass
+    val borderColor = if (isActive) activeColor else GabayColors.UiBorder
+    val iconColor = if (isActive) activeColor else GabayColors.TextPrimary
 
-        // Recenter GPS
-        ModePill(
-            label = "RECENTER",
-            icon = GabayIcons.RecenterGps,
-            isActive = false,
-            onClick = onRecenterGps
-        )
-
-        // Co-Pilot Voice Query
-        ModePill(
-            label = "GABAY VOICE",
-            icon = GabayIcons.CopilotMic,
-            isActive = true,
-            activeColor = GabayColors.AccentCyan,
-            onClick = onVoiceCoPilot
+    Box(
+        modifier = modifier
+            .size(48.dp)
+            .background(bgColor, CircleShape)
+            .border(1.dp, borderColor, CircleShape)
+            .clip(CircleShape)
+            .clickable { onClick() },
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            tint = iconColor,
+            modifier = Modifier.size(22.dp)
         )
     }
 }
 
+/**
+ * Floating Distance & Pace Pills (Visible Only During Active Route)
+ */
 @Composable
-fun ModePill(
-    label: String,
-    icon: ImageVector,
-    isActive: Boolean,
-    activeColor: Color = GabayColors.AccentEmerald,
-    onClick: () -> Unit
+fun FloatingTelemetryPill(
+    value: String,
+    unit: String,
+    modifier: Modifier = Modifier
 ) {
-    val bgColor = if (isActive) activeColor.copy(alpha = 0.15f) else GabayColors.BgElevated
-    val borderColor = if (isActive) activeColor else GabayColors.BorderSubtle
-    val tintColor = if (isActive) activeColor else GabayColors.TextSecondary
-
-    Box(
-        modifier = Modifier
-            .defaultMinSize(minWidth = 72.dp, minHeight = 48.dp)
-            .background(bgColor, RoundedCornerShape(6.dp))
-            .border(1.dp, borderColor, RoundedCornerShape(6.dp))
-            .clickable { onClick() }
-            .padding(horizontal = 12.dp, vertical = 8.dp),
-        contentAlignment = Alignment.Center
+    Row(
+        modifier = modifier
+            .background(GabayColors.UiCardGlass, RoundedCornerShape(18.dp))
+            .border(1.dp, GabayColors.UiBorder, RoundedCornerShape(18.dp))
+            .padding(horizontal = 14.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        Text(
+            text = value,
+            style = TextStyle(
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Bold,
+                fontSize = 15.sp,
+                color = GabayColors.AccentMint
+            )
+        )
+        Spacer(modifier = Modifier.width(4.dp))
+        Text(
+            text = unit,
+            style = TextStyle(
+                fontFamily = FontFamily.Monospace,
+                fontSize = 10.sp,
+                color = GabayColors.TextMuted
+            )
+        )
+    }
+}
+
+/**
+ * Apple-style Live Agent Co-Pilot Sheet with Conversation Transcript History
+ */
+@Composable
+fun AgentCoPilotSheet(
+    messages: List<ChatMessage>,
+    onSendPrompt: (String) -> Unit,
+    onClose: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .fillMaxHeight(0.65f),
+        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+        colors = CardDefaults.cardColors(containerColor = GabayColors.UiCard),
+        border = CardDefaults.outlinedCardBorder().copy(brush = SolidColor(GabayColors.UiBorder))
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(20.dp)
         ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = label,
-                tint = tintColor,
-                modifier = Modifier.size(18.dp)
-            )
+            // Sheet Header with Active Pulse Dot
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(10.dp)
+                            .background(GabayColors.AccentMint, CircleShape)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "GABAY CO-PILOT AGENT",
+                        style = TextStyle(
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp,
+                            letterSpacing = 1.1.sp,
+                            color = GabayColors.TextPrimary
+                        )
+                    )
+                }
+
+                IconButton(
+                    onClick = onClose,
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(
+                        imageVector = GabayIcons.ActionClose,
+                        contentDescription = "Close",
+                        tint = GabayColors.TextSecondary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Quick Prompt Action Pills
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                listOf("Nearest Gas", "Avoid Tollways", "ETA & Pace", "Traffic Ahead").forEach { prompt ->
+                    Box(
+                        modifier = Modifier
+                            .background(GabayColors.UiInput, RoundedCornerShape(16.dp))
+                            .border(1.dp, GabayColors.UiBorder, RoundedCornerShape(16.dp))
+                            .clickable { onSendPrompt(prompt) }
+                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                    ) {
+                        Text(
+                            text = prompt,
+                            style = TextStyle(
+                                fontFamily = FontFamily.Default,
+                                fontSize = 12.sp,
+                                color = GabayColors.TextPrimary
+                            )
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // Conversation History Transcript List
+            LazyColumn(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                items(messages) { msg ->
+                    val isAgent = msg.sender.contains("AGENT")
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalAlignment = if (isAgent) Alignment.Start else Alignment.End
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = msg.sender,
+                                style = TextStyle(
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isAgent) GabayColors.AccentMint else GabayColors.TextMuted
+                                )
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = msg.timestamp,
+                                style = TextStyle(
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 9.sp,
+                                    color = GabayColors.TextMuted
+                                )
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(3.dp))
+                        Box(
+                            modifier = Modifier
+                                .background(
+                                    if (isAgent) GabayColors.UiInput else GabayColors.UiCardElevated,
+                                    RoundedCornerShape(14.dp)
+                                )
+                                .border(
+                                    1.dp,
+                                    if (isAgent) GabayColors.AccentMint.copy(alpha = 0.4f) else GabayColors.UiBorder,
+                                    RoundedCornerShape(14.dp)
+                                )
+                                .padding(horizontal = 14.dp, vertical = 10.dp)
+                        ) {
+                            Text(
+                                text = msg.text,
+                                style = TextStyle(
+                                    fontFamily = if (isAgent) FontFamily.Monospace else FontFamily.Default,
+                                    fontSize = 13.sp,
+                                    color = Color.White
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Top Menu Drawer Sheet (Drive History & Offline Vault Stats)
+ */
+@Composable
+fun TopMenuSheet(
+    driveHistory: List<DriveHistoryItem>,
+    selectedMode: VehicleMode,
+    onModeSelect: (VehicleMode) -> Unit,
+    onClose: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .fillMaxHeight(0.65f),
+        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+        colors = CardDefaults.cardColors(containerColor = GabayColors.UiCard),
+        border = CardDefaults.outlinedCardBorder().copy(brush = SolidColor(GabayColors.UiBorder))
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(20.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = "GABAY COCKPIT & HISTORY",
+                    style = TextStyle(
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp,
+                        letterSpacing = 1.1.sp,
+                        color = GabayColors.TextPrimary
+                    )
+                )
+
+                IconButton(
+                    onClick = onClose,
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(
+                        imageVector = GabayIcons.ActionClose,
+                        contentDescription = "Close",
+                        tint = GabayColors.TextSecondary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // Vehicle Mode Pills
             Text(
-                text = label,
-                style = GabayTypography.PillText,
-                color = tintColor
+                text = "VEHICLE MODE",
+                style = GabayTypography.MonospaceLabel
             )
+            Spacer(modifier = Modifier.height(6.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                listOf(
+                    Triple(VehicleMode.SCOOTER, "SCOOTER", GabayIcons.ModeScooter),
+                    Triple(VehicleMode.CAR, "CAR", GabayIcons.ModeCar),
+                    Triple(VehicleMode.WALK, "WALK", GabayIcons.ModeWalk)
+                ).forEach { (mode, label, icon) ->
+                    val isSel = selectedMode == mode
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(44.dp)
+                            .background(
+                                if (isSel) GabayColors.AccentMint.copy(alpha = 0.2f) else GabayColors.UiInput,
+                                RoundedCornerShape(12.dp)
+                            )
+                            .border(
+                                1.dp,
+                                if (isSel) GabayColors.AccentMint else GabayColors.UiBorder,
+                                RoundedCornerShape(12.dp)
+                            )
+                            .clickable { onModeSelect(mode) },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = icon,
+                                contentDescription = null,
+                                tint = if (isSel) GabayColors.AccentMint else GabayColors.TextSecondary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = label,
+                                style = TextStyle(
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isSel) GabayColors.AccentMint else GabayColors.TextSecondary
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(18.dp))
+
+            // Successful Drive History List
+            Text(
+                text = "SUCCESSFUL DRIVES HISTORY",
+                style = GabayTypography.MonospaceLabel
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+
+            LazyColumn(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(driveHistory) { drive ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(GabayColors.UiInput, RoundedCornerShape(12.dp))
+                            .border(1.dp, GabayColors.UiBorder, RoundedCornerShape(12.dp))
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column {
+                            Text(
+                                text = drive.title,
+                                style = TextStyle(
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 13.sp,
+                                    color = GabayColors.TextPrimary
+                                )
+                            )
+                            Text(
+                                text = drive.date,
+                                style = TextStyle(
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 10.sp,
+                                    color = GabayColors.TextMuted
+                                )
+                            )
+                        }
+                        Text(
+                            text = "${drive.distanceKm} KM • ${drive.durationMin} MIN",
+                            style = TextStyle(
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = GabayColors.AccentMint
+                            )
+                        )
+                    }
+                }
+            }
         }
     }
 }

@@ -15,8 +15,8 @@ import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
-import org.maplibre.android.style.layers.BackgroundLayer
-import org.maplibre.android.style.layers.FillExtrusionLayer
+import org.maplibre.android.style.layers.CircleLayer
+import org.maplibre.android.style.layers.FillLayer
 import org.maplibre.android.style.layers.LineLayer
 import org.maplibre.android.style.layers.PropertyFactory.*
 import org.maplibre.android.style.sources.GeoJsonSource
@@ -27,6 +27,14 @@ import org.maplibre.geojson.Point
 import uniffi.gabay_core.RouteResult
 import java.io.File
 import java.io.RandomAccessFile
+import java.net.URI
+
+enum class FusedMapMode {
+    STREET,     // Dark sleek vector map (photo-matched)
+    TOPO,       // Topography contour lines
+    SATELLITE,  // Single-zoom macro satellite peek
+    HYBRID_3D   // 3D tilted camera perspective
+}
 
 object DynamicBorderBounds {
     // Flagship Philippines Geographic Envelope
@@ -36,7 +44,7 @@ object DynamicBorderBounds {
     var maxLat: Double = 21.5
 
     /**
-     * Inspects PMTiles v3 binary header if present in vault to automatically adapt
+     * Inspects PMTiles binary header if present in vault to automatically adapt
      * bounding box for international riders dropping in their own country's map.
      */
     fun detectFromVault(vaultPath: String) {
@@ -44,7 +52,6 @@ object DynamicBorderBounds {
         if (vectorPmtiles.exists() && vectorPmtiles.length() >= 127) {
             try {
                 RandomAccessFile(vectorPmtiles, "r").use { raf ->
-                    // Bytes 97-112: min_lon_e7, min_lat_e7, max_lon_e7, max_lat_e7 (int32 little endian)
                     raf.seek(97)
                     val buffer = ByteArray(16)
                     raf.readFully(buffer)
@@ -85,9 +92,8 @@ fun MapCanvas(
     userHeading: Float,
     activeRoute: RouteResult?,
     destinationPin: uniffi.gabay_core.LatLng?,
-    isSatelliteActive: Boolean,
-    isTopoActive: Boolean,
-    is3dActive: Boolean,
+    fusedMapMode: FusedMapMode,
+    cameraTarget: LatLng?,
     onPinDropped: (uniffi.gabay_core.LatLng) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -102,16 +108,26 @@ fun MapCanvas(
         DynamicBorderBounds.detectFromVault("/sdcard/Documents/Gabay")
     }
 
-    // React to 3D mode changes
-    LaunchedEffect(is3dActive, mapInstance) {
-        mapInstance?.let { map ->
-            val targetTilt = if (is3dActive) 50.0 else 0.0
-            val currentPos = map.cameraPosition
-            val newPos = CameraPosition.Builder(currentPos)
-                .tilt(targetTilt)
-                .build()
-            map.easeCamera(CameraUpdateFactory.newCameraPosition(newPos), 400)
-        }
+    // React to camera target updates (e.g. search select or recenter)
+    LaunchedEffect(cameraTarget, mapInstance) {
+        val map = mapInstance ?: return@LaunchedEffect
+        val target = cameraTarget ?: return@LaunchedEffect
+        val newPos = CameraPosition.Builder()
+            .target(target)
+            .zoom(15.0)
+            .build()
+        map.easeCamera(CameraUpdateFactory.newCameraPosition(newPos), 600)
+    }
+
+    // React to FusedMapMode changes
+    LaunchedEffect(fusedMapMode, mapInstance) {
+        val map = mapInstance ?: return@LaunchedEffect
+        val targetTilt = if (fusedMapMode == FusedMapMode.HYBRID_3D) 50.0 else 0.0
+        val currentPos = map.cameraPosition
+        val newPos = CameraPosition.Builder(currentPos)
+            .tilt(targetTilt)
+            .build()
+        map.easeCamera(CameraUpdateFactory.newCameraPosition(newPos), 450)
     }
 
     // React to active route updates
@@ -188,27 +204,27 @@ private fun setupTacticalMap(
     context: Context,
     onPinDropped: (uniffi.gabay_core.LatLng) -> Unit
 ) {
-    // Initial Philippine Camera (Manila Metro Corridor)
+    // Initial Philippine Camera (Manila / Makati / BGC Corridor)
     val initialCamera = CameraPosition.Builder()
         .target(LatLng(14.5547, 121.0244)) // Ayala Avenue Makati
-        .zoom(14.5)
+        .zoom(14.2)
         .tilt(0.0)
         .bearing(0.0)
         .build()
     map.cameraPosition = initialCamera
 
-    // Minimal High-Contrast Offline Tactical Dark Style
+    // Reference-Image Matching Dark Sleek Styling (#202328 Land)
     val styleJson = """
     {
       "version": 8,
-      "name": "Gabay Tactical Dark",
+      "name": "Gabay Sleek Charcoal Dark",
       "sources": {},
       "layers": [
         {
           "id": "background",
           "type": "background",
           "paint": {
-            "background-color": "#0A0D10"
+            "background-color": "#202328"
           }
         }
       ]
@@ -216,27 +232,166 @@ private fun setupTacticalMap(
     """.trimIndent()
 
     map.setStyle(Style.Builder().fromJson(styleJson)) { style ->
-        // Route Line Layer Source
+        // Helper to load GeoJSON string from physical sdcard vault or embedded APK assets
+        fun loadGeoJson(sdcardPath: String, assetName: String): String {
+            try {
+                val f = File(sdcardPath)
+                if (f.exists() && f.length() > 0) {
+                    return f.readText()
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+            return try {
+                context.assets.open(assetName).bufferedReader().use { it.readText() }
+            } catch (e: Exception) {
+                "{ \"type\": \"FeatureCollection\", \"features\": [] }"
+            }
+        }
+
+        // 1. Waterways & Coastlines (#131519 Dark Slate Water)
+        try {
+            val waterJson = loadGeoJson("/sdcard/Documents/Gabay/metro_manila_water.geojson", "water.geojson")
+            val waterSource = GeoJsonSource("water_source", waterJson)
+            style.addSource(waterSource)
+
+            val waterLayer = LineLayer("water_layer", "water_source").apply {
+                setProperties(
+                    lineColor(AndroidColor.parseColor("#131519")),
+                    lineWidth(5.5f),
+                    lineCap(org.maplibre.android.style.layers.Property.LINE_CAP_ROUND),
+                    lineJoin(org.maplibre.android.style.layers.Property.LINE_JOIN_ROUND)
+                )
+            }
+            style.addLayer(waterLayer)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
+        // 2. Parks & Greenery (#1B231F Tone-on-tone Forest)
+        try {
+            val parksJson = loadGeoJson("/sdcard/Documents/Gabay/metro_manila_parks.geojson", "parks.geojson")
+            val parksSource = GeoJsonSource("parks_source", parksJson)
+            style.addSource(parksSource)
+
+            val parksLayer = FillLayer("parks_layer", "parks_source").apply {
+                setProperties(
+                    fillColor(AndroidColor.parseColor("#1B231F")),
+                    fillOpacity(0.9f)
+                )
+            }
+            style.addLayer(parksLayer)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
+        // 3. Minor Streets & Residential Corridors (#2D323C)
+        try {
+            val minorJson = loadGeoJson("/sdcard/Documents/Gabay/metro_manila_roads_minor.geojson", "roads_minor.geojson")
+            val minorSource = GeoJsonSource("roads_minor_source", minorJson)
+            style.addSource(minorSource)
+
+            val roadsMinorLayer = LineLayer("roads_minor", "roads_minor_source").apply {
+                setProperties(
+                    lineColor(AndroidColor.parseColor("#2D323C")),
+                    lineWidth(1.8f),
+                    lineCap(org.maplibre.android.style.layers.Property.LINE_CAP_ROUND),
+                    lineJoin(org.maplibre.android.style.layers.Property.LINE_JOIN_ROUND)
+                )
+            }
+            style.addLayer(roadsMinorLayer)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
+        // 4. Major Arterials & Highways (EDSA, Skyway, C-5, Ayala Ave) (#505869)
+        try {
+            val majorJson = loadGeoJson("/sdcard/Documents/Gabay/metro_manila_roads_major.geojson", "roads_major.geojson")
+            val majorSource = GeoJsonSource("roads_major_source", majorJson)
+            style.addSource(majorSource)
+
+            val roadsMajorLayer = LineLayer("roads_major", "roads_major_source").apply {
+                setProperties(
+                    lineColor(AndroidColor.parseColor("#505869")),
+                    lineWidth(3.6f),
+                    lineCap(org.maplibre.android.style.layers.Property.LINE_CAP_ROUND),
+                    lineJoin(org.maplibre.android.style.layers.Property.LINE_JOIN_ROUND)
+                )
+            }
+            style.addLayer(roadsMajorLayer)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
+        // 4. Active Route Polyline (#00F5D4 Neon Mint as in Reference Photo)
         val routeSource = GeoJsonSource("route_source", FeatureCollection.fromFeatures(emptyList()))
         style.addSource(routeSource)
 
+        val routeCasing = LineLayer("route_casing", "route_source").apply {
+            setProperties(
+                lineColor(AndroidColor.parseColor("#00382C")),
+                lineWidth(9.5f),
+                lineCap(org.maplibre.android.style.layers.Property.LINE_CAP_ROUND),
+                lineJoin(org.maplibre.android.style.layers.Property.LINE_JOIN_ROUND)
+            )
+        }
+        style.addLayer(routeCasing)
+
         val routeLayer = LineLayer("route_layer", "route_source").apply {
             setProperties(
-                lineColor(AndroidColor.parseColor("#10B981")), // Emerald Green
-                lineWidth(6f),
+                lineColor(AndroidColor.parseColor("#00F5D4")), // Mint / Cyan from photo
+                lineWidth(5.5f),
                 lineCap(org.maplibre.android.style.layers.Property.LINE_CAP_ROUND),
                 lineJoin(org.maplibre.android.style.layers.Property.LINE_JOIN_ROUND)
             )
         }
         style.addLayer(routeLayer)
 
-        // Destination Pin Layer Source
+        // 5. Destination Pin (White circular badge with drop shadow)
         val pinSource = GeoJsonSource("pin_source", FeatureCollection.fromFeatures(emptyList()))
         style.addSource(pinSource)
 
-        // User Location Layer Source
+        val pinHalo = CircleLayer("pin_halo", "pin_source").apply {
+            setProperties(
+                circleRadius(14f),
+                circleColor(AndroidColor.parseColor("#00F5D4")),
+                circleOpacity(0.35f)
+            )
+        }
+        style.addLayer(pinHalo)
+
+        val pinDot = CircleLayer("pin_dot", "pin_source").apply {
+            setProperties(
+                circleRadius(8f),
+                circleColor(AndroidColor.WHITE),
+                circleStrokeWidth(3f),
+                circleStrokeColor(AndroidColor.parseColor("#00F5D4"))
+            )
+        }
+        style.addLayer(pinDot)
+
+        // 6. User GPS Location Marker
         val userSource = GeoJsonSource("user_source", FeatureCollection.fromFeatures(emptyList()))
         style.addSource(userSource)
+
+        val userHalo = CircleLayer("user_halo", "user_source").apply {
+            setProperties(
+                circleRadius(16f),
+                circleColor(AndroidColor.parseColor("#00F5D4")),
+                circleOpacity(0.25f)
+            )
+        }
+        style.addLayer(userHalo)
+
+        val userDot = CircleLayer("user_dot", "user_source").apply {
+            setProperties(
+                circleRadius(7f),
+                circleColor(AndroidColor.parseColor("#00F5D4")),
+                circleStrokeWidth(2.5f),
+                circleStrokeColor(AndroidColor.WHITE)
+            )
+        }
+        style.addLayer(userDot)
     }
 
     // Long Press Listener: Drop Destination Pin
@@ -283,7 +438,6 @@ fun applyElasticConstraint(map: MapLibreMap) {
     }
 
     if (needsBounce) {
-        // Spring recoil animation back to border edge
         val recoilUpdate = CameraUpdateFactory.newLatLng(LatLng(targetLat, targetLon))
         map.easeCamera(recoilUpdate, 350)
     }

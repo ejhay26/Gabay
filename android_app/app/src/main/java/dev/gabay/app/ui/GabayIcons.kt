@@ -701,4 +701,55 @@ object GabayIcons {
         ).build()
     }
 
+    // ic_menu
+    val Menu: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "Menu",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f
+        ).addPath(
+            pathData = PathParser().parsePathString("M4 12h16 M4 6h16 M4 18h16").toNodes(),
+            stroke = SolidColor(Color(0xFFF0F4F8)),
+            strokeLineWidth = DefaultStroke,
+            strokeLineCap = StrokeCap.Round,
+            strokeLineJoin = StrokeJoin.Round
+        ).build()
+    }
+
+    // ic_turn_arrow_left
+    val TurnArrowLeft: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "TurnArrowLeft",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f
+        ).addPath(
+            pathData = PathParser().parsePathString("M19 12H5 M12 19l-7-7 7-7").toNodes(),
+            stroke = SolidColor(Color(0xFFF0F4F8)),
+            strokeLineWidth = DefaultStroke,
+            strokeLineCap = StrokeCap.Round,
+            strokeLineJoin = StrokeJoin.Round
+        ).build()
+    }
+
+    // ic_turn_arrow_right
+    val TurnArrowRight: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "TurnArrowRight",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f
+        ).addPath(
+            pathData = PathParser().parsePathString("M5 12h14 M12 5l7 7-7 7").toNodes(),
+            stroke = SolidColor(Color(0xFFF0F4F8)),
+            strokeLineWidth = DefaultStroke,
+            strokeLineCap = StrokeCap.Round,
+            strokeLineJoin = StrokeJoin.Round
+        ).build()
+    }
+
 }
