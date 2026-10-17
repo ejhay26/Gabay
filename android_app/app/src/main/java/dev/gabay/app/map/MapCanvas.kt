@@ -122,6 +122,14 @@ fun MapCanvas(
     // React to FusedMapMode changes
     LaunchedEffect(fusedMapMode, mapInstance) {
         val map = mapInstance ?: return@LaunchedEffect
+        val style = map.style ?: return@LaunchedEffect
+
+        val topoLayer = style.getLayer("topo_layer")
+        val satLayer = style.getLayer("sat_layer")
+
+        topoLayer?.setProperties(visibility(if (fusedMapMode == FusedMapMode.TOPO) org.maplibre.android.style.layers.Property.VISIBLE else org.maplibre.android.style.layers.Property.NONE))
+        satLayer?.setProperties(visibility(if (fusedMapMode == FusedMapMode.SATELLITE) org.maplibre.android.style.layers.Property.VISIBLE else org.maplibre.android.style.layers.Property.NONE))
+
         val targetTilt = if (fusedMapMode == FusedMapMode.HYBRID_3D) 50.0 else 0.0
         val currentPos = map.cameraPosition
         val newPos = CameraPosition.Builder(currentPos)
@@ -175,7 +183,7 @@ fun MapCanvas(
                 mapViewInstance = this
                 getMapAsync { map ->
                     mapInstance = map
-                    setupTacticalMap(map, ctx, onPinDropped)
+                    setupTacticalMap(map, ctx, userLat, userLon, onPinDropped)
                 }
             }
         },
@@ -202,29 +210,129 @@ fun MapCanvas(
 private fun setupTacticalMap(
     map: MapLibreMap,
     context: Context,
+    initialLat: Double,
+    initialLon: Double,
     onPinDropped: (uniffi.gabay_core.LatLng) -> Unit
 ) {
-    // Initial Philippine Camera (Manila / Makati / BGC Corridor)
+    // Disable default compass (removes unwanted reset rotation icon from top right)
+    map.uiSettings.isCompassEnabled = false
+    map.uiSettings.isLogoEnabled = false
+    map.uiSettings.isAttributionEnabled = false
+
+    // Initial Philippine Camera centered on user location
     val initialCamera = CameraPosition.Builder()
-        .target(LatLng(14.5547, 121.0244)) // Ayala Avenue Makati
-        .zoom(14.2)
+        .target(LatLng(initialLat, initialLon))
+        .zoom(12.0)
         .tilt(0.0)
         .bearing(0.0)
         .build()
     map.cameraPosition = initialCamera
 
-    // Reference-Image Matching Dark Sleek Styling (#202328 Land)
+    // Reference-Image Matching Dark Sleek Styling (#16191E Land) with PMTiles Vector + Topo + Satellite
     val styleJson = """
     {
       "version": 8,
       "name": "Gabay Sleek Charcoal Dark",
-      "sources": {},
+      "sources": {
+        "protomaps_vector": {
+          "type": "vector",
+          "tiles": ["http://127.0.0.1:8765/vector/{z}/{x}/{y}.mvt"],
+          "minzoom": 0,
+          "maxzoom": 12
+        },
+        "topo_raster": {
+          "type": "raster",
+          "tiles": ["http://127.0.0.1:8765/topo/{z}/{x}/{y}.webp"],
+          "tileSize": 256,
+          "minzoom": 0,
+          "maxzoom": 9
+        },
+        "sat_raster": {
+          "type": "raster",
+          "tiles": ["http://127.0.0.1:8765/satellite/{z}/{x}/{y}.jpg"],
+          "tileSize": 256,
+          "minzoom": 3,
+          "maxzoom": 8
+        }
+      },
       "layers": [
         {
           "id": "background",
           "type": "background",
           "paint": {
-            "background-color": "#202328"
+            "background-color": "#16191E"
+          }
+        },
+        {
+          "id": "sat_layer",
+          "type": "raster",
+          "source": "sat_raster",
+          "layout": { "visibility": "none" },
+          "paint": { "raster-opacity": 0.88 }
+        },
+        {
+          "id": "topo_layer",
+          "type": "raster",
+          "source": "topo_raster",
+          "layout": { "visibility": "none" },
+          "paint": { "raster-opacity": 0.85 }
+        },
+        {
+          "id": "pmtiles_earth",
+          "type": "fill",
+          "source": "protomaps_vector",
+          "source-layer": "earth",
+          "paint": {
+            "fill-color": "#1C2026"
+          }
+        },
+        {
+          "id": "pmtiles_water",
+          "type": "fill",
+          "source": "protomaps_vector",
+          "source-layer": "water",
+          "paint": {
+            "fill-color": "#0E1217"
+          }
+        },
+        {
+          "id": "pmtiles_landuse",
+          "type": "fill",
+          "source": "protomaps_vector",
+          "source-layer": "landuse",
+          "paint": {
+            "fill-color": "#18231D",
+            "fill-opacity": 0.6
+          }
+        },
+        {
+          "id": "pmtiles_buildings",
+          "type": "fill",
+          "source": "protomaps_vector",
+          "source-layer": "buildings",
+          "paint": {
+            "fill-color": "#252B35",
+            "fill-opacity": 0.5
+          }
+        },
+        {
+          "id": "pmtiles_roads_casing",
+          "type": "line",
+          "source": "protomaps_vector",
+          "source-layer": "roads",
+          "paint": {
+            "line-color": "#11141A",
+            "line-width": 3.8
+          }
+        },
+        {
+          "id": "pmtiles_roads",
+          "type": "line",
+          "source": "protomaps_vector",
+          "source-layer": "roads",
+          "paint": {
+            "line-color": "#5C657A",
+            "line-width": 2.2
           }
         }
       ]

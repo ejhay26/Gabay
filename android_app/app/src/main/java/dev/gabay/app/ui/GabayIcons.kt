@@ -621,7 +621,7 @@ object GabayIcons {
             viewportWidth = 24f,
             viewportHeight = 24f
         ).addPath(
-            pathData = PathParser().parsePathString("m21 21-4.34-4.34 M 11.0 3.0 a 8.0 8.0 0 1 0 0.001 0 a 8.0 8.0 0 1 0 -0.001 0 Z").toNodes(),
+            pathData = PathParser().parsePathString("M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16z M21 21l-4.35-4.35").toNodes(),
             stroke = SolidColor(Color(0xFFF0F4F8)),
             strokeLineWidth = DefaultStroke,
             strokeLineCap = StrokeCap.Round,

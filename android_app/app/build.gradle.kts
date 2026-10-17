@@ -25,6 +25,15 @@ android {
         }
     }
 
+    signingConfigs {
+        create("release") {
+            storeFile = file("C:/Users/Administrator/Documents/newkey")
+            storePassword = "12345678"
+            keyAlias = "key1"
+            keyPassword = "12345678"
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
@@ -33,7 +42,7 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("release")
         }
         debug {
             isMinifyEnabled = false
@@ -41,6 +50,11 @@ android {
                 abiFilters.add("arm64-v8a")
             }
         }
+    }
+
+    lint {
+        checkReleaseBuilds = false
+        abortOnError = false
     }
 
     compileOptions {

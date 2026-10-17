@@ -19,3 +19,6 @@ local.properties
 *.osm.pbf
 vault_output/
 .kotlin/
+*.log
+*.mvt
+scripts/

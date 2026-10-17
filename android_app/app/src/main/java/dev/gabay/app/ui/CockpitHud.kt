@@ -223,6 +223,7 @@ fun TopSearchBar(
 fun MiddleBottomSpeedometer(
     speedKmh: Float,
     nextTurnIcon: String,
+    bottomLabel: String = "",
     modifier: Modifier = Modifier
 ) {
     val speedInt = if (speedKmh < 1.0f) 0 else speedKmh.toInt()
@@ -243,94 +244,223 @@ fun MiddleBottomSpeedometer(
         label = "Alpha"
     )
 
-    Row(
+    Column(
         modifier = modifier
             .background(GabayColors.UiCardGlass, RoundedCornerShape(32.dp))
             .border(1.dp, GabayColors.UiBorder, RoundedCornerShape(32.dp))
-            .padding(horizontal = 20.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.Center
+            .padding(horizontal = 20.dp, vertical = 8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // Left Flanking Turn Arrow
-        Box(
-            modifier = Modifier
-                .size(42.dp)
-                .background(
-                    if (isTurnLeft) GabayColors.AccentMint.copy(alpha = 0.2f * pulseAlpha) else Color.Transparent,
-                    CircleShape
-                )
-                .border(
-                    1.dp,
-                    if (isTurnLeft) GabayColors.AccentMint.copy(alpha = pulseAlpha) else GabayColors.UiBorder.copy(alpha = 0.4f),
-                    CircleShape
-                ),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = GabayIcons.TurnArrowLeft,
-                contentDescription = "Turn Left",
-                tint = if (isTurnLeft) GabayColors.AccentMint else GabayColors.TextMuted.copy(alpha = 0.4f),
-                modifier = Modifier.size(20.dp)
-            )
-        }
-
-        Spacer(modifier = Modifier.width(18.dp))
-
-        // Large Speed Readout (NUMBER ONLY, NO "LIVE SPEED" LABEL)
         Row(
-            verticalAlignment = Alignment.Bottom,
+            verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Center
         ) {
-            Text(
-                text = "$speedInt",
-                style = GabayTypography.SpeedHuge,
-                color = Color.White
-            )
-            Spacer(modifier = Modifier.width(4.dp))
-            Column(
-                modifier = Modifier.padding(bottom = 8.dp),
-                horizontalAlignment = Alignment.Start
+            // Left Flanking Turn Arrow - ONLY VISIBLE WHEN TURNING LEFT
+            if (isTurnLeft) {
+                Box(
+                    modifier = Modifier
+                        .size(38.dp)
+                        .background(GabayColors.AccentMint.copy(alpha = 0.2f * pulseAlpha), CircleShape)
+                        .border(1.dp, GabayColors.AccentMint.copy(alpha = pulseAlpha), CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = GabayIcons.TurnArrowLeft,
+                        contentDescription = "Turn Left",
+                        tint = GabayColors.AccentMint,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(14.dp))
+            }
+
+            // Large Speed Readout (NUMBER ONLY, NO "LIVE SPEED" LABEL)
+            Row(
+                verticalAlignment = Alignment.Bottom,
+                horizontalArrangement = Arrangement.Center
             ) {
                 Text(
-                    text = "KM/H",
-                    style = TextStyle(
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 11.sp,
-                        color = GabayColors.TextSecondary
+                    text = "$speedInt",
+                    style = GabayTypography.SpeedHuge,
+                    color = Color.White
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Column(
+                    modifier = Modifier.padding(bottom = 6.dp),
+                    horizontalAlignment = Alignment.Start
+                ) {
+                    Text(
+                        text = "KM/H",
+                        style = TextStyle(
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 11.sp,
+                            color = GabayColors.TextSecondary
+                        )
                     )
-                )
-                Text(
-                    text = "$speedMph mph",
-                    style = GabayTypography.SpeedMph
-                )
+                    Text(
+                        text = "$speedMph mph",
+                        style = GabayTypography.SpeedMph
+                    )
+                }
+            }
+
+            // Right Flanking Turn Arrow - ONLY VISIBLE WHEN TURNING RIGHT
+            if (isTurnRight) {
+                Spacer(modifier = Modifier.width(14.dp))
+                Box(
+                    modifier = Modifier
+                        .size(38.dp)
+                        .background(GabayColors.AccentMint.copy(alpha = 0.2f * pulseAlpha), CircleShape)
+                        .border(1.dp, GabayColors.AccentMint.copy(alpha = pulseAlpha), CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = GabayIcons.TurnArrowRight,
+                        contentDescription = "Turn Right",
+                        tint = GabayColors.AccentMint,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
             }
         }
 
-        Spacer(modifier = Modifier.width(18.dp))
-
-        // Right Flanking Turn Arrow
-        Box(
-            modifier = Modifier
-                .size(42.dp)
-                .background(
-                    if (isTurnRight) GabayColors.AccentMint.copy(alpha = 0.2f * pulseAlpha) else Color.Transparent,
-                    CircleShape
-                )
-                .border(
-                    1.dp,
-                    if (isTurnRight) GabayColors.AccentMint.copy(alpha = pulseAlpha) else GabayColors.UiBorder.copy(alpha = 0.4f),
-                    CircleShape
+        // Bottom label (Street name or Maneuver instruction)
+        if (bottomLabel.isNotBlank()) {
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = bottomLabel.uppercase(),
+                style = TextStyle(
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 10.sp,
+                    color = GabayColors.AccentMint.copy(alpha = 0.9f)
                 ),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = GabayIcons.TurnArrowRight,
-                contentDescription = "Turn Right",
-                tint = if (isTurnRight) GabayColors.AccentMint else GabayColors.TextMuted.copy(alpha = 0.4f),
-                modifier = Modifier.size(20.dp)
+                maxLines = 1
             )
         }
+    }
+}
+
+/**
+ * Animated Map Style Speed-Dial
+ * Extends icons upwards on tap, then delayed text labels slide sidewards to the right.
+ * Highlights the active/selected map style.
+ */
+@Composable
+fun MapStyleSpeedDial(
+    currentMode: FusedMapMode,
+    onSelectMode: (FusedMapMode) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var isExpanded by remember { mutableStateOf(false) }
+
+    val options = listOf(
+        Triple(FusedMapMode.HYBRID_3D, GabayIcons.Layer3d, "3D PERSPECTIVE"),
+        Triple(FusedMapMode.SATELLITE, GabayIcons.LayerSatellite, "SATELLITE"),
+        Triple(FusedMapMode.TOPO, GabayIcons.LayerTopo, "TOPOGRAPHY"),
+        Triple(FusedMapMode.STREET, GabayIcons.ModeCar, "STREET (VECTOR)")
+    )
+
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.Start,
+        verticalArrangement = Arrangement.Bottom
+    ) {
+        // Extended items upwards
+        AnimatedVisibility(
+            visible = isExpanded,
+            enter = fadeIn() + expandVertically(expandFrom = Alignment.Bottom),
+            exit = fadeOut() + shrinkVertically(shrinkTowards = Alignment.Bottom)
+        ) {
+            Column(
+                modifier = Modifier.padding(bottom = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                options.forEachIndexed { index, (mode, icon, label) ->
+                    val isSelected = (mode == currentMode)
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.clickable {
+                            onSelectMode(mode)
+                            isExpanded = false
+                        }
+                    ) {
+                        // Circular Icon Button
+                        Box(
+                            modifier = Modifier
+                                .size(46.dp)
+                                .background(
+                                    if (isSelected) GabayColors.AccentMint.copy(alpha = 0.25f) else GabayColors.UiCardGlass,
+                                    CircleShape
+                                )
+                                .border(
+                                    if (isSelected) 1.5.dp else 1.dp,
+                                    if (isSelected) GabayColors.AccentMint else GabayColors.UiBorder,
+                                    CircleShape
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = icon,
+                                contentDescription = label,
+                                tint = if (isSelected) GabayColors.AccentMint else GabayColors.TextPrimary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.width(10.dp))
+
+                        // Delayed text label extending sidewards to the right
+                        AnimatedVisibility(
+                            visible = isExpanded,
+                            enter = fadeIn(animationSpec = tween(200, delayMillis = index * 50)) +
+                                    slideInHorizontally(
+                                        initialOffsetX = { -20 },
+                                        animationSpec = tween(200, delayMillis = index * 50)
+                                    ),
+                            exit = fadeOut() + slideOutHorizontally()
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .background(GabayColors.UiCardGlass, RoundedCornerShape(16.dp))
+                                    .border(
+                                        1.dp,
+                                        if (isSelected) GabayColors.AccentMint else GabayColors.UiBorder,
+                                        RoundedCornerShape(16.dp)
+                                    )
+                                    .padding(horizontal = 14.dp, vertical = 8.dp)
+                            ) {
+                                Text(
+                                    text = label,
+                                    style = TextStyle(
+                                        fontFamily = FontFamily.Monospace,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 11.sp,
+                                        color = if (isSelected) GabayColors.AccentMint else GabayColors.TextPrimary
+                                    )
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Main Anchor Floating Button
+        val mainIcon = when (currentMode) {
+            FusedMapMode.STREET -> GabayIcons.ModeCar
+            FusedMapMode.TOPO -> GabayIcons.LayerTopo
+            FusedMapMode.SATELLITE -> GabayIcons.LayerSatellite
+            FusedMapMode.HYBRID_3D -> GabayIcons.Layer3d
+        }
+        CircularFloatingButton(
+            icon = mainIcon,
+            onClick = { isExpanded = !isExpanded },
+            isActive = isExpanded,
+            contentDescription = "Map Style Options"
+        )
     }
 }
 
@@ -428,6 +558,16 @@ fun AgentCoPilotSheet(
                 .fillMaxSize()
                 .padding(20.dp)
         ) {
+            // Apple-style Centered Drag Handle Pill
+            Box(
+                modifier = Modifier
+                    .align(Alignment.CenterHorizontally)
+                    .padding(bottom = 14.dp)
+                    .width(38.dp)
+                    .height(4.dp)
+                    .background(GabayColors.TextMuted.copy(alpha = 0.45f), CircleShape)
+            )
+
             // Sheet Header with Active Pulse Dot
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -584,6 +724,16 @@ fun TopMenuSheet(
                 .fillMaxSize()
                 .padding(20.dp)
         ) {
+            // Apple-style Centered Drag Handle Pill
+            Box(
+                modifier = Modifier
+                    .align(Alignment.CenterHorizontally)
+                    .padding(bottom = 14.dp)
+                    .width(38.dp)
+                    .height(4.dp)
+                    .background(GabayColors.TextMuted.copy(alpha = 0.45f), CircleShape)
+            )
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
