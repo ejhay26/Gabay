@@ -100,7 +100,12 @@ impl Router {
 
                         for item in rows.flatten() {
                             let (name, kind, geom_str) = item;
-                            if options.avoid_expressways && (kind == "motorway" || kind == "expressway") {
+                            let is_drivable = match kind.as_str() {
+                                "major_road" | "minor_road" => true,
+                                "highway" => !options.avoid_expressways,
+                                _ => false, // Exclude path (ricefield footpaths), aeroway, rail, ferry
+                            };
+                            if !is_drivable {
                                 continue;
                             }
                             let pts: Vec<LatLng> = geom_str.split(';')
@@ -124,26 +129,29 @@ impl Router {
                             }
                         }
 
-                        if !best_pts.is_empty() && best_score < 4000.0 {
-                            active_road_name = if best_name != "Road" { best_name } else { "Main Arterial".to_string() };
-                            // Find closest point indices on road
-                            let mut idx_start = 0;
-                            let mut min_d_start = f64::INFINITY;
-                            let mut idx_end = 0;
-                            let mut min_d_end = f64::INFINITY;
+                        if !best_pts.is_empty() {
+                            let min_d_start = best_pts.iter().map(|p| Self::haversine_distance(&start, p)).fold(f64::INFINITY, f64::min);
+                            let min_d_end = best_pts.iter().map(|p| Self::haversine_distance(&end, p)).fold(f64::INFINITY, f64::min);
+                            if min_d_start < 60.0 && min_d_end < 60.0 {
+                                active_road_name = if best_name != "Road" { best_name } else { "Main Arterial".to_string() };
+                                // Find closest point indices on road
+                                let mut idx_start = 0;
+                                let mut min_ds = f64::INFINITY;
+                                let mut idx_end = 0;
+                                let mut min_de = f64::INFINITY;
 
-                            for (i, p) in best_pts.iter().enumerate() {
-                                let ds = Self::haversine_distance(&start, p);
-                                if ds < min_d_start {
-                                    min_d_start = ds;
-                                    idx_start = i;
+                                for (i, p) in best_pts.iter().enumerate() {
+                                    let ds = Self::haversine_distance(&start, p);
+                                    if ds < min_ds {
+                                        min_ds = ds;
+                                        idx_start = i;
+                                    }
+                                    let de = Self::haversine_distance(&end, p);
+                                    if de < min_de {
+                                        min_de = de;
+                                        idx_end = i;
+                                    }
                                 }
-                                let de = Self::haversine_distance(&end, p);
-                                if de < min_d_end {
-                                    min_d_end = de;
-                                    idx_end = i;
-                                }
-                            }
 
                             road_polyline.push(start.clone());
                             if idx_start <= idx_end {
@@ -156,6 +164,7 @@ impl Router {
                                 }
                             }
                             road_polyline.push(end.clone());
+                            }
                         }
                     }
                 }

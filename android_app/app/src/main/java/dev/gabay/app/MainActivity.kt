@@ -94,12 +94,13 @@ class MainActivity : ComponentActivity() {
             GabayTheme {
                 Scaffold(
                     modifier = Modifier.fillMaxSize(),
-                    containerColor = GabayColors.BgObsidian
-                ) { innerPadding ->
+                    containerColor = GabayColors.BgObsidian,
+                    contentWindowInsets = WindowInsets(0, 0, 0, 0)
+                ) { _ ->
                     CockpitScreen(
                         engine = engine,
                         audioController = audioController,
-                        modifier = Modifier.padding(innerPadding)
+                        modifier = Modifier.fillMaxSize()
                     )
                 }
             }
@@ -163,24 +164,14 @@ fun CockpitScreen(
         } else null
     }
 
-    // Bulletproof Route Solver: Uses Rust core engine A* when loaded, with high-accuracy road-following fallback
+    // Bulletproof Route Solver: High-Accuracy Dijkstra Road-Network Router from device vault
     fun computeRoute(startCoord: LatLng, destCoord: LatLng, options: RouteOptions): RouteResult {
-        // 1. Try Rust Core Engine A*
-        try {
-            val rustRoute = engine?.calculateRoute(startCoord, destCoord, options)
-            if (rustRoute != null && rustRoute.success && rustRoute.polyline.size >= 4) {
-                return rustRoute
-            }
-        } catch (e: Exception) {
-            android.util.Log.e("GabayRoute", "Rust calculateRoute exception", e)
-        }
-
-        // 2. Multi-Segment Chained Road Network Routing from device vault (Central Luzon & Nationwide Road Polylines)
+        // High-Accuracy Dijkstra Road-Network Router from device vault (Central Luzon & Nationwide Road Polylines)
         try {
             val dbFile = File("/sdcard/Documents/Gabay/pois_fts.sqlite")
             if (dbFile.exists()) {
                 val db = SQLiteDatabase.openDatabase(dbFile.absolutePath, null, SQLiteDatabase.OPEN_READONLY)
-                val pad = 0.04
+                val pad = 0.08 // ~8.8km margin ensuring all bypasses, highways, and connectors are included
                 val minLat = minOf(startCoord.latitude, destCoord.latitude) - pad
                 val maxLat = maxOf(startCoord.latitude, destCoord.latitude) + pad
                 val minLon = minOf(startCoord.longitude, destCoord.longitude) - pad
@@ -192,8 +183,8 @@ fun CockpitScreen(
                     arrayOf(maxLat.toString(), minLat.toString(), maxLon.toString(), minLon.toString())
                 )
 
-                class RoadSegment(val name: String, val kind: String, val points: List<LatLng>)
-                val candidates = ArrayList<RoadSegment>()
+                class RoadRaw(val name: String, val kind: String, val points: List<LatLng>)
+                val candidateRoads = ArrayList<RoadRaw>()
 
                 if (cursor.moveToFirst()) {
                     do {
@@ -201,9 +192,14 @@ fun CockpitScreen(
                         val kind = cursor.getString(1) ?: "road"
                         val geomStr = cursor.getString(2) ?: ""
 
-                        if (options.avoidExpressways && (kind == "motorway" || kind == "expressway")) {
-                            continue
+                        // STRICT FILTER: Only real physical drivable roads!
+                        // Exclude footpaths across ricefields (path), aeroways, rails, ferries, aerialways
+                        val isDrivable = when (kind) {
+                            "major_road", "minor_road" -> true
+                            "highway" -> !options.avoidExpressways
+                            else -> false
                         }
+                        if (!isDrivable) continue
 
                         val rawPairs = geomStr.split(";")
                         if (rawPairs.size >= 2) {
@@ -219,7 +215,7 @@ fun CockpitScreen(
                                 }
                             }
                             if (pts.size >= 2) {
-                                candidates.add(RoadSegment(name, kind, pts))
+                                candidateRoads.add(RoadRaw(name, kind, pts))
                             }
                         }
                     } while (cursor.moveToNext())
@@ -227,89 +223,218 @@ fun CockpitScreen(
                 cursor.close()
                 db.close()
 
-                if (candidates.isNotEmpty()) {
-                    val distResult = FloatArray(1)
-
-                    fun distBetween(p1: LatLng, p2: LatLng): Float {
-                        Location.distanceBetween(p1.latitude, p1.longitude, p2.latitude, p2.longitude, distResult)
-                        return distResult[0]
+                if (candidateRoads.isNotEmpty()) {
+                    val distTmp = FloatArray(1)
+                    fun distBetween(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Float {
+                        Location.distanceBetween(lat1, lon1, lat2, lon2, distTmp)
+                        return distTmp[0]
                     }
 
-                    // 1. Find segment closest to start
-                    var bestStartDist = Float.MAX_VALUE
-                    var startIdx = 0
-                    for (i in candidates.indices) {
-                        for (p in candidates[i].points) {
-                            val d = distBetween(startCoord, p)
-                            if (d < bestStartDist) {
-                                bestStartDist = d
-                                startIdx = i
-                            }
+                    // Project point onto line segment for accurate curb access
+                    fun projectPointOnSegment(p: LatLng, a: LatLng, b: LatLng): Pair<LatLng, Float> {
+                        val cosLat = Math.cos(Math.toRadians(p.latitude))
+                        val px = p.longitude * 111320.0 * cosLat
+                        val py = p.latitude * 110540.0
+                        val ax = a.longitude * 111320.0 * cosLat
+                        val ay = a.latitude * 110540.0
+                        val bx = b.longitude * 111320.0 * cosLat
+                        val by = b.latitude * 110540.0
+
+                        val dx = bx - ax
+                        val dy = by - ay
+                        val lenSq = dx * dx + dy * dy
+                        if (lenSq < 1e-6) {
+                            return Pair(a, distBetween(p.latitude, p.longitude, a.latitude, a.longitude))
                         }
+                        val t = ((px - ax) * dx + (py - ay) * dy) / lenSq
+                        val clampedT = t.coerceIn(0.0, 1.0)
+                        val projLat = a.latitude + clampedT * (b.latitude - a.latitude)
+                        val projLon = a.longitude + clampedT * (b.longitude - a.longitude)
+                        val projCoord = LatLng(projLat, projLon)
+                        return Pair(projCoord, distBetween(p.latitude, p.longitude, projLat, projLon))
                     }
 
-                    // 2. Chained road traversal towards destination
-                    val visited = HashSet<Int>()
-                    visited.add(startIdx)
+                    // Build graph with 65-meter spatial grid snapping for provincial/rural junction connectivity
+                    val snapToleranceMeters = 65f
+                    val graphNodes = ArrayList<LatLng>()
+                    val gridMap = HashMap<Long, ArrayList<Int>>()
 
-                    val chainedSegments = ArrayList<Pair<String, List<LatLng>>>()
-                    val firstSeg = candidates[startIdx]
-                    // Orient first segment forward towards dest
-                    val d0 = distBetween(firstSeg.points.first(), destCoord)
-                    val d1 = distBetween(firstSeg.points.last(), destCoord)
-                    val firstPts = if (d1 <= d0) firstSeg.points else firstSeg.points.reversed()
-                    chainedSegments.add(Pair(firstSeg.name, firstPts))
+                    fun getNodeIndex(coord: LatLng): Int {
+                        val gx = (coord.longitude * 1000.0).toInt().toLong()
+                        val gy = (coord.latitude * 1000.0).toInt().toLong()
 
-                    var currentTip = firstPts.last()
-
-                    for (step in 0 until 40) {
-                        if (distBetween(currentTip, destCoord) < 550f) break
-
-                        var bestStepDist = Float.MAX_VALUE
-                        var nextIdx = -1
-                        var flip = false
-                        val currentDestDist = distBetween(currentTip, destCoord)
-
-                        for (i in candidates.indices) {
-                            if (visited.contains(i)) continue
-                            val candPts = candidates[i].points
-                            val candD0 = distBetween(currentTip, candPts.first())
-                            val candD1 = distBetween(currentTip, candPts.last())
-                            val minTipDist = minOf(candD0, candD1)
-
-                            if (minTipDist < 450f && minTipDist < bestStepDist) {
-                                val otherTip = if (candD0 < candD1) candPts.last() else candPts.first()
-                                if (distBetween(otherTip, destCoord) <= currentDestDist + 150f) {
-                                    bestStepDist = minTipDist
-                                    nextIdx = i
-                                    flip = (candD1 < candD0)
+                        for (dx in -1..1) {
+                            for (dy in -1..1) {
+                                val cellKey = ((gx + dx) shl 32) or ((gy + dy) and 0xFFFFFFFFL)
+                                val bucket = gridMap[cellKey]
+                                if (bucket != null) {
+                                    for (nid in bucket) {
+                                        val existing = graphNodes[nid]
+                                        if (distBetween(coord.latitude, coord.longitude, existing.latitude, existing.longitude) <= snapToleranceMeters) {
+                                            return nid
+                                        }
+                                    }
                                 }
                             }
                         }
 
-                        if (nextIdx == -1) break
-                        visited.add(nextIdx)
-                        val nextSeg = candidates[nextIdx]
-                        val nextPts = if (flip) nextSeg.points.reversed() else nextSeg.points
-                        chainedSegments.add(Pair(nextSeg.name, nextPts))
-                        currentTip = nextPts.last()
+                        val newId = graphNodes.size
+                        graphNodes.add(coord)
+                        val primaryKey = (gx shl 32) or (gy and 0xFFFFFFFFL)
+                        gridMap.getOrPut(primaryKey) { ArrayList() }.add(newId)
+                        return newId
                     }
 
-                    // 3. Assemble continuous curved polyline
+                    class GraphEdge(val targetNode: Int, val weightMeters: Float, val roadName: String, val points: List<LatLng>)
+                    val adj = HashMap<Int, ArrayList<GraphEdge>>()
+
+                    fun addEdge(u: Int, v: Int, weight: Float, name: String, pts: List<LatLng>) {
+                        if (u != v) {
+                            adj.getOrPut(u) { ArrayList() }.add(GraphEdge(v, weight, name, pts))
+                            adj.getOrPut(v) { ArrayList() }.add(GraphEdge(u, weight, name, pts.reversed()))
+                        }
+                    }
+
+                    for (road in candidateRoads) {
+                        val pts = road.points
+                        for (i in 0 until pts.size - 1) {
+                            val p1 = pts[i]
+                            val p2 = pts[i + 1]
+                            val u = getNodeIndex(p1)
+                            val v = getNodeIndex(p2)
+                            val segDist = distBetween(p1.latitude, p1.longitude, p2.latitude, p2.longitude)
+                            addEdge(u, v, segDist, road.name, listOf(p1, p2))
+                        }
+                    }
+
+                    // Snap startCoord and destCoord to nearest candidate road segment
+                    fun snapToRoad(coord: LatLng): Triple<Int, LatLng, Float> {
+                        var bestProj = coord
+                        var bestDist = Float.MAX_VALUE
+                        var bestSegU = -1
+                        var bestSegV = -1
+                        var bestRoadName = "Road"
+
+                        for (road in candidateRoads) {
+                            val pts = road.points
+                            for (i in 0 until pts.size - 1) {
+                                val (proj, d) = projectPointOnSegment(coord, pts[i], pts[i + 1])
+                                if (d < bestDist) {
+                                    bestDist = d
+                                    bestProj = proj
+                                    bestSegU = getNodeIndex(pts[i])
+                                    bestSegV = getNodeIndex(pts[i + 1])
+                                    bestRoadName = road.name
+                                }
+                            }
+                        }
+
+                        val projNodeId = getNodeIndex(bestProj)
+                        if (bestSegU != -1 && bestSegU != projNodeId) {
+                            val d1 = distBetween(bestProj.latitude, bestProj.longitude, graphNodes[bestSegU].latitude, graphNodes[bestSegU].longitude)
+                            addEdge(projNodeId, bestSegU, d1, bestRoadName, listOf(bestProj, graphNodes[bestSegU]))
+                        }
+                        if (bestSegV != -1 && bestSegV != projNodeId) {
+                            val d2 = distBetween(bestProj.latitude, bestProj.longitude, graphNodes[bestSegV].latitude, graphNodes[bestSegV].longitude)
+                            addEdge(projNodeId, bestSegV, d2, bestRoadName, listOf(bestProj, graphNodes[bestSegV]))
+                        }
+                        return Triple(projNodeId, bestProj, bestDist)
+                    }
+
+                    val (startNid, startRoadPt, _) = snapToRoad(startCoord)
+                    val (destNid, destRoadPt, _) = snapToRoad(destCoord)
+
+                    // Run A* / Dijkstra shortest-path solver on physical road network
+                    val distances = HashMap<Int, Float>()
+                    class PrevStep(val prevNode: Int, val roadName: String, val edgePoints: List<LatLng>)
+                    val previous = HashMap<Int, PrevStep>()
+                    class PQEntry(val node: Int, val dist: Float, val priority: Float) : Comparable<PQEntry> {
+                        override fun compareTo(other: PQEntry): Int = priority.compareTo(other.priority)
+                    }
+                    val pq = java.util.PriorityQueue<PQEntry>()
+
+                    distances[startNid] = 0f
+                    val destNodeCoord = graphNodes[destNid]
+                    val initialH = distBetween(graphNodes[startNid].latitude, graphNodes[startNid].longitude, destNodeCoord.latitude, destNodeCoord.longitude)
+                    pq.add(PQEntry(startNid, 0f, initialH))
+
+                    var reached = false
+                    while (!pq.isEmpty()) {
+                        val curr = pq.poll() ?: break
+                        val u = curr.node
+                        val d = curr.dist
+                        val recorded = distances[u] ?: Float.MAX_VALUE
+                        if (d > recorded) continue
+
+                        if (u == destNid) {
+                            reached = true
+                            break
+                        }
+
+                        val edges = adj[u] ?: continue
+                        for (edge in edges) {
+                            val v = edge.targetNode
+                            val nd = d + edge.weightMeters
+                            val curV = distances[v] ?: Float.MAX_VALUE
+                            if (nd < curV) {
+                                distances[v] = nd
+                                previous[v] = PrevStep(u, edge.roadName, edge.points)
+                                val vCoord = graphNodes[v]
+                                val h = distBetween(vCoord.latitude, vCoord.longitude, destNodeCoord.latitude, destNodeCoord.longitude)
+                                pq.add(PQEntry(v, nd, nd + h))
+                            }
+                        }
+                    }
+
+                    // If destNid was not reachable directly, find visited node closest to destination road point
+                    val targetFinalNode = if (reached) destNid else {
+                        var bestCompNode = startNid
+                        var minSum = Float.MAX_VALUE
+                        for ((nodeIdx, dFromStart) in distances) {
+                            val nCoord = graphNodes[nodeIdx]
+                            val dToDest = distBetween(nCoord.latitude, nCoord.longitude, destRoadPt.latitude, destRoadPt.longitude)
+                            if (dFromStart + dToDest < minSum) {
+                                minSum = dFromStart + dToDest
+                                bestCompNode = nodeIdx
+                            }
+                        }
+                        bestCompNode
+                    }
+
+                    // Trace back path along actual road edges
+                    val edgesTraversed = ArrayList<PrevStep>()
+                    var traceNode = targetFinalNode
+                    while (traceNode != startNid) {
+                        val step = previous[traceNode] ?: break
+                        edgesTraversed.add(step)
+                        traceNode = step.prevNode
+                    }
+                    edgesTraversed.reverse()
+
                     val polyline = ArrayList<LatLng>()
-                    polyline.add(startCoord)
-                    for ((_, pts) in chainedSegments) {
-                        for (p in pts) {
-                            if (polyline.isEmpty() || distBetween(polyline.last(), p) > 6f) {
+                    if (distBetween(startCoord.latitude, startCoord.longitude, startRoadPt.latitude, startRoadPt.longitude) <= 30f) {
+                        polyline.add(startCoord)
+                    }
+                    polyline.add(startRoadPt)
+
+                    for (step in edgesTraversed) {
+                        for (p in step.edgePoints) {
+                            if (polyline.isEmpty() || distBetween(polyline.last().latitude, polyline.last().longitude, p.latitude, p.longitude) > 3f) {
                                 polyline.add(p)
                             }
                         }
                     }
-                    polyline.add(destCoord)
+
+                    if (polyline.isEmpty() || distBetween(polyline.last().latitude, polyline.last().longitude, destRoadPt.latitude, destRoadPt.longitude) > 3f) {
+                        polyline.add(destRoadPt)
+                    }
+                    if (distBetween(destCoord.latitude, destCoord.longitude, destRoadPt.latitude, destRoadPt.longitude) <= 30f) {
+                        polyline.add(destCoord)
+                    }
 
                     var totalMeters = 0.0
                     for (i in 0 until polyline.size - 1) {
-                        totalMeters += distBetween(polyline[i], polyline[i + 1])
+                        totalMeters += distBetween(polyline[i].latitude, polyline[i].longitude, polyline[i + 1].latitude, polyline[i + 1].longitude)
                     }
 
                     val avgSpeedMps = when (options.mode) {
@@ -320,19 +445,30 @@ fun CockpitScreen(
                     }
                     val durationSecs = (totalMeters / avgSpeedMps).toLong().coerceAtLeast(60L)
 
-                    // 4. Generate turn maneuvers with real street names
+                    // Generate distinct turn maneuvers from traversed named roads
                     val maneuvers = ArrayList<TurnManeuver>()
-                    for (i in chainedSegments.indices) {
-                        val (name, pts) = chainedSegments[i]
-                        val roadName = if (name != "Road" && name.isNotBlank()) name else "Connecting Road"
-                        val segDist = totalMeters / chainedSegments.size.toDouble()
+                    val distinctRoads = ArrayList<Pair<String, LatLng>>()
+                    for (step in edgesTraversed) {
+                        val rname = if (step.roadName != "Road" && step.roadName.isNotBlank()) step.roadName else "Connecting Road"
+                        if (distinctRoads.isEmpty() || distinctRoads.last().first != rname) {
+                            distinctRoads.add(Pair(rname, step.edgePoints.first()))
+                        }
+                    }
+
+                    if (distinctRoads.isEmpty()) {
+                        distinctRoads.add(Pair("Connecting Road", startRoadPt))
+                    }
+
+                    val segDist = totalMeters / distinctRoads.size.toDouble().coerceAtLeast(1.0)
+                    for (i in distinctRoads.indices) {
+                        val (rname, pt) = distinctRoads[i]
                         maneuvers.add(
                             TurnManeuver(
-                                instruction = if (i == 0) "Depart onto $roadName" else "Continue on $roadName",
-                                roadName = roadName,
-                                turnType = "maneuver_straight",
+                                instruction = if (i == 0) "Depart onto $rname" else "Turn onto $rname",
+                                roadName = rname,
+                                turnType = if (i == 0) "maneuver_straight" else "maneuver_right",
                                 distanceMeters = segDist,
-                                coordinate = pts.first()
+                                coordinate = pt
                             )
                         )
                     }
@@ -357,10 +493,10 @@ fun CockpitScreen(
                 }
             }
         } catch (e: Exception) {
-            android.util.Log.e("GabayRoute", "SQLite multi-segment road route error", e)
+            android.util.Log.e("GabayRoute", "Dijkstra road-network routing error", e)
         }
 
-        // Mathematical haversine geodesic solver fallback
+        // Graceful fallback along start and destination coordinates if no roads in database
         val distResults = FloatArray(1)
         Location.distanceBetween(
             startCoord.latitude, startCoord.longitude,
@@ -375,34 +511,28 @@ fun CockpitScreen(
             VehicleMode.WALK -> 1.38 // 5 km/h
         }
         val durationSecs = (distM / avgSpeedMps).toLong().coerceAtLeast(60L)
-        val midLat = (startCoord.latitude + destCoord.latitude) / 2.0
-        val midLon = (startCoord.longitude + destCoord.longitude) / 2.0
-        val polyline = listOf(
-            startCoord,
-            LatLng(midLat, midLon),
-            destCoord
-        )
         val maneuvers = listOf(
             TurnManeuver(
                 instruction = "Depart towards destination",
-                roadName = "Current Route",
+                roadName = "Direct Route",
                 turnType = "maneuver_straight",
-                distanceMeters = distM * 0.5,
+                distanceMeters = distM,
                 coordinate = startCoord
             ),
             TurnManeuver(
                 instruction = "Arrive at destination",
                 roadName = "Destination",
-                turnType = "maneuver_straight",
-                distanceMeters = distM * 0.5,
+                turnType = "destination_pin",
+                distanceMeters = 0.0,
                 coordinate = destCoord
             )
         )
+
         return RouteResult(
             success = true,
             totalDistanceMeters = distM,
             estimatedDurationSeconds = durationSecs.toULong(),
-            polyline = polyline,
+            polyline = listOf(startCoord, destCoord),
             maneuvers = maneuvers,
             errorMessage = null
         )
@@ -865,100 +995,104 @@ fun CockpitScreen(
             modifier = Modifier.fillMaxSize()
         )
 
-        // LAYER 1: Top Search Bar (Google Maps Style)
-        TopSearchBar(
-            query = searchQuery,
-            onQueryChange = { searchQuery = it },
-            searchResults = searchResults,
-            onSelectPlace = { place ->
-                val dest = place.coordinate
-                destinationPin = dest
-                isFollowingVehicle = true
-                cameraTarget = MapLibreLatLng(dest.latitude, dest.longitude)
-                searchQuery = ""
-
-                // Calculate Route
-                val options = RouteOptions(
-                    mode = selectedMode,
-                    avoidTolls = (selectedMode == VehicleMode.SCOOTER),
-                    avoidExpressways = (selectedMode == VehicleMode.SCOOTER),
-                    avoidFerries = false
-                )
-                val startCoord = LatLng(userLat, userLon)
-                val route = computeRoute(startCoord, dest, options)
-                activeRoute = route
-                try { engine?.setActiveRoute(route) } catch (e: Exception) {}
-                telemetry = telemetry.copy(
-                    remainingDistanceKm = (route.totalDistanceMeters / 1000.0).toFloat(),
-                    paceWindowMin = "${(route.estimatedDurationSeconds / 60u)} MIN"
-                )
-                NavigationService.start(context)
-                audioController.speakTerseCue("ROUTE ACTIVE TO ${place.name.uppercase()}")
-            },
-            onMenuClick = { isMenuSheetOpen = true },
+        // LAYER 1: Top Search Bar & Active Route Telemetry Pill Bar
+        val statusBarTopPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+        Column(
             modifier = Modifier
                 .align(Alignment.TopCenter)
-                .statusBarsPadding()
-        )
+                .padding(top = (statusBarTopPadding - 8.dp).coerceAtLeast(4.dp))
+                .fillMaxWidth()
+        ) {
+            TopSearchBar(
+                query = searchQuery,
+                onQueryChange = { searchQuery = it },
+                searchResults = searchResults,
+                onSelectPlace = { place ->
+                    val dest = place.coordinate
+                    destinationPin = dest
+                    isFollowingVehicle = true
+                    cameraTarget = MapLibreLatLng(dest.latitude, dest.longitude)
+                    searchQuery = ""
 
-        // LAYER 2: Floating Distance, Cancel Route, & Pace Pills (ONLY Visible When Route Is Active)
-        if (activeRoute != null) {
-            Row(
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .statusBarsPadding()
-                    .padding(top = 64.dp)
-                    .padding(horizontal = 16.dp)
-                    .fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                FloatingTelemetryPill(
-                    value = String.format(Locale.US, "%.1f", telemetry.remainingDistanceKm),
-                    unit = "KM REMAINING"
-                )
+                    // Calculate Route
+                    val options = RouteOptions(
+                        mode = selectedMode,
+                        avoidTolls = (selectedMode == VehicleMode.SCOOTER),
+                        avoidExpressways = (selectedMode == VehicleMode.SCOOTER),
+                        avoidFerries = false
+                    )
+                    val startCoord = LatLng(userLat, userLon)
+                    val route = computeRoute(startCoord, dest, options)
+                    activeRoute = route
+                    try { engine?.setActiveRoute(route) } catch (e: Exception) {}
+                    telemetry = telemetry.copy(
+                        remainingDistanceKm = (route.totalDistanceMeters / 1000.0).toFloat(),
+                        paceWindowMin = "${(route.estimatedDurationSeconds / 60u)} MIN"
+                    )
+                    NavigationService.start(context)
+                    audioController.speakTerseCue("ROUTE ACTIVE TO ${place.name.uppercase()}")
+                },
+                onMenuClick = { isMenuSheetOpen = true },
+                modifier = Modifier.fillMaxWidth()
+            )
 
-                // Direct Instant Route Cancellation Button
-                Box(
+            // LAYER 2: Floating Distance, Cancel Route, & Pace Pills (ONLY Visible When Route Is Active)
+            if (activeRoute != null) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(
                     modifier = Modifier
-                        .background(Color(0xFF2A1010), RoundedCornerShape(20.dp))
-                        .border(1.dp, Color(0xFFFF3B30).copy(alpha = 0.8f), RoundedCornerShape(20.dp))
-                        .clickable {
-                            activeRoute = null
-                            destinationPin = null
-                            pinInfo = null
-                            NavigationService.stop(context)
-                            audioController.speakTerseCue("ROUTE CANCELLED")
-                        }
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
-                    contentAlignment = Alignment.Center
+                        .padding(horizontal = 16.dp)
+                        .fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        Icon(
-                            imageVector = GabayIcons.ActionClose,
-                            contentDescription = "Cancel Route",
-                            tint = Color(0xFFFF3B30),
-                            modifier = Modifier.size(13.dp)
-                        )
-                        Text(
-                            text = "END ROUTE",
-                            style = TextStyle(
-                                fontFamily = FontFamily.Monospace,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 11.sp,
-                                color = Color(0xFFFF3B30)
-                            )
-                        )
-                    }
-                }
+                    FloatingTelemetryPill(
+                        value = String.format(Locale.US, "%.1f", telemetry.remainingDistanceKm),
+                        unit = "KM REMAINING"
+                    )
 
-                FloatingTelemetryPill(
-                    value = telemetry.paceWindowMin,
-                    unit = "EST PACE"
-                )
+                    // Direct Instant Route Cancellation Button
+                    Box(
+                        modifier = Modifier
+                            .background(Color(0xFF2A1010), RoundedCornerShape(20.dp))
+                            .border(1.dp, Color(0xFFFF3B30).copy(alpha = 0.8f), RoundedCornerShape(20.dp))
+                            .clickable {
+                                activeRoute = null
+                                destinationPin = null
+                                pinInfo = null
+                                NavigationService.stop(context)
+                                audioController.speakTerseCue("ROUTE CANCELLED")
+                            }
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(
+                                imageVector = GabayIcons.ActionClose,
+                                contentDescription = "Cancel Route",
+                                tint = Color(0xFFFF3B30),
+                                modifier = Modifier.size(13.dp)
+                            )
+                            Text(
+                                text = "END ROUTE",
+                                style = TextStyle(
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 11.sp,
+                                    color = Color(0xFFFF3B30)
+                                )
+                            )
+                        }
+                    }
+
+                    FloatingTelemetryPill(
+                        value = telemetry.paceWindowMin,
+                        unit = "EST PACE"
+                    )
+                }
             }
         }
 
