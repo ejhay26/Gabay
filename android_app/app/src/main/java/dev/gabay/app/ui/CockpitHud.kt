@@ -15,8 +15,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.unit.IntOffset
+import kotlin.math.roundToInt
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
@@ -639,11 +643,13 @@ fun AgentCoPilotSheet(
     modifier: Modifier = Modifier
 ) {
     var inputText by remember { mutableStateOf("") }
+    var offsetY by remember { mutableFloatStateOf(0f) }
 
     Card(
         modifier = modifier
             .fillMaxWidth()
-            .fillMaxHeight(0.70f),
+            .fillMaxHeight(0.70f)
+            .offset { IntOffset(0, offsetY.roundToInt()) },
         shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
         colors = CardDefaults.cardColors(containerColor = GabayColors.UiCard),
         border = CardDefaults.outlinedCardBorder().copy(brush = SolidColor(GabayColors.UiBorder))
@@ -651,17 +657,36 @@ fun AgentCoPilotSheet(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(20.dp)
+                .padding(horizontal = 20.dp, vertical = 8.dp)
         ) {
-            // Apple-style Centered Drag Handle Pill
+            // Interactive Apple-style Draggable Handle Bar
             Box(
                 modifier = Modifier
-                    .align(Alignment.CenterHorizontally)
-                    .padding(bottom = 14.dp)
-                    .width(38.dp)
-                    .height(4.dp)
-                    .background(GabayColors.TextMuted.copy(alpha = 0.45f), CircleShape)
-            )
+                    .fillMaxWidth()
+                    .height(30.dp)
+                    .pointerInput(Unit) {
+                        detectVerticalDragGestures(
+                            onDragEnd = {
+                                if (offsetY > 120f) {
+                                    onClose()
+                                } else {
+                                    offsetY = 0f
+                                }
+                            },
+                            onVerticalDrag = { _, dragAmount ->
+                                offsetY = (offsetY + dragAmount).coerceAtLeast(0f)
+                            }
+                        )
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                Box(
+                    modifier = Modifier
+                        .width(44.dp)
+                        .height(5.dp)
+                        .background(GabayColors.TextMuted.copy(alpha = 0.6f), CircleShape)
+                )
+            }
 
             // Sheet Header with Active Pulse Dot
             Row(

@@ -184,7 +184,7 @@ fun MapCanvas(
                 topoLayer?.setProperties(visibility(org.maplibre.android.style.layers.Property.VISIBLE))
                 // Hide opaque earth/landuse/parks so topography contours show nationwide
                 earthLayer?.setProperties(visibility(org.maplibre.android.style.layers.Property.NONE))
-                waterLayer?.setProperties(visibility(org.maplibre.android.style.layers.Property.NONE))
+                waterLayer?.setProperties(visibility(org.maplibre.android.style.layers.Property.VISIBLE))
                 landuseLayer?.setProperties(visibility(org.maplibre.android.style.layers.Property.NONE))
                 buildingsLayer?.setProperties(visibility(org.maplibre.android.style.layers.Property.NONE))
                 parksLayer?.setProperties(visibility(org.maplibre.android.style.layers.Property.NONE))
@@ -383,7 +383,12 @@ private fun setupTacticalMap(
           "type": "raster",
           "source": "topo_raster",
           "layout": { "visibility": "none" },
-          "paint": { "raster-opacity": 0.90 }
+          "paint": {
+            "raster-opacity": 0.65,
+            "raster-saturation": -1.0,
+            "raster-contrast": 0.35,
+            "raster-brightness-max": 0.55
+          }
         },
         {
           "id": "pmtiles_earth",
@@ -480,12 +485,43 @@ private fun setupTacticalMap(
               16, 17
             ],
             "text-max-width": 8,
+            "text-padding": 3,
+            "text-optional": true,
             "text-allow-overlap": false
           },
           "paint": {
             "text-color": "#F0F4F8",
             "text-halo-color": "#0B0E14",
             "text-halo-width": 1.75
+          }
+        },
+        {
+          "id": "pmtiles_pois",
+          "type": "symbol",
+          "source": "protomaps_vector",
+          "source-layer": "pois",
+          "minzoom": 8,
+          "layout": {
+            "text-field": "{name}",
+            "text-font": ["Noto Sans Regular"],
+            "text-size": [
+              "interpolate",
+              ["linear"],
+              ["zoom"],
+              8, 9,
+              11, 11,
+              14, 13,
+              17, 15
+            ],
+            "text-max-width": 8,
+            "text-padding": 2,
+            "text-optional": true,
+            "text-allow-overlap": false
+          },
+          "paint": {
+            "text-color": "#00F5D4",
+            "text-halo-color": "#080B10",
+            "text-halo-width": 1.5
           }
         },
         {

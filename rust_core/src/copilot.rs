@@ -52,14 +52,36 @@ impl CoPilotGatekeeper {
 
         if let Some(query) = user_query {
             let lower = query.to_lowercase();
-            if lower.contains("gas") || lower.contains("fuel") {
-                return "NEXT GAS 1.2 KM ON RIGHT".to_string();
+            if lower.contains("where am i") || lower.contains("location") || lower.contains("status") {
+                if telemetry.remaining_distance_km > 0.0 {
+                    return format!("EN ROUTE ON {} — {:.1} KM REMAINING", telemetry.next_turn_road.to_uppercase(), telemetry.remaining_distance_km);
+                } else {
+                    return "PARKED AT CURRENT LOCATION — STANDBY".to_string();
+                }
+            } else if lower.contains("how many km") || lower.contains("remaining") || lower.contains("how far") || lower.contains("distance") {
+                if telemetry.remaining_distance_km > 0.0 {
+                    return format!("{:.1} KM REMAINING TO DESTINATION ({})", telemetry.remaining_distance_km, telemetry.pace_window_min);
+                } else {
+                    return "NO ACTIVE ROUTE — PIN OR SEARCH DESTINATION".to_string();
+                }
+            } else if lower.contains("speed") || lower.contains("how fast") {
+                return format!("CURRENT SPEED {:.0} KM/H", telemetry.live_speed_kmh);
+            } else if lower.contains("eta") || lower.contains("time") || lower.contains("arrival") {
+                if telemetry.remaining_distance_km > 0.0 {
+                    return format!("ESTIMATED ARRIVAL IN {}", telemetry.pace_window_min);
+                } else {
+                    return "NO ACTIVE ROUTE — ETA UNAVAILABLE".to_string();
+                }
+            } else if lower.contains("gas") || lower.contains("fuel") || lower.contains("petron") || lower.contains("shell") {
+                return "SEARCHING CLOSEST GAS STATIONS".to_string();
             } else if lower.contains("toll") || lower.contains("expressway") {
                 return "AVOIDING TOLLS — BYPASS ACTIVE".to_string();
-            } else if lower.contains("eta") || lower.contains("time") {
-                return format!("ETA {}", telemetry.pace_window_min);
             } else {
-                return format!("PROCEEDING ON ROUTE — {}", telemetry.next_turn_road.to_uppercase());
+                if telemetry.remaining_distance_km > 0.0 {
+                    return format!("PROCEEDING ON ROUTE — {}", telemetry.next_turn_road.to_uppercase());
+                } else {
+                    return "GABAY CO-PILOT READY — ASK A COMMAND OR SEARCH A PLACE".to_string();
+                }
             }
         }
 
@@ -69,12 +91,16 @@ impl CoPilotGatekeeper {
             return adv;
         }
 
-        if telemetry.next_turn_distance_m <= 200.0 {
+        if telemetry.next_turn_distance_m > 0.0 && telemetry.next_turn_distance_m <= 200.0 {
             let adv = format!("IN {:.0}M {}", telemetry.next_turn_distance_m, telemetry.next_turn_road.to_uppercase());
             self.last_advisory_text = Some(adv.clone());
             return adv;
         }
 
-        format!("STAY ON {}", telemetry.next_turn_road.to_uppercase())
+        if telemetry.remaining_distance_km > 0.0 {
+            format!("STAY ON {}", telemetry.next_turn_road.to_uppercase())
+        } else {
+            "PARKED — STANDBY".to_string()
+        }
     }
 }

@@ -15,12 +15,11 @@ Gabay operates 100% offline. All map data, routing graphs, and AI models reside 
 | Vault Asset | Approximate Size | Function |
 | :--- | :--- | :--- |
 | `model.gguf` | 468 MB | Qwen2.5-0.5B-Instruct-Q4_K_M local AI co-pilot |
-| `ph.gabay` | 1.17 MB | Spatial binary A* routing graph |
-| `pois_fts.sqlite` | 152 KB | SQLite FTS5 landmark and street search database |
-| `metro_manila_roads_major.geojson` | 4.45 MB | Expressways & primary arterial corridors |
-| `metro_manila_roads_minor.geojson` | 1.99 MB | Minor streets and residential road grid |
-| `metro_manila_water.geojson` | 398 KB | Waterways, rivers, and coastlines |
-| `metro_manila_parks.geojson` | 309 KB | Urban parks and nature reserves |
+| `ph.gabay` | 225.5 MB | Nationwide spatial binary A* road-following routing graph (2.4M nodes, 4.99M edges) |
+| `pois_fts.sqlite` | 101.6 MB | SQLite FTS5 database with 23,558 places/POIs and 358,392 indexed road polylines |
+| `philippines_vector.pmtiles` | 75.3 MB | Nationwide vector map tiles (streets, rivers, buildings, places, POIs) |
+| `topography_contours.pmtiles` | 17.3 MB | Tactical dark monochrome elevation relief contours (zero red/green glare) |
+| `satellite_base.pmtiles` | 1.3 MB | Locked overview satellite raster imagery |
 
 The app requests `MANAGE_EXTERNAL_STORAGE` and `ACCESS_FINE_LOCATION` on first launch to access this vault and read GPS data.
 
