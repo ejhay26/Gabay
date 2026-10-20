@@ -22,3 +22,5 @@ vault_output/
 *.log
 *.mvt
 scripts/
+__pycache__/
+*.db

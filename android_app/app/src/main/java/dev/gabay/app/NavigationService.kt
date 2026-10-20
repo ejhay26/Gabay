@@ -24,13 +24,31 @@ class NavigationService : LifecycleService() {
         const val ACTION_STOP_NAV = "dev.gabay.app.action.STOP_NAV"
 
         fun start(context: Context) {
+            val hasFine = androidx.core.content.ContextCompat.checkSelfPermission(
+                context,
+                android.Manifest.permission.ACCESS_FINE_LOCATION
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            val hasCoarse = androidx.core.content.ContextCompat.checkSelfPermission(
+                context,
+                android.Manifest.permission.ACCESS_COARSE_LOCATION
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+
+            if (!hasFine && !hasCoarse) {
+                android.util.Log.w("NavigationService", "Cannot start NavigationService: Location permission not granted")
+                return
+            }
+
             val intent = Intent(context, NavigationService::class.java).apply {
                 action = ACTION_START_NAV
             }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(intent)
-            } else {
-                context.startService(intent)
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    context.startForegroundService(intent)
+                } else {
+                    context.startService(intent)
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("NavigationService", "Failed to start service: ${e.message}")
             }
         }
 
@@ -57,15 +75,38 @@ class NavigationService : LifecycleService() {
     }
 
     private fun startForegroundServiceInternal() {
-        val notification = buildNotification("Gabay Navigation Active", "Monitoring road telemetry & GPS...")
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(
-                NOTIFICATION_ID,
-                notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
-            )
-        } else {
-            startForeground(NOTIFICATION_ID, notification)
+        try {
+            val hasFine = androidx.core.content.ContextCompat.checkSelfPermission(
+                this,
+                android.Manifest.permission.ACCESS_FINE_LOCATION
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            val hasCoarse = androidx.core.content.ContextCompat.checkSelfPermission(
+                this,
+                android.Manifest.permission.ACCESS_COARSE_LOCATION
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+
+            if (!hasFine && !hasCoarse) {
+                android.util.Log.w("NavigationService", "Location permission missing for FGS location type. Stopping service.")
+                stopSelf()
+                return
+            }
+
+            val notification = buildNotification("Gabay Navigation Active", "Monitoring road telemetry & GPS...")
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(
+                    NOTIFICATION_ID,
+                    notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+                )
+            } else {
+                startForeground(NOTIFICATION_ID, notification)
+            }
+        } catch (e: SecurityException) {
+            android.util.Log.e("NavigationService", "SecurityException during startForeground: ${e.message}", e)
+            stopSelf()
+        } catch (e: Exception) {
+            android.util.Log.e("NavigationService", "Unexpected exception during startForeground: ${e.message}", e)
+            stopSelf()
         }
     }
 

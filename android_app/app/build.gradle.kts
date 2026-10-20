@@ -4,8 +4,11 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
-// Redirect all app build outputs to G: drive to protect C: drive space
-layout.buildDirectory.set(file("G:/gabay_builds/android_builds/app"))
+// Redirect all app build outputs to G: drive to protect C: drive space if mounted
+val gBuildDir = file("G:/gabay_builds/android_builds/app")
+if (gBuildDir.parentFile?.exists() == true) {
+    layout.buildDirectory.set(gBuildDir)
+}
 
 android {
     namespace = "dev.gabay.app"

@@ -43,9 +43,9 @@ object PmTilesServer {
                 Log.i(TAG, "Initialized satellite PMTiles reader from ${satFile.absolutePath}")
             }
 
-            serverSocket = ServerSocket(PORT)
+            serverSocket = ServerSocket(PORT, 50, java.net.InetAddress.getByName("127.0.0.1"))
             isRunning = true
-            Log.i(TAG, "Local tile server started on port $PORT")
+            Log.i(TAG, "Local tile server started on loopback port $PORT")
 
             thread(name = "PmTilesServerThread", isDaemon = true) {
                 while (isRunning) {
@@ -59,6 +59,35 @@ object PmTilesServer {
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start local tile server", e)
+        }
+    }
+
+    @Synchronized
+    fun reloadReaders(vaultDir: File) {
+        try {
+            if (vectorReader == null) {
+                val vecFile = File(vaultDir, "philippines_vector.pmtiles")
+                if (vecFile.exists() && vecFile.length() > 1024) {
+                    vectorReader = PmTilesReader(vecFile)
+                    Log.i(TAG, "Reloaded vector PMTiles reader from ${vecFile.absolutePath}")
+                }
+            }
+            if (topoReader == null) {
+                val topoFile = File(vaultDir, "topography_contours.pmtiles")
+                if (topoFile.exists() && topoFile.length() > 1024) {
+                    topoReader = PmTilesReader(topoFile)
+                    Log.i(TAG, "Reloaded topo PMTiles reader from ${topoFile.absolutePath}")
+                }
+            }
+            if (satReader == null) {
+                val satFile = File(vaultDir, "satellite_base.pmtiles")
+                if (satFile.exists() && satFile.length() > 1024) {
+                    satReader = PmTilesReader(satFile)
+                    Log.i(TAG, "Reloaded satellite PMTiles reader from ${satFile.absolutePath}")
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error reloading PMTiles readers", e)
         }
     }
 

@@ -91,6 +91,7 @@ fun MapCanvas(
     userLat: Double,
     userLon: Double,
     userHeading: Float,
+    userSpeed: Float = 0.0f,
     activeRoute: RouteResult?,
     destinationPin: uniffi.gabay_core.LatLng?,
     fusedMapMode: FusedMapMode,
@@ -159,6 +160,7 @@ fun MapCanvas(
         val satLayer = style.getLayer("sat_layer")
         val earthLayer = style.getLayer("pmtiles_earth")
         val waterLayer = style.getLayer("pmtiles_water")
+        val waterwayLayer = style.getLayer("pmtiles_waterway")
         val landuseLayer = style.getLayer("pmtiles_landuse")
         val buildingsLayer = style.getLayer("pmtiles_buildings")
         val roadsLayer = style.getLayer("pmtiles_roads")
@@ -173,6 +175,7 @@ fun MapCanvas(
                 // Hide opaque fills so satellite imagery covers nationwide
                 earthLayer?.setProperties(visibility(org.maplibre.android.style.layers.Property.NONE))
                 waterLayer?.setProperties(visibility(org.maplibre.android.style.layers.Property.NONE))
+                waterwayLayer?.setProperties(visibility(org.maplibre.android.style.layers.Property.NONE))
                 landuseLayer?.setProperties(visibility(org.maplibre.android.style.layers.Property.NONE))
                 buildingsLayer?.setProperties(visibility(org.maplibre.android.style.layers.Property.NONE))
                 parksLayer?.setProperties(visibility(org.maplibre.android.style.layers.Property.NONE))
@@ -187,6 +190,7 @@ fun MapCanvas(
                 // Hide opaque earth/landuse/parks so topography contours show nationwide
                 earthLayer?.setProperties(visibility(org.maplibre.android.style.layers.Property.NONE))
                 waterLayer?.setProperties(visibility(org.maplibre.android.style.layers.Property.VISIBLE))
+                waterwayLayer?.setProperties(visibility(org.maplibre.android.style.layers.Property.VISIBLE))
                 landuseLayer?.setProperties(visibility(org.maplibre.android.style.layers.Property.NONE))
                 buildingsLayer?.setProperties(visibility(org.maplibre.android.style.layers.Property.NONE))
                 parksLayer?.setProperties(visibility(org.maplibre.android.style.layers.Property.NONE))
@@ -200,6 +204,7 @@ fun MapCanvas(
                 // Vector land, water, landuse, buildings
                 earthLayer?.setProperties(visibility(org.maplibre.android.style.layers.Property.VISIBLE))
                 waterLayer?.setProperties(visibility(org.maplibre.android.style.layers.Property.VISIBLE))
+                waterwayLayer?.setProperties(visibility(org.maplibre.android.style.layers.Property.VISIBLE))
                 landuseLayer?.setProperties(visibility(org.maplibre.android.style.layers.Property.VISIBLE))
                 buildingsLayer?.setProperties(visibility(org.maplibre.android.style.layers.Property.VISIBLE))
                 parksLayer?.setProperties(visibility(org.maplibre.android.style.layers.Property.VISIBLE))
@@ -261,7 +266,7 @@ fun MapCanvas(
     }
 
     // React to user GPS position & continuous magnetic follow / auto-rotation updates
-    LaunchedEffect(userLat, userLon, userHeading, isFollowingVehicle, is3dPerspective, mapInstance) {
+    LaunchedEffect(userLat, userLon, userHeading, userSpeed, isFollowingVehicle, is3dPerspective, mapInstance) {
         val map = mapInstance ?: return@LaunchedEffect
         val style = map.style ?: return@LaunchedEffect
 
@@ -271,18 +276,35 @@ fun MapCanvas(
 
         if (isFollowingVehicle) {
             val targetTilt = if (is3dPerspective) 55.0 else 0.0
-            val targetBearing = userHeading.toDouble()
+            val targetBearing = if (is3dPerspective) {
+                // In 3D driving perspective, only update bearing when moving (> 5 km/h) to prevent compass noise jitter
+                if (userSpeed > 5.0f) userHeading.toDouble() else map.cameraPosition.bearing
+            } else {
+                0.0 // 2D tactical map is strictly locked to True North (0.0°) — zero canvas rotation
+            }
             val currentPos = map.cameraPosition
             val navZoom = if (currentPos.zoom < 13.5) 15.5 else currentPos.zoom
 
-            val newPos = CameraPosition.Builder()
-                .target(LatLng(userLat, userLon))
-                .zoom(navZoom)
-                .bearing(targetBearing)
-                .tilt(targetTilt)
-                .build()
+            // When stationary (speed < 2 km/h), apply a 15m deadband so GPS drift doesn't shake the canvas
+            val curTarget = currentPos.target
+            val distToCam = if (curTarget != null) {
+                val res = FloatArray(1)
+                android.location.Location.distanceBetween(userLat, userLon, curTarget.latitude, curTarget.longitude, res)
+                res[0]
+            } else 999f
 
-            map.easeCamera(CameraUpdateFactory.newCameraPosition(newPos), 350)
+            val shouldMoveCam = (userSpeed >= 2.0f) || (distToCam > 15.0f) || (Math.abs(currentPos.bearing - targetBearing) > 2.0)
+
+            if (shouldMoveCam) {
+                val newPos = CameraPosition.Builder()
+                    .target(LatLng(userLat, userLon))
+                    .zoom(navZoom)
+                    .bearing(targetBearing)
+                    .tilt(targetTilt)
+                    .build()
+
+                map.easeCamera(CameraUpdateFactory.newCameraPosition(newPos), 350)
+            }
         }
     }
 
@@ -422,7 +444,7 @@ private fun setupTacticalMap(
           "source": "protomaps_vector",
           "source-layer": "earth",
           "paint": {
-            "fill-color": "#1C2026"
+            "fill-color": "#16191E"
           }
         },
         {
@@ -430,8 +452,32 @@ private fun setupTacticalMap(
           "type": "fill",
           "source": "protomaps_vector",
           "source-layer": "water",
+          "filter": ["==", "${'$'}type", "Polygon"],
           "paint": {
-            "fill-color": "#0E1217"
+            "fill-color": "#111822"
+          }
+        },
+        {
+          "id": "pmtiles_waterway",
+          "type": "line",
+          "source": "protomaps_vector",
+          "source-layer": "water",
+          "filter": ["==", "${'$'}type", "LineString"],
+          "layout": {
+            "line-cap": "round",
+            "line-join": "round"
+          },
+          "paint": {
+            "line-color": "#182230",
+            "line-width": [
+              "interpolate",
+              ["exponential", 1.4],
+              ["zoom"],
+              6, 0.6,
+              10, 1.2,
+              14, 2.8,
+              17, 5.0
+            ]
           }
         },
         {
@@ -439,9 +485,10 @@ private fun setupTacticalMap(
           "type": "fill",
           "source": "protomaps_vector",
           "source-layer": "landuse",
+          "filter": ["all", ["==", "${'$'}type", "Polygon"], ["!in", "kind", "farmland", "farm", "paddy", "basin"]],
           "paint": {
-            "fill-color": "#18231D",
-            "fill-opacity": 0.6
+            "fill-color": "#1A2420",
+            "fill-opacity": 0.4
           }
         },
         {
@@ -449,6 +496,7 @@ private fun setupTacticalMap(
           "type": "fill",
           "source": "protomaps_vector",
           "source-layer": "buildings",
+          "filter": ["==", "${'$'}type", "Polygon"],
           "paint": {
             "fill-color": "#252B35",
             "fill-opacity": 0.5
