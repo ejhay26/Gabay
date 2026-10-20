@@ -220,30 +220,54 @@ impl Router {
                 }
             }
 
-            // Junction edges (18m threshold strictly preventing median crossing)
-            let junction_threshold = 18.0f64;
+            // Planarize junctions: connect all vertices to intermediate segments of other roads within 8m
+            let junction_threshold = 8.0f64;
             for (r_idx, road) in candidate_roads.iter().enumerate() {
-                let endpoints = [(0, &road.pts[0]), (road.pts.len() - 1, &road.pts[road.pts.len() - 1])];
-                for (p_idx, pt) in endpoints {
+                for (p_idx, pt) in road.pts.iter().enumerate() {
                     let u = road_node_map[r_idx][p_idx];
-                    let cx = (pt.latitude * 1000.0) as i64;
-                    let cy = (pt.longitude * 1000.0) as i64;
-                    for dx in -1..=1 {
-                        for dy in -1..=1 {
-                            if let Some(bucket) = grid.get(&(cx + dx, cy + dy)) {
-                                for &(o_ridx, _o_pidx, v) in bucket {
-                                    if o_ridx != r_idx {
-                                        let d = Self::haversine_distance(pt, &node_coords[v]);
-                                        if d <= junction_threshold {
-                                            adj.entry(u).or_default().push(Edge {
-                                                target: v,
-                                                weight: d,
-                                                road_name: "Junction".to_string(),
-                                                pts: vec![pt.clone(), node_coords[v].clone()],
-                                            });
-                                        }
-                                    }
-                                }
+                    for (other_ridx, other_road) in candidate_roads.iter().enumerate() {
+                        if other_ridx == r_idx { continue; }
+                        let other_cost = if other_road.kind.contains("major") || other_road.name.contains("Arterial") || other_road.name.contains("Bypass") {
+                            1.0f64
+                        } else {
+                            1.35f64
+                        };
+                        for i in 0..other_road.pts.len() - 1 {
+                            let (proj, d) = Self::project_point_on_segment(pt, &other_road.pts[i], &other_road.pts[i + 1]);
+                            if d <= junction_threshold {
+                                let seg_len = Self::haversine_distance(&other_road.pts[i], &other_road.pts[i + 1]);
+                                let d_to_a = Self::haversine_distance(&proj, &other_road.pts[i]);
+                                let t = if seg_len > 0.1 { (d_to_a / seg_len).clamp(0.0, 1.0) } else { 0.5 };
+                                let v1 = road_node_map[other_ridx][i];
+                                let v2 = road_node_map[other_ridx][i + 1];
+
+                                let w1 = (d + t * seg_len) * other_cost;
+                                let w2 = (d + (1.0 - t) * seg_len) * other_cost;
+
+                                adj.entry(u).or_default().push(Edge {
+                                    target: v1,
+                                    weight: w1,
+                                    road_name: "Junction".to_string(),
+                                    pts: vec![pt.clone(), proj.clone(), other_road.pts[i].clone()],
+                                });
+                                adj.entry(v1).or_default().push(Edge {
+                                    target: u,
+                                    weight: w1,
+                                    road_name: "Junction".to_string(),
+                                    pts: vec![other_road.pts[i].clone(), proj.clone(), pt.clone()],
+                                });
+                                adj.entry(u).or_default().push(Edge {
+                                    target: v2,
+                                    weight: w2,
+                                    road_name: "Junction".to_string(),
+                                    pts: vec![pt.clone(), proj.clone(), other_road.pts[i + 1].clone()],
+                                });
+                                adj.entry(v2).or_default().push(Edge {
+                                    target: u,
+                                    weight: w2,
+                                    road_name: "Junction".to_string(),
+                                    pts: vec![other_road.pts[i + 1].clone(), proj.clone(), pt.clone()],
+                                });
                             }
                         }
                     }
@@ -251,7 +275,7 @@ impl Router {
             }
 
             // Snap start and end via perpendicular projection
-            let mut snap_road = |q_pt: &LatLng| -> (LatLng, f64, usize, usize, String) {
+            let snap_road = |q_pt: &LatLng| -> (LatLng, f64, usize, usize, String) {
                 let mut best_d = f64::INFINITY;
                 let mut best_proj = q_pt.clone();
                 let mut best_u = 0;
