@@ -8,6 +8,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -28,6 +29,7 @@ import androidx.compose.ui.unit.sp
 fun PinInspectorSheet(
     pinInfo: PinInfo,
     isRouteActive: Boolean = false,
+    isRouteLoading: Boolean = false,
     onStartRoute: (LatLng) -> Unit,
     onCancelRoute: () -> Unit = {},
     onClearPin: () -> Unit = {},
@@ -139,25 +141,50 @@ fun PinInspectorSheet(
                 modifier = Modifier
                     .fillMaxWidth()
                     .defaultMinSize(minHeight = 46.dp)
-                    .background(GabayColors.AccentEmerald, RoundedCornerShape(8.dp))
-                    .clickable { onStartRoute(pinInfo.coordinate) }
+                    .background(
+                        if (isRouteLoading) Color(0xFF1E293B) else GabayColors.AccentEmerald,
+                        RoundedCornerShape(8.dp)
+                    )
+                    .border(
+                        1.dp,
+                        if (isRouteLoading) Color(0xFF00E5FF) else Color.Transparent,
+                        RoundedCornerShape(8.dp)
+                    )
+                    .clickable(enabled = !isRouteLoading) { onStartRoute(pinInfo.coordinate) }
                     .padding(vertical = 12.dp),
                 contentAlignment = Alignment.Center
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Icon(
-                        imageVector = GabayIcons.RerouteActive,
-                        contentDescription = "Route Here",
-                        tint = GabayColors.BgObsidian,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Text(
-                        text = if (isRouteActive) "REROUTE TO PIN" else "NAVIGATE TO PIN",
-                        style = GabayTypography.PillText.copy(color = GabayColors.BgObsidian)
-                    )
+                if (isRouteLoading) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            color = Color(0xFF00E5FF),
+                            strokeWidth = 2.dp
+                        )
+                        Text(
+                            text = "CALCULATING ROUTE...",
+                            style = GabayTypography.PillText.copy(color = Color(0xFF00E5FF))
+                        )
+                    }
+                } else {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = GabayIcons.RerouteActive,
+                            contentDescription = "Route Here",
+                            tint = GabayColors.BgObsidian,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Text(
+                            text = if (isRouteActive) "REROUTE TO PIN" else "NAVIGATE TO PIN",
+                            style = GabayTypography.PillText.copy(color = GabayColors.BgObsidian)
+                        )
+                    }
                 }
             }
 

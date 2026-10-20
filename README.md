@@ -6,26 +6,19 @@ Gabay is an offline-first navigation engine engineered for the unique topography
 
 ---
 
-## Live Screenshots (Physical Hardware Verification)
+## Documentation & Hardware Verification
 
-## Live Screenshots (Physical Hardware Verification)
-
-| Magnetic Follow & Cockpit HUD | Continuous Curved Road Routing | Direct Route Cancellation |
-| :---: | :---: | :---: |
-| ![Magnetic Follow HUD](docs/screenshots/phase9_main.png) | ![Road Route Navigation](docs/screenshots/phase9_route.png) | ![Route Cancellation](docs/screenshots/phase9_cancelled2.png) |
-
-| Live Voice AI & Decibel Waveform | Pin Inspector & Reverse Geocoding | Magnetic 3D Perspective Tilt |
-| :---: | :---: | :---: |
-| ![Live Voice Visualizer](docs/screenshots/phase9_mic_active.png) | ![Pin Sheet Actions](docs/screenshots/phase9_pin.png) | ![3D Auto-Rotation](docs/screenshots/phase9_3d.png) |
-
-*(All screenshots captured live on physical hardware device `69ydd6nfaycagajz` and verified via multimodal visual inspection)*
+- [docs/SCREENSHOTS.md](docs/SCREENSHOTS.md) — Live physical hardware cockpit UI & navigation verification
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — Architecture and subsystem specifications
+- [docs/TECH_STACK.md](docs/TECH_STACK.md) — Technical specifications and pipeline
+- [docs/USER_GUIDE.md](docs/USER_GUIDE.md) — Tactical HUD controls and local AI interactions
 
 ---
 
 ## Key Highlights & Real-World Polish
 
 1. **Magnetic Camera Follow & Heading Auto-Rotation (2D & 3D)**:
-   - **Dynamic Magnetic Lock**: Camera stays locked to vehicle GPS coordinates with smooth 350ms easing. Auto-rotates camera bearing as the rider turns in both 2D overhead (heading-up) and 3D 55° tilted perspective.
+   - **Dynamic Magnetic Lock**: Camera stays locked to vehicle GPS coordinates with smooth 350ms easing. Auto-rotates camera bearing as the rider turns in 3D 55° tilted perspective when moving (> 5 km/h), while maintaining True North lock in 2D tactical overhead mode.
    - **Gesture Disconnect & Recenter Snap**: Touching or panning the map smoothly disengages the magnet so the rider can freely explore surroundings. Tapping the neon mint `[🎯]` floating button instantly re-engages magnetic lock.
 
 2. **Instant 1-Tap Route & Pin Cancellation**:
@@ -33,9 +26,9 @@ Gabay is an offline-first navigation engine engineered for the unique topography
    - **Pin Inspector Actions**: Dropping or tapping a pin provides `[REROUTE TO PIN]`, `[CANCEL ROUTE]`, and `[CLEAR PIN]` with live reverse-geocoded barangay and municipality names.
    - **Voice & Chip Cancellation**: Verbal command *"Cancel route"* or tapping the "Cancel Route" chip in the co-pilot sheet stops navigation immediately.
 
-3. **Continuous Connected Road Topology & Smooth Joints**:
+3. **Continuous Connected Road Topology & Planar Routing**:
    - **Round Joints & Caps**: Vector roads render with `"line-cap": "round"` and `"line-join": "round"` in both casing and fill, eliminating broken or disjointed intersections.
-   - **Multi-Segment Road Chaining**: Offline routing engine queries indexed road polylines (`idx_roads_bbox`) and chains segments end-to-end to draw continuous curved paths along real roads instead of straight-line jumps.
+   - **Segment-Planarized Junction Routing**: Graph construction projects T-junction endpoints directly into intermediate road segments, preventing erroneous multi-kilometer detours and ensuring direct adherence to primary arterial roads.
 
 4. **Live Responsive Voice AI & Decibel Waveform Visualizer**:
    - **7-Bar Dynamic Equalizer**: Displays an animated neon mint audio decibel meter that pulses in real time with rider microphone volume (`onRmsChanged`), providing immediate visual confirmation that voice is being captured.
@@ -69,11 +62,6 @@ Gabay is an offline-first navigation engine engineered for the unique topography
 └────────────────────────────────────────────────────────┘
 ```
 
-For full documentation:
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
-- [docs/TECH_STACK.md](docs/TECH_STACK.md)
-- [docs/USER_GUIDE.md](docs/USER_GUIDE.md)
-
 ---
 
 ## Physical Device Vault Location
@@ -85,11 +73,10 @@ All offline spatial files reside on the device at:
 | :--- | :--- | :--- |
 | `model.gguf` | 468 MB | Qwen2.5-0.5B-Instruct-Q4_K_M local AI weights |
 | `ph.gabay` | 1.17 MB | Binary A* routing graph (11,918 road segments) |
-| `pois_fts.sqlite` | 152 KB | SQLite FTS5 Philippine POI search index |
-| `metro_manila_roads_major.geojson` | 4.45 MB | Arterials & Expressways (EDSA, C5, Skyway) |
-| `metro_manila_roads_minor.geojson` | 1.99 MB | Minor streets & residential roads |
-| `metro_manila_water.geojson` | 398 KB | Pasig River, Manila Bay, Laguna Lake |
-| `metro_manila_parks.geojson` | 309 KB | Parks, plazas, and nature reserves |
+| `pois_fts.sqlite` | 102 MB | SQLite FTS5 Philippine POI & road search index |
+| `philippines_vector.pmtiles` | 72 MB | Nationwide vector road network & geometry |
+| `satellite_base.pmtiles` | 1.2 MB | Nationwide high-resolution satellite raster base |
+| `topography_contours.pmtiles` | 17 MB | Nationwide contour & elevation lines |
 
 ---
 

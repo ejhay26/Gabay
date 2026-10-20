@@ -49,6 +49,11 @@ import org.maplibre.android.geometry.LatLng as MapLibreLatLng
 import uniffi.gabay_core.*
 import org.json.JSONArray
 import org.json.JSONObject
+import dev.gabay.app.ai.LlamaDaemon
+import dev.gabay.app.ai.IntentResult
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
@@ -79,6 +84,9 @@ class MainActivity : ComponentActivity() {
         // Start embedded PMTiles localhost HTTP server for nationwide vector, topo, satellite, and fonts
         PmTilesServer.start(this, File("/sdcard/Documents/Gabay"))
 
+        // Ensure On-Device AI Brain Daemon is active on localhost:8766
+        LlamaDaemon.ensureServerRunning(this)
+
         // Initialize Audio Controller (TTS + Audio Focus Ducking)
         audioController = AudioController(this)
 
@@ -90,6 +98,8 @@ class MainActivity : ComponentActivity() {
         } catch (t: Throwable) {
             android.util.Log.e("GabayEngine", "GabayEngine initialization error", t)
         }
+
+        checkAllPermissions()
 
         enableEdgeToEdge()
         setContent {
@@ -109,6 +119,52 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private val requestPermissionLauncher = registerForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        val fineLocationGranted = permissions[android.Manifest.permission.ACCESS_FINE_LOCATION] == true
+        android.util.Log.i("GabayPerms", "Permissions updated: fineLocation=$fineLocationGranted")
+    }
+
+    private fun checkAllPermissions() {
+        val perms = mutableListOf(
+            android.Manifest.permission.ACCESS_FINE_LOCATION,
+            android.Manifest.permission.ACCESS_COARSE_LOCATION,
+            android.Manifest.permission.RECORD_AUDIO
+        )
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            perms.add(android.Manifest.permission.POST_NOTIFICATIONS)
+        }
+        val ungranted = perms.filter {
+            androidx.core.content.ContextCompat.checkSelfPermission(this, it) != android.content.pm.PackageManager.PERMISSION_GRANTED
+        }
+        if (ungranted.isNotEmpty()) {
+            requestPermissionLauncher.launch(ungranted.toTypedArray())
+        }
+
+        // Check All Files Access (MANAGE_EXTERNAL_STORAGE)
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+            if (!android.os.Environment.isExternalStorageManager()) {
+                try {
+                    val intent = Intent(android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
+                        data = android.net.Uri.parse("package:$packageName")
+                    }
+                    startActivity(intent)
+                } catch (e: Exception) {
+                    try {
+                        val intent = Intent(android.provider.Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
+                        startActivity(intent)
+                    } catch (e2: Exception) {}
+                }
+            }
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        PmTilesServer.reloadReaders(File("/sdcard/Documents/Gabay"))
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         audioController.shutdown()
@@ -123,6 +179,11 @@ fun CockpitScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+
+    LaunchedEffect(Unit) {
+        LlamaDaemon.ensureServerRunning(context)
+    }
 
     // Rider & Vehicle States
     var selectedMode by remember { mutableStateOf(VehicleMode.SCOOTER) }
@@ -160,13 +221,21 @@ fun CockpitScreen(
     var isListening by remember { mutableStateOf(false) }
     var audioRmsDb by remember { mutableFloatStateOf(0.0f) }
     var partialSpeechText by remember { mutableStateOf("") }
+    var isRouteLoading by remember { mutableStateOf(false) }
+    var isNavigating by remember { mutableStateOf(false) }
+    var avoidTolls by remember { mutableStateOf(true) }
+    var avoidExpressways by remember { mutableStateOf(true) }
+    var originName by remember { mutableStateOf("Your location") }
+    var destinationName by remember { mutableStateOf("Dropped pin") }
+    var activeOriginCoord by remember { mutableStateOf<LatLng?>(null) }
+    var activeDestCoord by remember { mutableStateOf<LatLng?>(null) }
     val speechRecognizer = remember {
         if (SpeechRecognizer.isRecognitionAvailable(context)) {
             SpeechRecognizer.createSpeechRecognizer(context)
         } else null
     }
 
-    // High-Fidelity Road Network Router: 100% physical road centerline adherence with asset fallback
+    // High-Fidelity Road Network Router: 100% physical road centerline adherence with dynamic bounding box & road snapping
     fun computeRoute(startCoord: LatLng, destCoord: LatLng, options: RouteOptions): RouteResult {
         try {
             val distTmp = FloatArray(1)
@@ -175,28 +244,39 @@ fun CockpitScreen(
                 return distTmp[0]
             }
 
-            // Accurate perpendicular projection onto road segment
-            fun projectPointOnSegment(p: LatLng, a: LatLng, b: LatLng): Pair<LatLng, Float> {
-                val cosLat = Math.cos(Math.toRadians(p.latitude))
-                val px = p.longitude * 111320.0 * cosLat
-                val py = p.latitude * 110540.0
-                val ax = a.longitude * 111320.0 * cosLat
-                val ay = a.latitude * 110540.0
-                val bx = b.longitude * 111320.0 * cosLat
-                val by = b.latitude * 110540.0
+            fun calculateBearing(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Float {
+                val dLon = Math.toRadians(lon2 - lon1)
+                val phi1 = Math.toRadians(lat1)
+                val phi2 = Math.toRadians(lat2)
+                val y = Math.sin(dLon) * Math.cos(phi2)
+                val x = Math.cos(phi1) * Math.sin(phi2) - Math.sin(phi1) * Math.cos(phi2) * Math.cos(dLon)
+                val brng = Math.toDegrees(Math.atan2(y, x)).toFloat()
+                return (brng + 360f) % 360f
+            }
+
+            // Accurate perpendicular projection onto road segment with parameter t
+            class ProjResult(val lat: Double, val lon: Double, val distMeters: Float, val t: Float)
+
+            fun projectPointOnSegment(pLat: Double, pLon: Double, aLat: Double, aLon: Double, bLat: Double, bLon: Double): ProjResult {
+                val cosLat = Math.cos(Math.toRadians(pLat))
+                val px = pLon * 111320.0 * cosLat
+                val py = pLat * 110540.0
+                val ax = aLon * 111320.0 * cosLat
+                val ay = aLat * 110540.0
+                val bx = bLon * 111320.0 * cosLat
+                val by = bLat * 110540.0
 
                 val dx = bx - ax
                 val dy = by - ay
                 val lenSq = dx * dx + dy * dy
                 if (lenSq < 1e-6) {
-                    return Pair(a, distBetween(p.latitude, p.longitude, a.latitude, a.longitude))
+                    return ProjResult(aLat, aLon, distBetween(pLat, pLon, aLat, aLon), 0f)
                 }
-                val t = ((px - ax) * dx + (py - ay) * dy) / lenSq
-                val clampedT = t.coerceIn(0.0, 1.0)
-                val projLat = a.latitude + clampedT * (b.latitude - a.latitude)
-                val projLon = a.longitude + clampedT * (b.longitude - a.longitude)
-                val projCoord = LatLng(projLat, projLon)
-                return Pair(projCoord, distBetween(p.latitude, p.longitude, projLat, projLon))
+                val t = (((px - ax) * dx + (py - ay) * dy) / lenSq).coerceIn(0.0, 1.0).toFloat()
+                val projLat = aLat + t * (bLat - aLat)
+                val projLon = aLon + t * (bLon - aLon)
+                val d = distBetween(pLat, pLon, projLat, projLon)
+                return ProjResult(projLat, projLon, d, t)
             }
 
             fun isRoadDrivable(kind: String): Boolean {
@@ -218,11 +298,17 @@ fun CockpitScreen(
             class RoadRaw(val name: String, val kind: String, val points: List<LatLng>)
             val candidateRoads = ArrayList<RoadRaw>()
 
-            val pad = 0.08 // ~8.8km margin ensuring all bypasses, highways, and connectors are included
-            val minLat = minOf(startCoord.latitude, destCoord.latitude) - pad
-            val maxLat = maxOf(startCoord.latitude, destCoord.latitude) + pad
-            val minLon = minOf(startCoord.longitude, destCoord.longitude) - pad
-            val maxLon = maxOf(startCoord.longitude, destCoord.longitude) + pad
+            // Dynamic bounding box scaled to journey distance: guaranteed min 2500m to include arterials/bypasses
+            val straightDist = distBetween(startCoord.latitude, startCoord.longitude, destCoord.latitude, destCoord.longitude)
+            val padMeters = maxOf(straightDist * 0.8f, 2500f).coerceAtMost(8000f)
+            val padLat = padMeters / 110540.0
+            val cosLat = Math.cos(Math.toRadians(startCoord.latitude)).coerceAtLeast(0.1)
+            val padLon = padMeters / (111320.0 * cosLat)
+
+            val minLat = minOf(startCoord.latitude, destCoord.latitude) - padLat
+            val maxLat = maxOf(startCoord.latitude, destCoord.latitude) + padLat
+            val minLon = minOf(startCoord.longitude, destCoord.longitude) - padLon
+            val maxLon = maxOf(startCoord.longitude, destCoord.longitude) + padLon
 
             // 1. Query candidate roads from device SQLite database
             val dbFile = File("/sdcard/Documents/Gabay/pois_fts.sqlite")
@@ -240,22 +326,25 @@ fun CockpitScreen(
                             val geomStr = cursor.getString(2) ?: ""
                             if (!isRoadDrivable(kind)) continue
 
-                            val rawPairs = geomStr.split(";")
-                            if (rawPairs.size >= 2) {
-                                val pts = ArrayList<LatLng>(rawPairs.size)
-                                for (pair in rawPairs) {
-                                    val parts = pair.split(",")
-                                    if (parts.size == 2) {
-                                        val lat = parts[0].toDoubleOrNull()
-                                        val lon = parts[1].toDoubleOrNull()
-                                        if (lat != null && lon != null) {
-                                            pts.add(LatLng(lat, lon))
-                                        }
+                            // Zero-allocation coordinate parser: parses coordinates with char indices instead of allocating thousands of String objects
+                            val pts = ArrayList<LatLng>(32)
+                            var cStart = 0
+                            val cLen = geomStr.length
+                            while (cStart < cLen) {
+                                var semi = geomStr.indexOf(';', cStart)
+                                if (semi == -1) semi = cLen
+                                val comma = geomStr.indexOf(',', cStart)
+                                if (comma in (cStart + 1) until semi) {
+                                    val lat = geomStr.substring(cStart, comma).toDoubleOrNull()
+                                    val lon = geomStr.substring(comma + 1, semi).toDoubleOrNull()
+                                    if (lat != null && lon != null) {
+                                        pts.add(LatLng(lat, lon))
                                     }
                                 }
-                                if (pts.size >= 2) {
-                                    candidateRoads.add(RoadRaw(name, kind, pts))
-                                }
+                                cStart = semi + 1
+                            }
+                            if (pts.size >= 2) {
+                                candidateRoads.add(RoadRaw(name, kind, pts))
                             }
                         } while (cursor.moveToNext())
                     }
@@ -318,16 +407,9 @@ fun CockpitScreen(
 
             if (candidateRoads.isNotEmpty()) {
                 // High-Fidelity Graph Construction:
-                // 1. Assign unique node IDs to EVERY road vertex (Zero curvature collapsing!)
+                // 1. Assign unique node IDs to EVERY road vertex (Preserves 100% curve geometry)
                 val nodeCoords = ArrayList<LatLng>()
                 val roadNodeMap = ArrayList<IntArray>(candidateRoads.size)
-                val gridMap = HashMap<Long, ArrayList<Triple<Int, Int, Int>>>()
-
-                fun toCellKey(lat: Double, lon: Double): Long {
-                    val gx = (lon * 1000.0).toInt().toLong()
-                    val gy = (lat * 1000.0).toInt().toLong()
-                    return (gx shl 32) or (gy and 0xFFFFFFFFL)
-                }
 
                 for (rIdx in candidateRoads.indices) {
                     val pts = candidateRoads[rIdx].points
@@ -336,60 +418,111 @@ fun CockpitScreen(
                         val nid = nodeCoords.size
                         nodeCoords.add(pts[pIdx])
                         nodeIds[pIdx] = nid
-                        val cellKey = toCellKey(pts[pIdx].latitude, pts[pIdx].longitude)
-                        gridMap.getOrPut(cellKey) { ArrayList() }.add(Triple(rIdx, pIdx, nid))
                     }
                     roadNodeMap.add(nodeIds)
                 }
 
-                class GraphEdge(val targetNode: Int, val weightMeters: Float, val roadName: String, val points: List<LatLng>)
+                class GraphEdge(
+                    val targetNode: Int,
+                    val weightMeters: Float,
+                    val roadName: String,
+                    val points: List<LatLng>,
+                    val bearingDeg: Float
+                )
                 val adj = HashMap<Int, ArrayList<GraphEdge>>()
 
                 fun addEdge(u: Int, v: Int, weight: Float, name: String, pts: List<LatLng>) {
-                    if (u != v) {
-                        adj.getOrPut(u) { ArrayList() }.add(GraphEdge(v, weight, name, pts))
-                        adj.getOrPut(v) { ArrayList() }.add(GraphEdge(u, weight, name, pts.reversed()))
+                    if (u != v && pts.size >= 2) {
+                        val bFwd = calculateBearing(pts.first().latitude, pts.first().longitude, pts.last().latitude, pts.last().longitude)
+                        val bRev = (bFwd + 180f) % 360f
+                        adj.getOrPut(u) { ArrayList() }.add(GraphEdge(v, weight, name, pts, bFwd))
+                        adj.getOrPut(v) { ArrayList() }.add(GraphEdge(u, weight, name, pts.reversed(), bRev))
                     }
                 }
 
-                // 2. Add internal road edges (100% physical road centerline geometry)
+                // Spatial Grid Indexing for Segments (~400m cells for O(1) junction lookup)
+                class SegmentRef(val roadIdx: Int, val segIdx: Int, val u: Int, val v: Int)
+                val segGrid = HashMap<Long, ArrayList<SegmentRef>>()
+
+                // 2. Add internal road edges with road hierarchy cost weighting
                 for (rIdx in candidateRoads.indices) {
                     val road = candidateRoads[rIdx]
                     val pts = road.points
                     val nodeIds = roadNodeMap[rIdx]
+                    val k = road.kind.lowercase(Locale.ROOT)
+                    val isMajor = k.contains("major") || k.contains("primary") || k.contains("trunk") ||
+                        road.name.contains("Arterial", ignoreCase = true) || road.name.contains("Bypass", ignoreCase = true) ||
+                        road.name.contains("Highway", ignoreCase = true) || road.name.contains("Avenue", ignoreCase = true)
+                    val isNamed = road.name.isNotBlank() && road.name != "Road"
+                    val costFactor = when {
+                        isMajor -> 1.0f
+                        isNamed -> 1.3f
+                        k == "path" || k == "track" || k == "service" -> 5.0f
+                        else -> 2.8f
+                    }
+
                     for (i in 0 until pts.size - 1) {
                         val u = nodeIds[i]
                         val v = nodeIds[i + 1]
                         val segDist = distBetween(pts[i].latitude, pts[i].longitude, pts[i + 1].latitude, pts[i + 1].longitude)
-                        addEdge(u, v, segDist, road.name, listOf(pts[i], pts[i + 1]))
+                        addEdge(u, v, segDist * costFactor, road.name, listOf(pts[i], pts[i + 1]))
+
+                        // Add segment bounding cells to grid (grid scale: 250 -> ~400m cells)
+                        val minGx = (Math.min(pts[i].longitude, pts[i + 1].longitude) * 250.0).toInt()
+                        val maxGx = (Math.max(pts[i].longitude, pts[i + 1].longitude) * 250.0).toInt()
+                        val minGy = (Math.min(pts[i].latitude, pts[i + 1].latitude) * 250.0).toInt()
+                        val maxGy = (Math.max(pts[i].latitude, pts[i + 1].latitude) * 250.0).toInt()
+                        val ref = SegmentRef(rIdx, i, u, v)
+
+                        for (gx in minGx..maxGx) {
+                            for (gy in minGy..maxGy) {
+                                val key = (gx.toLong() shl 32) or (gy.toLong() and 0xFFFFFFFFL)
+                                segGrid.getOrPut(key) { ArrayList() }.add(ref)
+                            }
+                        }
                     }
                 }
 
-                // 3. Connect junctions at endpoints (18m threshold to prevent median/cross-block jumping)
-                val junctionThreshold = 18.0f
+                // 3. Planarize road endpoints: OSM roads intersect at/near their endpoints (0 and last)
+                // This preserves fast O(E) execution, bridges OSM gaps, and eliminates false cross-field shortcuts
+                val junctionThreshold = 38.0f
                 for (rIdx in candidateRoads.indices) {
                     val pts = candidateRoads[rIdx].points
                     val nodeIds = roadNodeMap[rIdx]
-                    val endpointIndices = intArrayOf(0, pts.size - 1)
-                    for (pIdx in endpointIndices) {
-                        val u = nodeIds[pIdx]
-                        val pt = pts[pIdx]
-                        val gx = (pt.longitude * 1000.0).toInt().toLong()
-                        val gy = (pt.latitude * 1000.0).toInt().toLong()
+                    val endIndices = if (pts.size <= 2) intArrayOf(0, pts.size - 1) else intArrayOf(0, pts.size - 1)
 
+                    for (pIdx in endIndices) {
+                        val u = nodeIds[pIdx]
+                        val ep = pts[pIdx]
+                        val centerGx = (ep.longitude * 250.0).toInt()
+                        val centerGy = (ep.latitude * 250.0).toInt()
+
+                        val checkedSegs = HashSet<Long>()
                         for (dx in -1..1) {
                             for (dy in -1..1) {
-                                val cellKey = ((gx + dx) shl 32) or ((gy + dy) and 0xFFFFFFFFL)
-                                val bucket = gridMap[cellKey] ?: continue
-                                for (triple in bucket) {
-                                    val otherRidx = triple.first
-                                    val v = triple.third
-                                    if (otherRidx != rIdx) {
-                                        val targetPt = nodeCoords[v]
-                                        val d = distBetween(pt.latitude, pt.longitude, targetPt.latitude, targetPt.longitude)
-                                        if (d <= junctionThreshold) {
-                                            addEdge(u, v, d, "Junction", listOf(pt, targetPt))
-                                        }
+                                val key = ((centerGx + dx).toLong() shl 32) or ((centerGy + dy).toLong() and 0xFFFFFFFFL)
+                                val list = segGrid[key] ?: continue
+                                for (cand in list) {
+                                    if (cand.roadIdx == rIdx) continue
+                                    val segKey = (cand.roadIdx.toLong() shl 32) or (cand.segIdx.toLong() and 0xFFFFFFFFL)
+                                    if (!checkedSegs.add(segKey)) continue
+
+                                    val otherRoad = candidateRoads[cand.roadIdx]
+                                    val otherPts = otherRoad.points
+                                    val p1 = otherPts[cand.segIdx]
+                                    val p2 = otherPts[cand.segIdx + 1]
+
+                                    val projRes = projectPointOnSegment(ep.latitude, ep.longitude, p1.latitude, p1.longitude, p2.latitude, p2.longitude)
+                                    if (projRes.distMeters <= junctionThreshold) {
+                                        val projPt = LatLng(projRes.lat, projRes.lon)
+                                        val segLen = distBetween(p1.latitude, p1.longitude, p2.latitude, p2.longitude)
+                                        val t = projRes.t
+
+                                        val w1 = (projRes.distMeters + t * segLen)
+                                        val w2 = (projRes.distMeters + (1.0f - t) * segLen)
+
+                                        addEdge(u, cand.u, w1, otherRoad.name, listOf(ep, projPt, p1))
+                                        addEdge(u, cand.v, w2, otherRoad.name, listOf(ep, projPt, p2))
                                     }
                                 }
                             }
@@ -397,107 +530,230 @@ fun CockpitScreen(
                     }
                 }
 
-                // 4. Snap startCoord and destCoord via perpendicular projection to closest road segment
-                class SnapResult(val proj: LatLng, val dist: Float, val u: Int, val v: Int, val roadName: String)
+                // 4. Perpendicular Road Centerline Snapping for Start & Destination (Off-road handling)
+                class SnapResult(
+                    val proj: LatLng,
+                    val dist: Float,
+                    val u: Int,
+                    val v: Int,
+                    val t: Float,
+                    val segLen: Float,
+                    val roadName: String
+                )
 
                 fun snapToRoad(coord: LatLng): SnapResult {
                     var bestDist = Float.MAX_VALUE
                     var bestProj = coord
                     var bestU = 0
                     var bestV = 0
+                    var bestT = 0f
+                    var bestSegLen = 0f
                     var bestRoadName = "Road"
 
                     for (rIdx in candidateRoads.indices) {
                         val pts = candidateRoads[rIdx].points
                         val nodeIds = roadNodeMap[rIdx]
                         for (i in 0 until pts.size - 1) {
-                            val (proj, d) = projectPointOnSegment(coord, pts[i], pts[i + 1])
-                            if (d < bestDist) {
-                                bestDist = d
-                                bestProj = proj
+                            val p1 = pts[i]
+                            val p2 = pts[i + 1]
+                            val res = projectPointOnSegment(coord.latitude, coord.longitude, p1.latitude, p1.longitude, p2.latitude, p2.longitude)
+                            if (res.distMeters < bestDist) {
+                                bestDist = res.distMeters
+                                bestProj = LatLng(res.lat, res.lon)
                                 bestU = nodeIds[i]
                                 bestV = nodeIds[i + 1]
+                                bestT = res.t
+                                bestSegLen = distBetween(p1.latitude, p1.longitude, p2.latitude, p2.longitude)
                                 bestRoadName = candidateRoads[rIdx].name
                             }
                         }
                     }
-                    return SnapResult(bestProj, bestDist, bestU, bestV, bestRoadName)
+
+                    return SnapResult(bestProj, bestDist, bestU, bestV, bestT, bestSegLen, bestRoadName)
                 }
 
                 val snapStart = snapToRoad(startCoord)
                 val snapDest = snapToRoad(destCoord)
 
-                val startNid = nodeCoords.size
+                // Insert projected road points into graph
+                val startProjNid = nodeCoords.size
                 nodeCoords.add(snapStart.proj)
-                val destNid = nodeCoords.size
+                val destProjNid = nodeCoords.size
                 nodeCoords.add(snapDest.proj)
 
-                val dStartU = distBetween(snapStart.proj.latitude, snapStart.proj.longitude, nodeCoords[snapStart.u].latitude, nodeCoords[snapStart.u].longitude)
-                val dStartV = distBetween(snapStart.proj.latitude, snapStart.proj.longitude, nodeCoords[snapStart.v].latitude, nodeCoords[snapStart.v].longitude)
-                addEdge(startNid, snapStart.u, dStartU, snapStart.roadName, listOf(snapStart.proj, nodeCoords[snapStart.u]))
-                addEdge(startNid, snapStart.v, dStartV, snapStart.roadName, listOf(snapStart.proj, nodeCoords[snapStart.v]))
+                // Connect start projection to its segment endpoints
+                val wStartU = snapStart.t * snapStart.segLen
+                val wStartV = (1.0f - snapStart.t) * snapStart.segLen
+                addEdge(startProjNid, snapStart.u, wStartU, snapStart.roadName, listOf(snapStart.proj, nodeCoords[snapStart.u]))
+                addEdge(startProjNid, snapStart.v, wStartV, snapStart.roadName, listOf(snapStart.proj, nodeCoords[snapStart.v]))
 
-                val dDestU = distBetween(snapDest.proj.latitude, snapDest.proj.longitude, nodeCoords[snapDest.u].latitude, nodeCoords[snapDest.u].longitude)
-                val dDestV = distBetween(snapDest.proj.latitude, snapDest.proj.longitude, nodeCoords[snapDest.v].latitude, nodeCoords[snapDest.v].longitude)
-                addEdge(destNid, snapDest.u, dDestU, snapDest.roadName, listOf(snapDest.proj, nodeCoords[snapDest.u]))
-                addEdge(destNid, snapDest.v, dDestV, snapDest.roadName, listOf(snapDest.proj, nodeCoords[snapDest.v]))
+                // Connect dest projection to its segment endpoints
+                val wDestU = snapDest.t * snapDest.segLen
+                val wDestV = (1.0f - snapDest.t) * snapDest.segLen
+                addEdge(destProjNid, snapDest.u, wDestU, snapDest.roadName, listOf(snapDest.proj, nodeCoords[snapDest.u]))
+                addEdge(destProjNid, snapDest.v, wDestV, snapDest.roadName, listOf(snapDest.proj, nodeCoords[snapDest.v]))
 
-                // 5. Dijkstra Shortest-Path Search
-                val distances = HashMap<Int, Float>()
-                class PrevStep(val prevNode: Int, val roadName: String, val edgePoints: List<LatLng>)
-                val previous = HashMap<Int, PrevStep>()
-                class PQEntry(val node: Int, val dist: Float, val priority: Float) : Comparable<PQEntry> {
-                    override fun compareTo(other: PQEntry): Int = priority.compareTo(other.priority)
-                }
-                val pq = java.util.PriorityQueue<PQEntry>()
-
-                distances[startNid] = 0f
-                val destNodeCoord = nodeCoords[destNid]
-                val initialH = distBetween(nodeCoords[startNid].latitude, nodeCoords[startNid].longitude, destNodeCoord.latitude, destNodeCoord.longitude)
-                pq.add(PQEntry(startNid, 0f, initialH))
-
-                var reached = false
-                while (!pq.isEmpty()) {
-                    val curr = pq.poll() ?: break
-                    val u = curr.node
-                    val d = curr.dist
-                    val recorded = distances[u] ?: Float.MAX_VALUE
-                    if (d > recorded) continue
-
-                    if (u == destNid) {
-                        reached = true
-                        break
-                    }
-
-                    val edges = adj[u] ?: continue
-                    for (edge in edges) {
-                        val v = edge.targetNode
-                        val nd = d + edge.weightMeters
-                        val curV = distances[v] ?: Float.MAX_VALUE
-                        if (nd < curV) {
-                            distances[v] = nd
-                            previous[v] = PrevStep(u, edge.roadName, edge.points)
-                            val vCoord = nodeCoords[v]
-                            val h = distBetween(vCoord.latitude, vCoord.longitude, destNodeCoord.latitude, destNodeCoord.longitude)
-                            pq.add(PQEntry(v, nd, nd + h))
+                // Component bridge: connect start and dest to any secondary road within reach to guarantee connectivity
+                val bridgeStartRadius = maxOf(snapStart.dist + 35f, 60f)
+                val bridgeDestRadius = maxOf(snapDest.dist + 35f, 60f)
+                for (rIdx in candidateRoads.indices) {
+                    val pts = candidateRoads[rIdx].points
+                    val nodeIds = roadNodeMap[rIdx]
+                    for (i in 0 until pts.size - 1) {
+                        val p1 = pts[i]
+                        val p2 = pts[i + 1]
+                        val rStart = projectPointOnSegment(startCoord.latitude, startCoord.longitude, p1.latitude, p1.longitude, p2.latitude, p2.longitude)
+                        if (rStart.distMeters <= bridgeStartRadius && nodeIds[i] != snapStart.u && nodeIds[i + 1] != snapStart.v) {
+                            val pPt = LatLng(rStart.lat, rStart.lon)
+                            addEdge(startProjNid, nodeIds[i], rStart.distMeters + 15f, candidateRoads[rIdx].name, listOf(snapStart.proj, pPt, p1))
+                        }
+                        val rDest = projectPointOnSegment(destCoord.latitude, destCoord.longitude, p1.latitude, p1.longitude, p2.latitude, p2.longitude)
+                        if (rDest.distMeters <= bridgeDestRadius && nodeIds[i] != snapDest.u && nodeIds[i + 1] != snapDest.v) {
+                            val pPt = LatLng(rDest.lat, rDest.lon)
+                            addEdge(destProjNid, nodeIds[i], rDest.distMeters + 15f, candidateRoads[rIdx].name, listOf(snapDest.proj, pPt, p1))
                         }
                     }
                 }
 
-                if (reached) {
-                    val edgesTraversed = ArrayList<PrevStep>()
-                    var traceNode = destNid
-                    while (traceNode != startNid) {
-                        val step = previous[traceNode] ?: break
-                        edgesTraversed.add(step)
-                        traceNode = step.prevNode
+                // If origin or dest are out of the road (>2.5m), create dedicated off-road pin nodes
+                // that connect perpendicularly to the nearest road polyline first
+                val searchStartNid: Int
+                if (snapStart.dist > 2.5f) {
+                    searchStartNid = nodeCoords.size
+                    nodeCoords.add(startCoord)
+                    addEdge(searchStartNid, startProjNid, snapStart.dist, "Access Road", listOf(startCoord, snapStart.proj))
+                } else {
+                    searchStartNid = startProjNid
+                }
+
+                val searchDestNid: Int
+                if (snapDest.dist > 2.5f) {
+                    searchDestNid = nodeCoords.size
+                    nodeCoords.add(destCoord)
+                    addEdge(destProjNid, searchDestNid, snapDest.dist, "Access Road", listOf(snapDest.proj, destCoord))
+                } else {
+                    searchDestNid = destProjNid
+                }
+
+                // 5. Bidirectional A* Shortest-Path Search with Turn Angle Penalties
+                val distF = HashMap<Int, Float>()
+                val distB = HashMap<Int, Float>()
+                class PrevStep(val prevNode: Int, val roadName: String, val edgePoints: List<LatLng>, val bearingDeg: Float)
+                val prevF = HashMap<Int, PrevStep>()
+                val prevB = HashMap<Int, PrevStep>()
+
+                class PQEntry(val node: Int, val dist: Float, val priority: Float) : Comparable<PQEntry> {
+                    override fun compareTo(other: PQEntry): Int = priority.compareTo(other.priority)
+                }
+
+                val pqF = java.util.PriorityQueue<PQEntry>()
+                val pqB = java.util.PriorityQueue<PQEntry>()
+
+                distF[searchStartNid] = 0f
+                distB[searchDestNid] = 0f
+                val initialDist = distBetween(startCoord.latitude, startCoord.longitude, destCoord.latitude, destCoord.longitude)
+                pqF.add(PQEntry(searchStartNid, 0f, initialDist))
+                pqB.add(PQEntry(searchDestNid, 0f, initialDist))
+
+                val visitedF = HashSet<Int>()
+                val visitedB = HashSet<Int>()
+                var meetingNode: Int? = null
+                var bestTotalCost = Float.MAX_VALUE
+
+                while (!pqF.isEmpty() && !pqB.isEmpty()) {
+                    // Forward step
+                    val currF = pqF.poll()!!
+                    val uf = currF.node
+                    val df = currF.dist
+                    if (!visitedF.contains(uf) && df <= (distF[uf] ?: Float.MAX_VALUE)) {
+                        visitedF.add(uf)
+                        if (visitedB.contains(uf)) {
+                            val totalC = df + (distB[uf] ?: Float.MAX_VALUE)
+                            if (totalC < bestTotalCost) {
+                                bestTotalCost = totalC
+                                meetingNode = uf
+                                break
+                            }
+                        }
+                        val incomingStep = prevF[uf]
+                        val edges = adj[uf]
+                        if (edges != null) {
+                            for (edge in edges) {
+                                val vf = edge.targetNode
+                                // Add turn angle penalty for sharp hairpin reversals (> 130 deg)
+                                var turnPenalty = 0f
+                                if (incomingStep != null) {
+                                    var delta = Math.abs(edge.bearingDeg - incomingStep.bearingDeg)
+                                    if (delta > 180f) delta = 360f - delta
+                                    if (delta > 130f) {
+                                        turnPenalty = 250f // 250m equivalent penalty discouraging sharp U-turn hairpins
+                                    }
+                                }
+                                val nd = df + edge.weightMeters + turnPenalty
+                                if (nd < (distF[vf] ?: Float.MAX_VALUE)) {
+                                    distF[vf] = nd
+                                    prevF[vf] = PrevStep(uf, edge.roadName, edge.points, edge.bearingDeg)
+                                    val h = distBetween(nodeCoords[vf].latitude, nodeCoords[vf].longitude, destCoord.latitude, destCoord.longitude)
+                                    pqF.add(PQEntry(vf, nd, nd + h))
+                                }
+                            }
+                        }
                     }
-                    edgesTraversed.reverse()
+
+                    // Backward step
+                    val currB = pqB.poll()!!
+                    val ub = currB.node
+                    val db = currB.dist
+                    if (!visitedB.contains(ub) && db <= (distB[ub] ?: Float.MAX_VALUE)) {
+                        visitedB.add(ub)
+                        if (visitedF.contains(ub)) {
+                            val totalC = db + (distF[ub] ?: Float.MAX_VALUE)
+                            if (totalC < bestTotalCost) {
+                                bestTotalCost = totalC
+                                meetingNode = ub
+                                break
+                            }
+                        }
+                        val edges = adj[ub]
+                        if (edges != null) {
+                            for (edge in edges) {
+                                val vb = edge.targetNode
+                                val nd = db + edge.weightMeters
+                                if (nd < (distB[vb] ?: Float.MAX_VALUE)) {
+                                    distB[vb] = nd
+                                    prevB[vb] = PrevStep(ub, edge.roadName, edge.points, edge.bearingDeg)
+                                    val h = distBetween(nodeCoords[vb].latitude, nodeCoords[vb].longitude, startCoord.latitude, startCoord.longitude)
+                                    pqB.add(PQEntry(vb, nd, nd + h))
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (meetingNode != null) {
+                    val meet = meetingNode!!
+                    val edgesTraversed = ArrayList<PrevStep>()
+
+                    // Forward path: searchStartNid -> meetingNode
+                    val fwdSteps = ArrayList<PrevStep>()
+                    var traceF = meet
+                    while (traceF != searchStartNid) {
+                        val step = prevF[traceF] ?: break
+                        fwdSteps.add(step)
+                        traceF = step.prevNode
+                    }
+                    fwdSteps.reverse()
+                    edgesTraversed.addAll(fwdSteps)
+
+                    // Backward path: meetingNode -> searchDestNid
+                    var traceB = meet
+                    while (traceB != searchDestNid) {
+                        val step = prevB[traceB] ?: break
+                        edgesTraversed.add(PrevStep(step.prevNode, step.roadName, step.edgePoints.reversed(), (step.bearingDeg + 180f) % 360f))
+                        traceB = step.prevNode
+                    }
 
                     val polyline = ArrayList<LatLng>()
-                    polyline.add(startCoord)
-                    polyline.add(snapStart.proj)
-
                     for (step in edgesTraversed) {
                         for (p in step.edgePoints) {
                             if (polyline.isEmpty() || distBetween(polyline.last().latitude, polyline.last().longitude, p.latitude, p.longitude) > 0.5f) {
@@ -506,10 +762,18 @@ fun CockpitScreen(
                         }
                     }
 
-                    if (polyline.isEmpty() || distBetween(polyline.last().latitude, polyline.last().longitude, snapDest.proj.latitude, snapDest.proj.longitude) > 0.5f) {
-                        polyline.add(snapDest.proj)
+                    // Ensure start and destination are anchored cleanly
+                    if (polyline.isEmpty()) {
+                        polyline.add(startCoord)
+                        polyline.add(destCoord)
+                    } else {
+                        if (distBetween(polyline.first().latitude, polyline.first().longitude, startCoord.latitude, startCoord.longitude) > 1.0f) {
+                            polyline.add(0, startCoord)
+                        }
+                        if (distBetween(polyline.last().latitude, polyline.last().longitude, destCoord.latitude, destCoord.longitude) > 1.0f) {
+                            polyline.add(destCoord)
+                        }
                     }
-                    polyline.add(destCoord)
 
                     var totalMeters = 0.0
                     for (i in 0 until polyline.size - 1) {
@@ -707,6 +971,9 @@ fun CockpitScreen(
         )
     }
 
+    var lastSpokenAdvisory by remember { mutableStateOf<String?>(null) }
+    var lastSpokenAdvisoryTimeMs by remember { mutableLongStateOf(0L) }
+
     // Process search queries in real-time from SQLite FTS5 database
     LaunchedEffect(searchQuery) {
         if (searchQuery.isNotBlank() && searchQuery.length >= 2) {
@@ -725,223 +992,222 @@ fun CockpitScreen(
                 speedKmh = userSpeed,
                 headingDeg = userHeading
             )
-            telemetry = updatedTelemetry
 
-            // Speak terse advisory if co-pilot triggered an alert
-            updatedTelemetry.coPilotAdvisory?.let { advisory ->
-                audioController.speakTerseCue(advisory)
-            }
-        }
-    }
+            if (activeRoute == null) {
+                // When unpinned/no route, strictly silence any advisory and keep telemetry clear
+                lastSpokenAdvisory = null
+                lastSpokenAdvisoryTimeMs = 0L
+                telemetry = updatedTelemetry.copy(
+                    coPilotAdvisory = null,
+                    isOffRoute = false,
+                    remainingDistanceKm = 0.0f,
+                    paceWindowMin = "-- MIN",
+                    nextTurnRoad = "",
+                    nextTurnDistanceM = 0.0f
+                )
+            } else {
+                telemetry = updatedTelemetry
 
-    // Agentic Command & Contextual Intent Dispatcher
-    fun processAgentPrompt(prompt: String) {
-        val now = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
-        chatMessages.add(ChatMessage("RIDER", prompt, now))
-        val lower = prompt.lowercase(Locale.ROOT).trim()
+                // Speak terse advisory ONLY if active route is pinned and debounced by 25 seconds
+                updatedTelemetry.coPilotAdvisory?.let { advisory ->
+                    val nowMs = System.currentTimeMillis()
+                    val isDifferent = advisory != lastSpokenAdvisory
+                    val isCooledDown = (nowMs - lastSpokenAdvisoryTimeMs) > 25000L
+                    val isStationary = userSpeed < 3.0f
+                    val isOffRoute = advisory.contains("OFF-ROUTE", ignoreCase = true)
 
-        var responseText: String
-
-        when {
-            lower.contains("where am i") || lower.contains("location") || lower.contains("status") -> {
-                if (activeRoute != null) {
-                    val road = activeRoute?.maneuvers?.firstOrNull()?.roadName ?: "route"
-                    responseText = "En route on $road. Remaining distance ${String.format(Locale.US, "%.1f", telemetry.remainingDistanceKm)} km. Speed ${userSpeed.toInt()} km/h."
-                } else {
-                    val nearbyPois = engine?.searchPois("Cabiao", 1u) ?: emptyList()
-                    val nearLabel = nearbyPois.firstOrNull()?.name ?: "San Isidro / Cabiao"
-                    responseText = "Parked near $nearLabel (${String.format(Locale.US, "%.3f, %.3f", userLat, userLon)}). Speed is 0 km/h. Map ready."
-                }
-            }
-            lower.contains("how many km") || lower.contains("remaining") || lower.contains("how far") || lower.contains("distance") -> {
-                if (activeRoute != null) {
-                    responseText = "You have ${String.format(Locale.US, "%.1f", telemetry.remainingDistanceKm)} km remaining to destination, about ${telemetry.paceWindowMin} at your current pace."
-                } else {
-                    responseText = "No active navigation route. Long-press the map to drop a pin or search a destination."
-                }
-            }
-            lower.contains("what is my speed") || lower.contains("how fast") || lower.contains("speed") -> {
-                responseText = "Current vehicle speed is ${userSpeed.toInt()} km/h."
-            }
-            lower.contains("how long") || lower.contains("eta") || lower.contains("estimated time") || lower.contains("arrival") -> {
-                if (activeRoute != null) {
-                    responseText = "Estimated travel time is ${telemetry.paceWindowMin}."
-                } else {
-                    responseText = "No active route. Drop a pin or search a destination to calculate ETA."
-                }
-            }
-            lower.contains("gas") || lower.contains("petron") || lower.contains("shell") || lower.contains("fuel") || lower.contains("caltex") || lower.contains("cleanfuel") || lower.contains("phoenix") -> {
-                val query = when {
-                    lower.contains("petron") -> "Petron"
-                    lower.contains("shell") -> "Shell"
-                    lower.contains("caltex") -> "Caltex"
-                    lower.contains("cleanfuel") -> "Cleanfuel"
-                    lower.contains("phoenix") -> "Phoenix"
-                    else -> "Gas"
-                }
-                val pois = engine?.searchPois(query, 5u) ?: emptyList()
-                val closest = pois.firstOrNull()
-                if (closest != null) {
-                    destinationPin = closest.coordinate
-                    cameraTarget = MapLibreLatLng(closest.coordinate.latitude, closest.coordinate.longitude)
-                    val distResults = FloatArray(1)
-                    Location.distanceBetween(userLat, userLon, closest.coordinate.latitude, closest.coordinate.longitude, distResults)
-                    val distM = distResults[0].toDouble()
-                    responseText = "Found ${closest.name}, ${String.format(Locale.US, "%.1f", distM / 1000.0)} km away. Pin dropped. Tap Start Route to navigate."
-                } else {
-                    responseText = "No gas stations found nearby in offline vault."
-                }
-            }
-            lower.contains("food") || lower.contains("restaurant") || lower.contains("jollibee") || lower.contains("mcdonald") || lower.contains("eat") -> {
-                val query = when {
-                    lower.contains("jollibee") -> "Jollibee"
-                    lower.contains("mcdonald") -> "McDonald"
-                    else -> "Restaurant"
-                }
-                val pois = engine?.searchPois(query, 5u) ?: emptyList()
-                val closest = pois.firstOrNull()
-                if (closest != null) {
-                    destinationPin = closest.coordinate
-                    cameraTarget = MapLibreLatLng(closest.coordinate.latitude, closest.coordinate.longitude)
-                    val distResults = FloatArray(1)
-                    Location.distanceBetween(userLat, userLon, closest.coordinate.latitude, closest.coordinate.longitude, distResults)
-                    val distM = distResults[0].toDouble()
-                    responseText = "Found ${closest.name}, ${String.format(Locale.US, "%.1f", distM / 1000.0)} km away. Pin dropped."
-                } else {
-                    responseText = "No restaurants found nearby in offline vault."
-                }
-            }
-            lower.contains("hospital") || lower.contains("clinic") || lower.contains("emergency") || lower.contains("pharmacy") -> {
-                val query = if (lower.contains("pharmacy")) "Pharmacy" else "Hospital"
-                val pois = engine?.searchPois(query, 5u) ?: emptyList()
-                val closest = pois.firstOrNull()
-                if (closest != null) {
-                    destinationPin = closest.coordinate
-                    cameraTarget = MapLibreLatLng(closest.coordinate.latitude, closest.coordinate.longitude)
-                    val distResults = FloatArray(1)
-                    Location.distanceBetween(userLat, userLon, closest.coordinate.latitude, closest.coordinate.longitude, distResults)
-                    val distM = distResults[0].toDouble()
-                    responseText = "Found ${closest.name}, ${String.format(Locale.US, "%.1f", distM / 1000.0)} km away. Pin dropped."
-                } else {
-                    responseText = "No medical facilities found nearby in offline vault."
-                }
-            }
-            lower.contains("satellite") -> {
-                fusedMapMode = FusedMapMode.SATELLITE
-                responseText = "Offline satellite view enabled."
-            }
-            lower.contains("topo") -> {
-                fusedMapMode = FusedMapMode.TOPO
-                responseText = "Topography elevation contours enabled."
-            }
-            lower.contains("street") || lower.contains("vector") || lower.contains("normal map") -> {
-                fusedMapMode = FusedMapMode.STREET
-                responseText = "Street vector mode enabled."
-            }
-            lower.contains("3d") || lower.contains("tilt") || lower.contains("perspective") -> {
-                is3dMode = true
-                responseText = "3D perspective enabled."
-            }
-            lower.contains("2d") || lower.contains("flat") || lower.contains("overhead") -> {
-                is3dMode = false
-                responseText = "2D overhead view enabled."
-            }
-            lower.contains("north") || lower.contains("rotate") || lower.contains("bearing") -> {
-                resetRotationCount++
-                responseText = "Compass aligned to True North."
-            }
-            lower.contains("follow") || lower.contains("magnet") || lower.contains("track") || lower.contains("recenter") -> {
-                isFollowingVehicle = true
-                cameraTarget = MapLibreLatLng(userLat, userLon)
-                responseText = "Magnetic camera tracking engaged. Map will pan and auto-rotate with your vehicle heading."
-            }
-            lower.contains("cancel") || lower.contains("stop route") || lower.contains("stop navigation") || lower.contains("clear route") || lower.contains("clear pin") || lower.contains("remove pin") -> {
-                activeRoute = null
-                destinationPin = null
-                pinInfo = null
-                NavigationService.stop(context)
-                responseText = "Active route and pinned destination cleared. Returning to free explore."
-            }
-            lower.contains("who are you") || lower.contains("what are you") || lower.contains("what can you do") || lower.contains("help") -> {
-                responseText = "I am Gabay, your 100% offline tactical Philippine navigation co-pilot. I guide your routes, track speed and heading, search 23,000+ local places, and control map views hands-free."
-            }
-            lower.contains("hello") || lower.contains("hi") || lower.contains("kamusta") || lower.contains("magandang") -> {
-                responseText = "Kamusta rider! Co-pilot active and tracking Philippine road network offline. Where would you like to go?"
-            }
-            lower.contains("salamat") || lower.contains("thank you") || lower.contains("thanks") -> {
-                responseText = "Walang anuman! Ride safely and keep your eyes on the road."
-            }
-            lower.contains("weather") || lower.contains("rain") || lower.contains("ulan") -> {
-                responseText = "Operating offline. Keep safe following distance on wet asphalt."
-            }
-            lower.contains("traffic") -> {
-                responseText = if (activeRoute != null) {
-                    "Monitoring local road corridors. Current speed ${userSpeed.toInt()} km/h on ${activeRoute?.maneuvers?.firstOrNull()?.roadName ?: "route"}."
-                } else {
-                    "No active route. Local roads in your vicinity are open."
-                }
-            }
-            lower.startsWith("go to ") || lower.startsWith("navigate to ") || lower.startsWith("route to ") -> {
-                val query = lower.removePrefix("go to ").removePrefix("navigate to ").removePrefix("route to ").trim()
-                val pois = engine?.searchPois(query, 1u) ?: emptyList()
-                val target = pois.firstOrNull()
-                if (target != null) {
-                    val options = RouteOptions(
-                        mode = selectedMode,
-                        avoidTolls = (selectedMode == VehicleMode.SCOOTER),
-                        avoidExpressways = (selectedMode == VehicleMode.SCOOTER),
-                        avoidFerries = false
-                    )
-                    destinationPin = target.coordinate
-                    isFollowingVehicle = true
-                    val startCoord = LatLng(userLat, userLon)
-                    val route = computeRoute(startCoord, target.coordinate, options)
-                    activeRoute = route
-                    try { engine?.setActiveRoute(route) } catch (e: Exception) {}
-                    telemetry = telemetry.copy(
-                        remainingDistanceKm = (route.totalDistanceMeters / 1000.0).toFloat(),
-                        paceWindowMin = "${(route.estimatedDurationSeconds / 60u)} MIN"
-                    )
-                    NavigationService.start(context)
-                    cameraTarget = MapLibreLatLng(target.coordinate.latitude, target.coordinate.longitude)
-                    responseText = "Navigating to ${target.name}. ${String.format(Locale.US, "%.1f", route.totalDistanceMeters / 1000.0)} km ahead via connected roads."
-                } else {
-                    responseText = "Destination \"$query\" not found in offline vault."
-                }
-            }
-            else -> {
-                val searchKey = lower
-                    .removePrefix("where is ").removePrefix("where's ")
-                    .removePrefix("find ").removePrefix("search ")
-                    .removePrefix("is there a ").removePrefix("is there any ")
-                    .removePrefix("tell me about ").removePrefix("take me to ")
-                    .trim()
-                val pois = if (searchKey.length >= 2) engine?.searchPois(searchKey, 3u) ?: emptyList() else emptyList()
-                val match = pois.firstOrNull()
-                if (match != null) {
-                    destinationPin = match.coordinate
-                    cameraTarget = MapLibreLatLng(match.coordinate.latitude, match.coordinate.longitude)
-                    val distResults = FloatArray(1)
-                    Location.distanceBetween(userLat, userLon, match.coordinate.latitude, match.coordinate.longitude, distResults)
-                    val km = distResults[0] / 1000.0
-                    responseText = "Found ${match.name} (${match.category}), ${String.format(Locale.US, "%.1f", km)} km away. Pin dropped. Say 'navigate to ${match.name}' to start route."
-                } else {
-                    val askResult = engine?.askCopilot(prompt)
-                    if (askResult != null && !askResult.contains("PETRON 450M") && !askResult.contains("ORIGIN ROAD") && !askResult.contains("STANDBY")) {
-                        responseText = askResult
-                    } else {
-                        responseText = if (activeRoute != null) {
-                            "En route on ${activeRoute?.maneuvers?.firstOrNull()?.roadName ?: "route"}. Remaining distance ${String.format(Locale.US, "%.1f", telemetry.remainingDistanceKm)} km. Speed ${userSpeed.toInt()} km/h."
-                        } else {
-                            "I heard \"$prompt\". No matching location found in offline vault. You can ask for gas stations, food, hospitals, or speak a destination to navigate."
-                        }
+                    if ((isDifferent || isCooledDown) && !(isStationary && isOffRoute)) {
+                        lastSpokenAdvisory = advisory
+                        lastSpokenAdvisoryTimeMs = nowMs
+                        audioController.speakTerseCue(advisory)
                     }
                 }
             }
         }
+    }
 
-        chatMessages.add(ChatMessage("GABAY AGENT", responseText, now))
-        audioController.speakTerseCue(responseText)
+    // Asynchronous non-blocking route computation with Dispatchers.IO and HUD loading state
+    fun requestRouteCalculation(
+        startCoord: LatLng,
+        destCoord: LatLng,
+        options: RouteOptions,
+        targetName: String,
+        onComplete: (() -> Unit)? = null
+    ) {
+        if (isRouteLoading) return
+        isRouteLoading = true
+        isNavigating = false
+        activeOriginCoord = startCoord
+        activeDestCoord = destCoord
+        destinationName = targetName
+        destinationPin = destCoord
+        isFollowingVehicle = true
+
+        coroutineScope.launch {
+            // Yield once so Compose immediately paints the TwoWayRouteHeader with the loading progress bar
+            kotlinx.coroutines.yield()
+            try {
+                val route = withContext(Dispatchers.IO) {
+                    computeRoute(startCoord, destCoord, options)
+                }
+                activeRoute = route
+                try { engine?.setActiveRoute(route) } catch (e: Exception) {}
+                telemetry = telemetry.copy(
+                    remainingDistanceKm = (route.totalDistanceMeters / 1000.0).toFloat(),
+                    paceWindowMin = "${(route.estimatedDurationSeconds / 60u)} MIN"
+                )
+                onComplete?.invoke()
+            } catch (e: Exception) {
+                android.util.Log.e("GabayRoute", "Route calculation failure: ${e.message}")
+            } finally {
+                isRouteLoading = false
+            }
+        }
+    }
+
+    fun startActiveNavigation() {
+        val route = activeRoute ?: return
+        isNavigating = true
+        NavigationService.start(context)
+        val road = route.maneuvers.firstOrNull()?.roadName ?: destinationName
+        audioController.speakTerseCue("ROUTE ACTIVE TO ${destinationName.uppercase()}. PROCEED VIA $road.")
+    }
+
+    fun swapRoute() {
+        val orig = activeOriginCoord ?: LatLng(userLat, userLon)
+        val dest = activeDestCoord ?: destinationPin ?: return
+        val origN = originName
+        val destN = destinationName
+
+        activeOriginCoord = dest
+        activeDestCoord = orig
+        originName = destN
+        destinationName = origN
+
+        val options = RouteOptions(
+            mode = selectedMode,
+            avoidTolls = avoidTolls,
+            avoidExpressways = avoidExpressways,
+            avoidFerries = false
+        )
+        requestRouteCalculation(dest, orig, options, origN)
+    }
+
+    fun cancelActiveRoute() {
+        isRouteLoading = false
+        isNavigating = false
+        activeRoute = null
+        try { engine?.clearActiveRoute() } catch (e: Exception) {}
+        destinationPin = null
+        pinInfo = null
+        activeOriginCoord = null
+        activeDestCoord = null
+        originName = "Your location"
+        destinationName = "Dropped pin"
+        NavigationService.stop(context)
+        audioController.speakTerseCue("ROUTE CANCELLED")
+    }
+
+    // Agentic Command & Contextual Intent Dispatcher powered by on-device model.gguf
+    fun processAgentPrompt(prompt: String) {
+        val now = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
+        chatMessages.add(ChatMessage("RIDER", prompt, now))
+
+        coroutineScope.launch {
+            val recentHistory = chatMessages.takeLast(6).map { it.sender to it.text }
+            val result = LlamaDaemon.processWithBrain(prompt, recentHistory)
+            val replyTime = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
+
+            when (result) {
+                is IntentResult.Action -> {
+                    when (result.action.lowercase(Locale.ROOT)) {
+                        "3d" -> {
+                            is3dMode = true
+                            val msg = "3D perspective enabled."
+                            chatMessages.add(ChatMessage("GABAY AGENT", msg, replyTime))
+                            audioController.speakTerseCue(msg)
+                        }
+                        "2d" -> {
+                            is3dMode = false
+                            val msg = "2D overhead view enabled."
+                            chatMessages.add(ChatMessage("GABAY AGENT", msg, replyTime))
+                            audioController.speakTerseCue(msg)
+                        }
+                        "north" -> {
+                            resetRotationCount++
+                            val msg = "Compass aligned to True North."
+                            chatMessages.add(ChatMessage("GABAY AGENT", msg, replyTime))
+                            audioController.speakTerseCue(msg)
+                        }
+                        "follow", "recenter" -> {
+                            isFollowingVehicle = true
+                            cameraTarget = MapLibreLatLng(userLat, userLon)
+                            val msg = "Magnetic camera tracking engaged."
+                            chatMessages.add(ChatMessage("GABAY AGENT", msg, replyTime))
+                            audioController.speakTerseCue(msg)
+                        }
+                        "cancel", "stop" -> {
+                            cancelActiveRoute()
+                            val msg = "Route and pin cleared. Returning to free explore."
+                            chatMessages.add(ChatMessage("GABAY AGENT", msg, replyTime))
+                        }
+                        "navigate" -> {
+                            val targetQuery = if (result.target.isNotBlank()) result.target else prompt
+                            val pois = engine?.searchPois(targetQuery, 1u) ?: emptyList()
+                            val target = pois.firstOrNull()
+                            if (target != null) {
+                                val options = RouteOptions(
+                                    mode = selectedMode,
+                                    avoidTolls = (selectedMode == VehicleMode.SCOOTER),
+                                    avoidExpressways = (selectedMode == VehicleMode.SCOOTER),
+                                    avoidFerries = false
+                                )
+                                val startCoord = LatLng(userLat, userLon)
+                                originName = "Your location"
+                                requestRouteCalculation(startCoord, target.coordinate, options, target.name)
+                                val msg = "Navigating to ${target.name}."
+                                chatMessages.add(ChatMessage("GABAY AGENT", msg, replyTime))
+                            } else {
+                                val msg = "Destination \"$targetQuery\" not found in offline vault."
+                                chatMessages.add(ChatMessage("GABAY AGENT", msg, replyTime))
+                                audioController.speakTerseCue(msg)
+                            }
+                        }
+                        "search" -> {
+                            val targetQuery = if (result.target.isNotBlank()) result.target else "Gas"
+                            val pois = engine?.searchPois(targetQuery, 5u) ?: emptyList()
+                            val closest = pois.firstOrNull()
+                            if (closest != null) {
+                                destinationPin = closest.coordinate
+                                cameraTarget = MapLibreLatLng(closest.coordinate.latitude, closest.coordinate.longitude)
+                                val distResults = FloatArray(1)
+                                Location.distanceBetween(userLat, userLon, closest.coordinate.latitude, closest.coordinate.longitude, distResults)
+                                val km = distResults[0] / 1000.0
+                                val msg = "Found ${closest.name}, ${String.format(Locale.US, "%.1f", km)} km away. Pin dropped."
+                                chatMessages.add(ChatMessage("GABAY AGENT", msg, replyTime))
+                                audioController.speakTerseCue("Found ${closest.name}")
+                            } else {
+                                val msg = "No matching locations found nearby in offline vault."
+                                chatMessages.add(ChatMessage("GABAY AGENT", msg, replyTime))
+                                audioController.speakTerseCue(msg)
+                            }
+                        }
+                        else -> {
+                            val msg = "Command acknowledged."
+                            chatMessages.add(ChatMessage("GABAY AGENT", msg, replyTime))
+                            audioController.speakTerseCue(msg)
+                        }
+                    }
+                }
+                is IntentResult.Conversational -> {
+                    chatMessages.add(ChatMessage("GABAY AGENT", result.text, replyTime))
+                    audioController.speakTerseCue(result.text)
+                }
+                is IntentResult.GuardrailBlocked -> {
+                    chatMessages.add(ChatMessage("GABAY AGENT", result.reason, replyTime))
+                }
+            }
+        }
     }
 
     // Speech-to-Text Listener with unrestricted mic stream
@@ -1045,36 +1311,42 @@ fun CockpitScreen(
             onFollowModeChanged = { isFollowingVehicle = it },
             onPinDropped = { latLng ->
                 destinationPin = latLng
-                // Query nearest landmark/road from SQLite FTS5 engine using real spatial coordinates
-                var landmarkName = "Pinned Destination"
-                try {
-                    val dbFile = File("/sdcard/Documents/Gabay/pois_fts.sqlite")
-                    if (dbFile.exists()) {
-                        val db = SQLiteDatabase.openDatabase(dbFile.absolutePath, null, SQLiteDatabase.OPEN_READONLY)
-                        val pad = 0.03
-                        val cursor = db.rawQuery(
-                            "SELECT name FROM pois WHERE latitude BETWEEN ? AND ? AND longitude BETWEEN ? AND ? LIMIT 1",
-                            arrayOf((latLng.latitude - pad).toString(), (latLng.latitude + pad).toString(), (latLng.longitude - pad).toString(), (latLng.longitude + pad).toString())
-                        )
-                        if (cursor.moveToFirst()) {
-                            landmarkName = cursor.getString(0) ?: "Pinned Destination"
-                        }
-                        cursor.close()
-                        db.close()
-                    }
-                } catch (e: Exception) {}
-
                 pinInfo = PinInfo(
                     coordinate = latLng,
-                    nearestRoadName = landmarkName,
+                    nearestRoadName = "Locating...",
                     barangay = "Local Vicinity",
                     cityOrMunicipality = "Philippines"
                 )
+                coroutineScope.launch(Dispatchers.IO) {
+                    var landmarkName = "Dropped pin"
+                    try {
+                        val dbFile = File("/sdcard/Documents/Gabay/pois_fts.sqlite")
+                        if (dbFile.exists()) {
+                            val db = SQLiteDatabase.openDatabase(dbFile.absolutePath, null, SQLiteDatabase.OPEN_READONLY)
+                            val pad = 0.03
+                            val cursor = db.rawQuery(
+                                "SELECT name FROM pois WHERE latitude BETWEEN ? AND ? AND longitude BETWEEN ? AND ? LIMIT 1",
+                                arrayOf((latLng.latitude - pad).toString(), (latLng.latitude + pad).toString(), (latLng.longitude - pad).toString(), (latLng.longitude + pad).toString())
+                            )
+                            if (cursor.moveToFirst()) {
+                                landmarkName = cursor.getString(0) ?: "Dropped pin"
+                            }
+                            cursor.close()
+                            db.close()
+                        }
+                    } catch (e: Exception) {}
+
+                    withContext(Dispatchers.Main) {
+                        if (pinInfo?.coordinate == latLng) {
+                            pinInfo = pinInfo?.copy(nearestRoadName = landmarkName)
+                        }
+                    }
+                }
             },
             modifier = Modifier.fillMaxSize()
         )
 
-        // LAYER 1: Top Search Bar & Active Route Telemetry Pill Bar
+        // LAYER 1: Top Bar (Search Bar / Two-Way Route Header / Non-blocking Loading State)
         val statusBarTopPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
         Column(
             modifier = Modifier
@@ -1082,41 +1354,40 @@ fun CockpitScreen(
                 .padding(top = (statusBarTopPadding - 8.dp).coerceAtLeast(4.dp))
                 .fillMaxWidth()
         ) {
-            TopSearchBar(
-                query = searchQuery,
-                onQueryChange = { searchQuery = it },
-                searchResults = searchResults,
-                onSelectPlace = { place ->
-                    val dest = place.coordinate
-                    destinationPin = dest
-                    isFollowingVehicle = true
-                    cameraTarget = MapLibreLatLng(dest.latitude, dest.longitude)
-                    searchQuery = ""
+            if (activeRoute != null || isRouteLoading) {
+                TwoWayRouteHeader(
+                    originName = originName,
+                    destinationName = destinationName,
+                    isLoading = isRouteLoading,
+                    onSwap = { swapRoute() },
+                    onClose = { cancelActiveRoute() },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            } else {
+                TopSearchBar(
+                    query = searchQuery,
+                    onQueryChange = { searchQuery = it },
+                    searchResults = searchResults,
+                    onSelectPlace = { place ->
+                        val dest = place.coordinate
+                        searchQuery = ""
+                        originName = "Your location"
+                        val options = RouteOptions(
+                            mode = selectedMode,
+                            avoidTolls = avoidTolls,
+                            avoidExpressways = avoidExpressways,
+                            avoidFerries = false
+                        )
+                        val startCoord = LatLng(userLat, userLon)
+                        requestRouteCalculation(startCoord, dest, options, place.name)
+                    },
+                    onMenuClick = { isMenuSheetOpen = true },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
 
-                    // Calculate Route
-                    val options = RouteOptions(
-                        mode = selectedMode,
-                        avoidTolls = (selectedMode == VehicleMode.SCOOTER),
-                        avoidExpressways = (selectedMode == VehicleMode.SCOOTER),
-                        avoidFerries = false
-                    )
-                    val startCoord = LatLng(userLat, userLon)
-                    val route = computeRoute(startCoord, dest, options)
-                    activeRoute = route
-                    try { engine?.setActiveRoute(route) } catch (e: Exception) {}
-                    telemetry = telemetry.copy(
-                        remainingDistanceKm = (route.totalDistanceMeters / 1000.0).toFloat(),
-                        paceWindowMin = "${(route.estimatedDurationSeconds / 60u)} MIN"
-                    )
-                    NavigationService.start(context)
-                    audioController.speakTerseCue("ROUTE ACTIVE TO ${place.name.uppercase()}")
-                },
-                onMenuClick = { isMenuSheetOpen = true },
-                modifier = Modifier.fillMaxWidth()
-            )
-
-            // LAYER 2: Floating Distance, Cancel Route, & Pace Pills (ONLY Visible When Route Is Active)
-            if (activeRoute != null) {
+            // LAYER 2: Floating Distance, Cancel Route, & Pace Pills (ONLY Visible When Actively Navigating)
+            if (activeRoute != null && isNavigating && !isRouteLoading) {
                 Spacer(modifier = Modifier.height(4.dp))
                 Row(
                     modifier = Modifier
@@ -1135,13 +1406,7 @@ fun CockpitScreen(
                         modifier = Modifier
                             .background(Color(0xFF2A1010), RoundedCornerShape(20.dp))
                             .border(1.dp, Color(0xFFFF3B30).copy(alpha = 0.8f), RoundedCornerShape(20.dp))
-                            .clickable {
-                                activeRoute = null
-                                destinationPin = null
-                                pinInfo = null
-                                NavigationService.stop(context)
-                                audioController.speakTerseCue("ROUTE CANCELLED")
-                            }
+                            .clickable { cancelActiveRoute() }
                             .padding(horizontal = 12.dp, vertical = 8.dp),
                         contentAlignment = Alignment.Center
                     ) {
@@ -1180,34 +1445,23 @@ fun CockpitScreen(
             PinInspectorSheet(
                 pinInfo = info,
                 isRouteActive = (activeRoute != null),
+                isRouteLoading = isRouteLoading,
                 onStartRoute = { destCoord ->
+                    val startCoord = LatLng(userLat, userLon)
+                    originName = "Your location"
+                    val dName = if (info.nearestRoadName.isNotBlank() && info.nearestRoadName != "Road" && info.nearestRoadName != "Locating...") info.nearestRoadName else "Dropped pin"
                     val options = RouteOptions(
                         mode = selectedMode,
-                        avoidTolls = (selectedMode == VehicleMode.SCOOTER),
-                        avoidExpressways = (selectedMode == VehicleMode.SCOOTER),
+                        avoidTolls = avoidTolls,
+                        avoidExpressways = avoidExpressways,
                         avoidFerries = false
                     )
-                    destinationPin = destCoord
-                    isFollowingVehicle = true
-                    val startCoord = LatLng(userLat, userLon)
-                    val route = computeRoute(startCoord, destCoord, options)
-                    activeRoute = route
-                    try { engine?.setActiveRoute(route) } catch (e: Exception) {}
-                    telemetry = telemetry.copy(
-                        remainingDistanceKm = (route.totalDistanceMeters / 1000.0).toFloat(),
-                        paceWindowMin = "${(route.estimatedDurationSeconds / 60u)} MIN"
-                    )
-                    NavigationService.start(context)
-                    val road = route.maneuvers.firstOrNull()?.roadName ?: info.nearestRoadName
-                    audioController.speakTerseCue("STARTING ROUTE TO ${info.nearestRoadName.uppercase()}. PROCEED VIA $road.")
-                    pinInfo = null
+                    requestRouteCalculation(startCoord, destCoord, options, dName) {
+                        pinInfo = null
+                    }
                 },
                 onCancelRoute = {
-                    activeRoute = null
-                    destinationPin = null
-                    pinInfo = null
-                    NavigationService.stop(context)
-                    audioController.speakTerseCue("ROUTE CANCELLED")
+                    cancelActiveRoute()
                 },
                 onClearPin = {
                     destinationPin = null
@@ -1222,76 +1476,135 @@ fun CockpitScreen(
             )
         }
 
-        // LAYER 4: Bottom Floating Controls & Speedometer (Middle-Bottom Speed, Flanking Turn Arrows)
-        Column(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .navigationBarsPadding()
-                .padding(bottom = 12.dp)
-                .fillMaxWidth(),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            // Floating Action Buttons Row: Fused Map Layer Speed-Dial, 2D/3D Toggle, Agent Talk, Compass, Recenter GPS
-            Row(
+        // LAYER 3.5: Google Maps Style Route Preview Sheet
+        if (activeRoute != null && !isNavigating && !isRouteLoading && pinInfo == null) {
+            val route = activeRoute!!
+            RoutePreviewSheet(
+                route = route,
+                selectedMode = selectedMode,
+                onSelectMode = { newMode ->
+                    selectedMode = newMode
+                    val startCoord = activeOriginCoord ?: LatLng(userLat, userLon)
+                    val destCoord = activeDestCoord ?: destinationPin ?: return@RoutePreviewSheet
+                    val options = RouteOptions(
+                        mode = newMode,
+                        avoidTolls = avoidTolls,
+                        avoidExpressways = avoidExpressways,
+                        avoidFerries = false
+                    )
+                    requestRouteCalculation(startCoord, destCoord, options, destinationName)
+                },
+                avoidTolls = avoidTolls,
+                onToggleAvoidTolls = {
+                    avoidTolls = !avoidTolls
+                    val startCoord = activeOriginCoord ?: LatLng(userLat, userLon)
+                    val destCoord = activeDestCoord ?: destinationPin ?: return@RoutePreviewSheet
+                    val options = RouteOptions(
+                        mode = selectedMode,
+                        avoidTolls = avoidTolls,
+                        avoidExpressways = avoidExpressways,
+                        avoidFerries = false
+                    )
+                    requestRouteCalculation(startCoord, destCoord, options, destinationName)
+                },
+                avoidHighways = avoidExpressways,
+                onToggleAvoidHighways = {
+                    avoidExpressways = !avoidExpressways
+                    val startCoord = activeOriginCoord ?: LatLng(userLat, userLon)
+                    val destCoord = activeDestCoord ?: destinationPin ?: return@RoutePreviewSheet
+                    val options = RouteOptions(
+                        mode = selectedMode,
+                        avoidTolls = avoidTolls,
+                        avoidExpressways = avoidExpressways,
+                        avoidFerries = false
+                    )
+                    requestRouteCalculation(startCoord, destCoord, options, destinationName)
+                },
+                onStartNavigation = {
+                    startActiveNavigation()
+                },
+                onCancelRoute = {
+                    cancelActiveRoute()
+                },
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Bottom
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .padding(bottom = 12.dp)
+            )
+        }
+
+        // LAYER 4: Bottom Floating Controls & Speedometer (Visible When Idle or Actively Navigating)
+        if (activeRoute == null || isNavigating) {
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .padding(bottom = 12.dp)
+                    .fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // Left Controls: Speed Dial + 2D/3D Toggle
+                // Floating Action Buttons Row: Fused Map Layer Speed-Dial, 2D/3D Toggle, Agent Talk, Compass, Recenter GPS
                 Row(
-                    verticalAlignment = Alignment.Bottom,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.Bottom
                 ) {
-                    MapStyleSpeedDial(
-                        currentMode = fusedMapMode,
-                        onSelectMode = { fusedMapMode = it }
-                    )
-                    PerspectiveToggleButton(
-                        is3d = is3dMode,
-                        onToggle = { is3dMode = !is3dMode }
-                    )
-                }
+                    // Left Controls: Speed Dial + 2D/3D Toggle
+                    Row(
+                        verticalAlignment = Alignment.Bottom,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        MapStyleSpeedDial(
+                            currentMode = fusedMapMode,
+                            onSelectMode = { fusedMapMode = it }
+                        )
+                        PerspectiveToggleButton(
+                            is3d = is3dMode,
+                            onToggle = { is3dMode = !is3dMode }
+                        )
+                    }
 
-                // Middle Speedometer Readout (Center Bottom)
-                MiddleBottomSpeedometer(
-                    speedKmh = userSpeed,
-                    nextTurnIcon = if (activeRoute != null) telemetry.nextTurnIcon else "straight",
-                    bottomLabel = if (activeRoute != null) telemetry.nextTurnRoad else ""
-                )
+                    // Middle Speedometer Readout (Center Bottom)
+                    MiddleBottomSpeedometer(
+                        speedKmh = userSpeed,
+                        nextTurnIcon = if (activeRoute != null) telemetry.nextTurnIcon else "straight",
+                        bottomLabel = if (activeRoute != null) telemetry.nextTurnRoad else ""
+                    )
 
-                // Right Controls: Reset North Compass + Talk Mic + Recenter GPS
-                Row(
-                    verticalAlignment = Alignment.Bottom,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    CompassResetButton(
-                        cameraBearing = cameraBearing,
-                        onReset = { resetRotationCount++ }
-                    )
-                    CircularFloatingButton(
-                        icon = GabayIcons.CopilotMic,
-                        isActive = isAgentSheetOpen || isListening,
-                        activeColor = GabayColors.AccentMint,
-                        onClick = {
-                            isAgentSheetOpen = !isAgentSheetOpen
-                            if (isAgentSheetOpen) {
-                                audioController.speakTerseCue("GABAY CO-PILOT READY")
-                            }
-                        },
-                        contentDescription = "Talk to Gabay Agent"
-                    )
-                    CircularFloatingButton(
-                        icon = GabayIcons.RecenterGps,
-                        isActive = isFollowingVehicle,
-                        activeColor = GabayColors.AccentMint,
-                        onClick = {
-                            isFollowingVehicle = true
-                            cameraTarget = MapLibreLatLng(userLat, userLon)
-                        },
-                        contentDescription = "Recenter GPS & Magnetic Lock"
-                    )
+                    // Right Controls: Reset North Compass + Talk Mic + Recenter GPS
+                    Row(
+                        verticalAlignment = Alignment.Bottom,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        CompassResetButton(
+                            cameraBearing = cameraBearing,
+                            onReset = { resetRotationCount++ }
+                        )
+                        CircularFloatingButton(
+                            icon = GabayIcons.CopilotMic,
+                            isActive = isAgentSheetOpen || isListening,
+                            activeColor = GabayColors.AccentMint,
+                            onClick = {
+                                isAgentSheetOpen = !isAgentSheetOpen
+                                if (isAgentSheetOpen) {
+                                    audioController.speakTerseCue("GABAY CO-PILOT READY")
+                                }
+                            },
+                            contentDescription = "Talk to Gabay Agent"
+                        )
+                        CircularFloatingButton(
+                            icon = GabayIcons.RecenterGps,
+                            isActive = isFollowingVehicle,
+                            activeColor = GabayColors.AccentMint,
+                            onClick = {
+                                isFollowingVehicle = true
+                                cameraTarget = MapLibreLatLng(userLat, userLon)
+                            },
+                            contentDescription = "Recenter GPS & Magnetic Lock"
+                        )
+                    }
                 }
             }
         }

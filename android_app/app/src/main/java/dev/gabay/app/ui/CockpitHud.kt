@@ -36,7 +36,9 @@ import androidx.compose.ui.unit.sp
 import dev.gabay.app.map.FusedMapMode
 import uniffi.gabay_core.HudTelemetry
 import uniffi.gabay_core.PoiSearchResult
+import uniffi.gabay_core.RouteResult
 import uniffi.gabay_core.VehicleMode
+import java.util.Locale
 
 data class ChatMessage(
     val sender: String, // "RIDER" or "GABAY AGENT"
@@ -50,6 +52,229 @@ data class DriveHistoryItem(
     val durationMin: Int,
     val date: String
 )
+
+/**
+ * Two-Way Origin to Destination Header (Google Maps Style + Apple OS Fluidity)
+ * Features:
+ * - Origin location row with Cyan indicator ring
+ * - 3 vertical connector dots linking origin to destination
+ * - Destination pin row with Red dropped pin indicator
+ * - Dynamic Swap button [⇅] using Phosphor Bold icon to reverse directions
+ * - Cancel Route button [✕]
+ * - Elevated high-contrast card styling with subtle mint border
+ */
+@Composable
+fun TwoWayRouteHeader(
+    originName: String = "Your location",
+    destinationName: String = "Dropped pin",
+    isLoading: Boolean = false,
+    onSwap: () -> Unit,
+    onClose: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 2.dp),
+        shape = RoundedCornerShape(22.dp),
+        colors = CardDefaults.cardColors(containerColor = GabayColors.UiCardElevated),
+        border = CardDefaults.outlinedCardBorder().copy(
+            brush = SolidColor(if (isLoading) Color(0xFF00E5FF).copy(alpha = 0.6f) else GabayColors.UiBorder)
+        )
+    ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Left Column: Origin Dot, 3 Vertical Dots Connector, Destination Pin
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                    modifier = Modifier.width(22.dp)
+                ) {
+                    // Origin location ring
+                    Box(
+                        modifier = Modifier
+                            .size(13.dp)
+                            .background(Color.Transparent, CircleShape)
+                            .border(2.5.dp, Color(0xFF00E5FF), CircleShape)
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    // 3 subtle vertical connector dots
+                    Box(modifier = Modifier.size(2.dp).background(Color(0xFF64748B), CircleShape))
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Box(modifier = Modifier.size(2.dp).background(Color(0xFF64748B), CircleShape))
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Box(modifier = Modifier.size(2.dp).background(Color(0xFF64748B), CircleShape))
+                    Spacer(modifier = Modifier.height(2.dp))
+                    // Destination pin
+                    Icon(
+                        imageVector = GabayIcons.DestinationPin,
+                        contentDescription = "Destination Pin",
+                        tint = Color(0xFFFF5252),
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(12.dp))
+
+                // Middle Column: Origin & Destination Names
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        text = originName,
+                        style = TextStyle(
+                            fontFamily = FontFamily.Default,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 13.sp,
+                            color = GabayColors.TextPrimary
+                        ),
+                        maxLines = 1
+                    )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(0.5.dp)
+                            .background(GabayColors.UiBorder.copy(alpha = 0.5f))
+                    )
+                    Text(
+                        text = destinationName,
+                        style = TextStyle(
+                            fontFamily = FontFamily.Default,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp,
+                            color = Color(0xFF00E5FF)
+                        ),
+                        maxLines = 1
+                    )
+                    if (isLoading) {
+                        Text(
+                            text = "Finding best route via road network...",
+                            style = TextStyle(
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Normal,
+                                fontSize = 10.sp,
+                                color = Color(0xFF38BDF8)
+                            ),
+                            maxLines = 1
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.width(8.dp))
+
+                // Right Column: Swap Action [⇅] and Close Action [✕]
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    // Reverse origin <-> destination
+                    IconButton(
+                        onClick = onSwap,
+                        enabled = !isLoading,
+                        modifier = Modifier
+                            .size(36.dp)
+                            .background(
+                                if (isLoading) GabayColors.UiInput.copy(alpha = 0.4f) else GabayColors.UiInput,
+                                CircleShape
+                            )
+                            .border(1.dp, GabayColors.UiBorder, CircleShape)
+                    ) {
+                        Icon(
+                            imageVector = GabayIcons.ModeSwap,
+                            contentDescription = "Swap Origin and Destination",
+                            tint = if (isLoading) Color(0xFF00E5FF).copy(alpha = 0.4f) else Color(0xFF00E5FF),
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+
+                    // Close / Cancel route
+                    IconButton(
+                        onClick = onClose,
+                        modifier = Modifier
+                            .size(36.dp)
+                            .background(Color(0x33FF3B30), CircleShape)
+                            .border(1.dp, Color(0xFFFF3B30).copy(alpha = 0.5f), CircleShape)
+                    ) {
+                        Icon(
+                            imageVector = GabayIcons.ActionClose,
+                            contentDescription = "Cancel Route",
+                            tint = Color(0xFFFF3B30),
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
+            }
+
+            // Indeterminate sleek cyan loading progress line
+            if (isLoading) {
+                LinearProgressIndicator(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(3.dp),
+                    color = Color(0xFF00E5FF),
+                    trackColor = Color(0xFF0B192C)
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Non-blocking Route Calculation Loading Indicator
+ * Displays a fluid HUD status banner with spinning mint indicator during background pathfinding.
+ */
+@Composable
+fun RouteCalculatingIndicator(
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 2.dp),
+        shape = RoundedCornerShape(22.dp),
+        colors = CardDefaults.cardColors(containerColor = GabayColors.UiCardElevated),
+        border = CardDefaults.outlinedCardBorder().copy(brush = SolidColor(GabayColors.AccentMint.copy(alpha = 0.8f)))
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(22.dp),
+                color = GabayColors.AccentMint,
+                strokeWidth = 2.5.dp
+            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "OPTIMIZING NAVIGATION ROUTE...",
+                    style = TextStyle(
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 11.sp,
+                        color = GabayColors.AccentMint
+                    )
+                )
+                Text(
+                    text = "Snapping to nearest road centerline & computing trajectory",
+                    style = TextStyle(
+                        fontFamily = FontFamily.Default,
+                        fontSize = 11.sp,
+                        color = GabayColors.TextSecondary
+                    )
+                )
+            }
+        }
+    }
+}
 
 /**
  * Top Search Bar (Google Maps Style + Apple OS Fluidity)
@@ -825,7 +1050,7 @@ fun AgentCoPilotSheet(
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 items(messages) { msg ->
-                    val isAgent = msg.sender.contains("AGENT")
+                    val isAgent = msg.sender.contains("AGENT") || msg.sender.contains("GABAY")
                     Column(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalAlignment = if (isAgent) Alignment.Start else Alignment.End
@@ -1126,6 +1351,295 @@ fun TopMenuSheet(
                             )
                         )
                     }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Google Maps Style Route Preview Sheet
+ * Displays travel mode tabs (Two-wheeler / Car / Walk), route duration & distance,
+ * route subtitle, avoidance chips, and prominent "START" button.
+ */
+@Composable
+fun RoutePreviewSheet(
+    route: RouteResult,
+    selectedMode: VehicleMode,
+    onSelectMode: (VehicleMode) -> Unit,
+    avoidTolls: Boolean,
+    onToggleAvoidTolls: () -> Unit,
+    avoidHighways: Boolean,
+    onToggleAvoidHighways: () -> Unit,
+    onStartNavigation: () -> Unit,
+    onCancelRoute: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = GabayColors.UiCardElevated),
+        border = CardDefaults.outlinedCardBorder().copy(brush = SolidColor(GabayColors.UiBorder))
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            // Drag Handle Bar
+            Box(
+                modifier = Modifier
+                    .width(36.dp)
+                    .height(4.dp)
+                    .background(Color(0xFF64748B), CircleShape)
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Mode Selector Tabs (Google Maps Style: Two-wheeler, Car, Walk)
+            val modes = listOf(
+                Triple(VehicleMode.SCOOTER, "Two-wheeler", GabayIcons.ModeScooter),
+                Triple(VehicleMode.CAR, "Car", GabayIcons.ModeCar),
+                Triple(VehicleMode.WALK, "Walk", GabayIcons.ModeWalk)
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                modes.forEach { (mode, title, icon) ->
+                    val isSelected = selectedMode == mode
+                    val durationMin = when (mode) {
+                        VehicleMode.SCOOTER -> route.estimatedDurationSeconds / 60u
+                        VehicleMode.CAR -> (route.totalDistanceMeters / 11.11 / 60.0).toLong().toULong().coerceAtLeast(1u)
+                        VehicleMode.WALK -> (route.totalDistanceMeters / 1.38 / 60.0).toLong().toULong().coerceAtLeast(1u)
+                        VehicleMode.BICYCLE -> (route.totalDistanceMeters / 4.16 / 60.0).toLong().toULong().coerceAtLeast(1u)
+                    }
+
+                    Column(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable { onSelectMode(mode) }
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                imageVector = icon,
+                                contentDescription = title,
+                                tint = if (isSelected) Color(0xFF00E5FF) else GabayColors.TextSecondary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Text(
+                                text = "$durationMin min",
+                                style = TextStyle(
+                                    fontFamily = FontFamily.Default,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                    fontSize = 13.sp,
+                                    color = if (isSelected) Color(0xFF00E5FF) else GabayColors.TextSecondary
+                                )
+                            )
+                        }
+                        if (isSelected) {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Box(
+                                modifier = Modifier
+                                    .width(32.dp)
+                                    .height(2.5.dp)
+                                    .background(Color(0xFF00E5FF), CircleShape)
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Avoidances row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Avoid tolls chip
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(if (avoidTolls) Color(0xFF1E293B) else Color.Transparent)
+                        .border(
+                            1.dp,
+                            if (avoidTolls) Color(0xFF00E5FF) else GabayColors.UiBorder,
+                            RoundedCornerShape(16.dp)
+                        )
+                        .clickable { onToggleAvoidTolls() }
+                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        if (avoidTolls) {
+                            Icon(
+                                imageVector = GabayIcons.ActionCheck,
+                                contentDescription = null,
+                                tint = Color(0xFF00E5FF),
+                                modifier = Modifier.size(12.dp)
+                            )
+                        }
+                        Text(
+                            text = "Avoid tolls",
+                            style = TextStyle(
+                                fontSize = 11.sp,
+                                fontWeight = if (avoidTolls) FontWeight.SemiBold else FontWeight.Normal,
+                                color = if (avoidTolls) Color(0xFF00E5FF) else GabayColors.TextSecondary
+                            )
+                        )
+                    }
+                }
+
+                // Avoid highways chip
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(if (avoidHighways) Color(0xFF1E293B) else Color.Transparent)
+                        .border(
+                            1.dp,
+                            if (avoidHighways) Color(0xFF00E5FF) else GabayColors.UiBorder,
+                            RoundedCornerShape(16.dp)
+                        )
+                        .clickable { onToggleAvoidHighways() }
+                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        if (avoidHighways) {
+                            Icon(
+                                imageVector = GabayIcons.ActionCheck,
+                                contentDescription = null,
+                                tint = Color(0xFF00E5FF),
+                                modifier = Modifier.size(12.dp)
+                            )
+                        }
+                        Text(
+                            text = "Avoid highways",
+                            style = TextStyle(
+                                fontSize = 11.sp,
+                                fontWeight = if (avoidHighways) FontWeight.SemiBold else FontWeight.Normal,
+                                color = if (avoidHighways) Color(0xFF00E5FF) else GabayColors.TextSecondary
+                            )
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Duration & Distance Hero Telemetry
+            val distKm = route.totalDistanceMeters / 1000.0
+            val durMin = route.estimatedDurationSeconds / 60u
+            val viaRoad = route.maneuvers.firstOrNull()?.roadName ?: "Road Network"
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Row(
+                        verticalAlignment = Alignment.Bottom,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = "$durMin min",
+                            style = TextStyle(
+                                fontFamily = FontFamily.Default,
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 22.sp,
+                                color = Color(0xFF00E5FF)
+                            )
+                        )
+                        Text(
+                            text = "(${String.format(Locale.US, "%.1f", distKm)} km)",
+                            style = TextStyle(
+                                fontFamily = FontFamily.Default,
+                                fontWeight = FontWeight.Normal,
+                                fontSize = 15.sp,
+                                color = GabayColors.TextSecondary
+                            )
+                        )
+                    }
+                    Text(
+                        text = "Fastest route via $viaRoad",
+                        style = TextStyle(
+                            fontFamily = FontFamily.Default,
+                            fontWeight = FontWeight.Medium,
+                            fontSize = 11.sp,
+                            color = Color(0xFF94A3B8)
+                        )
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // Action Buttons: Start Navigation [▶ START] and Cancel [✕]
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Button(
+                    onClick = onStartNavigation,
+                    colors = ButtonDefaults.buttonColors(containerColor = GabayColors.AccentEmerald),
+                    shape = RoundedCornerShape(24.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(48.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = GabayIcons.NavCursor,
+                            contentDescription = "Start Navigation",
+                            tint = Color.White,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Text(
+                            text = "START NAVIGATION",
+                            style = TextStyle(
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp,
+                                color = Color.White
+                            )
+                        )
+                    }
+                }
+
+                IconButton(
+                    onClick = onCancelRoute,
+                    modifier = Modifier
+                        .size(48.dp)
+                        .background(Color(0x33FF3B30), CircleShape)
+                        .border(1.dp, Color(0xFFFF3B30).copy(alpha = 0.5f), CircleShape)
+                ) {
+                    Icon(
+                        imageVector = GabayIcons.ActionClose,
+                        contentDescription = "Cancel Route",
+                        tint = Color(0xFFFF3B30),
+                        modifier = Modifier.size(20.dp)
+                    )
                 }
             }
         }
