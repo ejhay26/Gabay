@@ -90,6 +90,10 @@ class MainActivity : ComponentActivity() {
         // Initialize Audio Controller (TTS + Audio Focus Ducking)
         audioController = AudioController(this)
 
+        // Restore saved theme preference
+        val settingsPrefs = getSharedPreferences("gabay_settings", android.content.Context.MODE_PRIVATE)
+        GabayColors.isSunlightLightMode = settingsPrefs.getBoolean("sunlight_light_mode", false)
+
         // Initialize Rust Core Engine with device vault path
         try {
             android.util.Log.d("GabayEngine", "Initializing GabayEngine on /sdcard/Documents/Gabay...")
@@ -1778,6 +1782,16 @@ fun CockpitScreen(
                 driveHistory = driveHistory,
                 selectedMode = selectedMode,
                 onModeSelect = { selectedMode = it },
+                audioController = audioController,
+                onThemeToggle = { enabled ->
+                    GabayColors.isSunlightLightMode = enabled
+                    context.getSharedPreferences("gabay_settings", android.content.Context.MODE_PRIVATE)
+                        .edit()
+                        .putBoolean("sunlight_light_mode", enabled)
+                        .apply()
+                },
+                currentMapMode = fusedMapMode,
+                onMapModeSelect = { fusedMapMode = it },
                 onClose = { isMenuSheetOpen = false }
             )
         }
