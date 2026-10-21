@@ -1373,6 +1373,7 @@ fun RoutePreviewSheet(
     onToggleAvoidHighways: () -> Unit,
     onStartNavigation: () -> Unit,
     onCancelRoute: () -> Unit,
+    routeAdvisory: String? = null,
     modifier: Modifier = Modifier
 ) {
     Card(
@@ -1414,10 +1415,10 @@ fun RoutePreviewSheet(
                 modes.forEach { (mode, title, icon) ->
                     val isSelected = selectedMode == mode
                     val durationMin = when (mode) {
-                        VehicleMode.SCOOTER -> route.estimatedDurationSeconds / 60u
-                        VehicleMode.CAR -> (route.totalDistanceMeters / 11.11 / 60.0).toLong().toULong().coerceAtLeast(1u)
-                        VehicleMode.WALK -> (route.totalDistanceMeters / 1.38 / 60.0).toLong().toULong().coerceAtLeast(1u)
-                        VehicleMode.BICYCLE -> (route.totalDistanceMeters / 4.16 / 60.0).toLong().toULong().coerceAtLeast(1u)
+                        VehicleMode.SCOOTER -> (route.totalDistanceMeters / 11.67 / 60.0).toLong().toULong().coerceAtLeast(1u)
+                        VehicleMode.CAR -> (route.totalDistanceMeters / 9.72 / 60.0).toLong().toULong().coerceAtLeast(1u)
+                        VehicleMode.WALK -> (route.totalDistanceMeters / 1.33 / 60.0).toLong().toULong().coerceAtLeast(1u)
+                        VehicleMode.BICYCLE -> (route.totalDistanceMeters / 4.44 / 60.0).toLong().toULong().coerceAtLeast(1u)
                     }
 
                     Column(
@@ -1586,6 +1587,29 @@ fun RoutePreviewSheet(
                             color = Color(0xFF94A3B8)
                         )
                     )
+                    if (!routeAdvisory.isNullOrBlank()) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(
+                                imageVector = GabayIcons.CopilotMic,
+                                contentDescription = null,
+                                tint = Color(0xFF10B981),
+                                modifier = Modifier.size(12.dp)
+                            )
+                            Text(
+                                text = routeAdvisory,
+                                style = TextStyle(
+                                    fontFamily = FontFamily.Default,
+                                    fontSize = 10.5.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = Color(0xFF10B981)
+                                )
+                            )
+                        }
+                    }
                 }
             }
 

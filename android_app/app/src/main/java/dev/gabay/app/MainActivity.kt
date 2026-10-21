@@ -208,6 +208,7 @@ fun CockpitScreen(
 
     // Navigation and Routing state
     var activeRoute by remember { mutableStateOf<RouteResult?>(null) }
+    var activeRouteAdvisory by remember { mutableStateOf<String?>(null) }
     var destinationPin by remember { mutableStateOf<LatLng?>(null) }
     var pinInfo by remember { mutableStateOf<PinInfo?>(null) }
 
@@ -279,14 +280,31 @@ fun CockpitScreen(
                 return ProjResult(projLat, projLon, d, t)
             }
 
-            fun isRoadDrivable(kind: String): Boolean {
+            fun isRoadDrivable(name: String, kind: String): Boolean {
                 val k = kind.lowercase(Locale.ROOT)
-                if (k.contains("motorway")) {
-                    return !options.avoidExpressways
+                val n = name.lowercase(Locale.ROOT)
+
+                // Philippine Expressways (SCTEX, NLEX, Skyway, TPLEX, CLLEX, CAVITEX, CALAX, MCX, NAIAX, SLEX, STAR, CCLEX)
+                val isExpressway = k.contains("motorway") || k == "highway" ||
+                    n.contains("expressway") || n.contains("sctex") || n.contains("nlex") ||
+                    n.contains("slex") || n.contains("skyway") || n.contains("tplex") ||
+                    n.contains("cllex") || n.contains("cavitex") || n.contains("calax") ||
+                    n.contains("mcx") || n.contains("naiax") || n.contains("cclex") ||
+                    n.contains("tollway")
+
+                if (isExpressway) {
+                    // Under Philippine law (RA 4136 / DOTr), sub-400cc motorcycles, bicycles, and pedestrians are barred from expressways
+                    if (options.avoidExpressways || options.avoidTolls ||
+                        options.mode == VehicleMode.SCOOTER ||
+                        options.mode == VehicleMode.BICYCLE ||
+                        options.mode == VehicleMode.WALK) {
+                        return false
+                    }
                 }
+
                 if (k == "path" || k == "footway" || k == "pedestrian" || k == "steps" ||
                     k == "corridor" || k == "bridleway" || k == "track" || k == "rail" ||
-                    k == "ferry" || k == "aerialway" || k == "waterway") {
+                    k == "ferry" || k == "aerialway" || k == "aeroway" || k == "waterway") {
                     return false
                 }
                 if (k == "cycleway" && options.mode != VehicleMode.BICYCLE) {
@@ -295,7 +313,7 @@ fun CockpitScreen(
                 return true
             }
 
-            class RoadRaw(val name: String, val kind: String, val points: List<LatLng>)
+            class RoadRaw(val name: String, val kind: String, val points: List<LatLng>, val isDetailed: Boolean = true)
             val candidateRoads = ArrayList<RoadRaw>()
 
             // Dynamic bounding box scaled to journey distance: guaranteed min 2500m to include arterials/bypasses
@@ -315,16 +333,36 @@ fun CockpitScreen(
             if (dbFile.exists()) {
                 try {
                     val db = SQLiteDatabase.openDatabase(dbFile.absolutePath, null, SQLiteDatabase.OPEN_READONLY)
+                    // High-detail Zoom 11/12 tiles have id > 120000.
+                    // Coarse overview Zoom 10 tiles have id <= 120000 and cut straight chords across fields (ghost roads).
+                    val detailedCountCursor = db.rawQuery(
+                        "SELECT count(*) FROM roads WHERE id > 120000 AND min_lat <= ? AND max_lat >= ? AND min_lon <= ? AND max_lon >= ?",
+                        arrayOf(maxLat.toString(), minLat.toString(), maxLon.toString(), minLon.toString())
+                    )
+                    var hasDetailedRoads = false
+                    if (detailedCountCursor.moveToFirst()) {
+                        hasDetailedRoads = detailedCountCursor.getInt(0) >= 8
+                    }
+                    detailedCountCursor.close()
+
+                    val sql = if (hasDetailedRoads) {
+                        "SELECT id, name, kind, geometry FROM roads WHERE id > 120000 AND min_lat <= ? AND max_lat >= ? AND min_lon <= ? AND max_lon >= ?"
+                    } else {
+                        "SELECT id, name, kind, geometry FROM roads WHERE min_lat <= ? AND max_lat >= ? AND min_lon <= ? AND max_lon >= ?"
+                    }
+
                     val cursor = db.rawQuery(
-                        "SELECT name, kind, geometry FROM roads WHERE min_lat <= ? AND max_lat >= ? AND min_lon <= ? AND max_lon >= ?",
+                        sql,
                         arrayOf(maxLat.toString(), minLat.toString(), maxLon.toString(), minLon.toString())
                     )
                     if (cursor.moveToFirst()) {
                         do {
-                            val name = cursor.getString(0) ?: "Road"
-                            val kind = cursor.getString(1) ?: "road"
-                            val geomStr = cursor.getString(2) ?: ""
-                            if (!isRoadDrivable(kind)) continue
+                            val roadId = cursor.getLong(0)
+                            val name = cursor.getString(1) ?: "Road"
+                            val kind = cursor.getString(2) ?: "road"
+                            val geomStr = cursor.getString(3) ?: ""
+                            if (!isRoadDrivable(name, kind)) continue
+                            val isDetailed = (roadId > 120000L)
 
                             // Zero-allocation coordinate parser: parses coordinates with char indices instead of allocating thousands of String objects
                             val pts = ArrayList<LatLng>(32)
@@ -344,7 +382,7 @@ fun CockpitScreen(
                                 cStart = semi + 1
                             }
                             if (pts.size >= 2) {
-                                candidateRoads.add(RoadRaw(name, kind, pts))
+                                candidateRoads.add(RoadRaw(name, kind, pts, isDetailed))
                             }
                         } while (cursor.moveToNext())
                     }
@@ -370,7 +408,7 @@ fun CockpitScreen(
                                 val name = props?.optString("name")?.takeIf { it.isNotBlank() } ?: "Road"
                                 val kind = props?.optString("highway")?.takeIf { it.isNotBlank() }
                                     ?: props?.optString("kind") ?: "road"
-                                if (!isRoadDrivable(kind)) continue
+                                if (!isRoadDrivable(name, kind)) continue
 
                                 val geom = feat.optJSONObject("geometry") ?: continue
                                 val coords = geom.optJSONArray("coordinates") ?: continue
@@ -395,7 +433,7 @@ fun CockpitScreen(
 
                                 if (featMinLat <= maxLat && featMaxLat >= minLat &&
                                     featMinLon <= maxLon && featMaxLon >= minLon && pts.size >= 2) {
-                                    candidateRoads.add(RoadRaw(name, kind, pts))
+                                    candidateRoads.add(RoadRaw(name, kind, pts, true))
                                 }
                             }
                         }
@@ -454,12 +492,12 @@ fun CockpitScreen(
                         road.name.contains("Arterial", ignoreCase = true) || road.name.contains("Bypass", ignoreCase = true) ||
                         road.name.contains("Highway", ignoreCase = true) || road.name.contains("Avenue", ignoreCase = true)
                     val isNamed = road.name.isNotBlank() && road.name != "Road"
-                    val costFactor = when {
+                    val costFactor = (when {
                         isMajor -> 1.0f
-                        isNamed -> 1.3f
-                        k == "path" || k == "track" || k == "service" -> 5.0f
-                        else -> 2.8f
-                    }
+                        isNamed -> 1.25f
+                        k == "path" || k == "track" || k == "service" -> 4.5f
+                        else -> 2.5f
+                    }) * (if (road.isDetailed) 1.0f else 4.0f)
 
                     for (i in 0 until pts.size - 1) {
                         val u = nodeIds[i]
@@ -781,10 +819,10 @@ fun CockpitScreen(
                     }
 
                     val avgSpeedMps = when (options.mode) {
-                        VehicleMode.SCOOTER -> 9.72 // 35 km/h
-                        VehicleMode.CAR -> 11.11 // 40 km/h
-                        VehicleMode.BICYCLE -> 4.16 // 15 km/h
-                        VehicleMode.WALK -> 1.38 // 5 km/h
+                        VehicleMode.SCOOTER -> 11.67 // 42 km/h motorcycle cruising
+                        VehicleMode.CAR -> 9.72 // 35 km/h urban traffic
+                        VehicleMode.BICYCLE -> 4.44 // 16 km/h cycling
+                        VehicleMode.WALK -> 1.33 // 4.8 km/h walking
                     }
                     val durationSecs = (totalMeters / avgSpeedMps).toLong().coerceAtLeast(60L)
 
@@ -848,10 +886,10 @@ fun CockpitScreen(
         )
         val distM = distResults[0].toDouble().coerceAtLeast(10.0)
         val avgSpeedMps = when (options.mode) {
-            VehicleMode.SCOOTER -> 9.72 // 35 km/h
-            VehicleMode.CAR -> 11.11 // 40 km/h
-            VehicleMode.BICYCLE -> 4.16 // 15 km/h
-            VehicleMode.WALK -> 1.38 // 5 km/h
+            VehicleMode.SCOOTER -> 11.67 // 42 km/h
+            VehicleMode.CAR -> 9.72 // 35 km/h
+            VehicleMode.BICYCLE -> 4.44 // 16 km/h
+            VehicleMode.WALK -> 1.33 // 4.8 km/h
         }
         val durationSecs = (distM / avgSpeedMps).toLong().coerceAtLeast(60L)
         val maneuvers = listOf(
@@ -1056,6 +1094,17 @@ fun CockpitScreen(
                     remainingDistanceKm = (route.totalDistanceMeters / 1000.0).toFloat(),
                     paceWindowMin = "${(route.estimatedDurationSeconds / 60u)} MIN"
                 )
+
+                // AI Route Advisory Analysis
+                val distKm = String.format(Locale.US, "%.1f", route.totalDistanceMeters / 1000.0).toDoubleOrNull() ?: 1.0
+                val roads = route.maneuvers.map { it.roadName }
+                activeRouteAdvisory = LlamaDaemon.evaluateRoute(
+                    originName = originName,
+                    destName = targetName,
+                    distanceKm = distKm,
+                    roadsTraversed = roads,
+                    mode = options.mode.name
+                )
                 onComplete?.invoke()
             } catch (e: Exception) {
                 android.util.Log.e("GabayRoute", "Route calculation failure: ${e.message}")
@@ -1097,6 +1146,7 @@ fun CockpitScreen(
         isRouteLoading = false
         isNavigating = false
         activeRoute = null
+        activeRouteAdvisory = null
         try { engine?.clearActiveRoute() } catch (e: Exception) {}
         destinationPin = null
         pinInfo = null
@@ -1526,6 +1576,7 @@ fun CockpitScreen(
                 onCancelRoute = {
                     cancelActiveRoute()
                 },
+                routeAdvisory = activeRouteAdvisory,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .navigationBarsPadding()
