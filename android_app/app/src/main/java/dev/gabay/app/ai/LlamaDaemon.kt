@@ -13,6 +13,18 @@ import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.Socket
 import java.net.URL
+import java.util.Locale
+
+data class RiderContext(
+    val latitude: Double = 15.3089,
+    val longitude: Double = 120.9065,
+    val speedKmh: Float = 0f,
+    val heading: Float = 0f,
+    val currentRoad: String = "San Isidro Arterial Road",
+    val isNavigating: Boolean = false,
+    val destinationName: String = "",
+    val remainingDistanceKm: Float = 0f
+)
 
 sealed class IntentResult {
     data class Action(val action: String, val target: String = "", val rawText: String = "") : IntentResult()
@@ -98,7 +110,8 @@ object LlamaDaemon {
      */
     suspend fun processWithBrain(
         prompt: String,
-        recentHistory: List<Pair<String, String>> = emptyList()
+        recentHistory: List<Pair<String, String>> = emptyList(),
+        riderContext: RiderContext = RiderContext()
     ): IntentResult = withContext(Dispatchers.IO) {
         val trimmed = prompt.trim()
         if (trimmed.isEmpty()) {
@@ -128,22 +141,51 @@ object LlamaDaemon {
         // Check if server is reachable
         if (!isPortOpen(SERVER_PORT)) {
             Log.w(TAG, "llama-server not ready on port $SERVER_PORT, using fast heuristic")
-            val fallback = fastHeuristic(trimmed)
+            val fallback = fastHeuristic(trimmed, riderContext)
             lastResult = fallback
             return@withContext fallback
         }
 
         // Call on-device Qwen2.5-0.5B-Instruct model with calibrated few-shot context
         try {
-            val systemPrompt = "You are Gabay, an offline tactical motorcycle assistant and cockpit co-pilot.\n" +
-                "If the user commands an action (navigation, map view, clearing routes, searching), output a JSON object ONLY: {\"action\": \"...\", \"target\": \"...\"}.\n" +
-                "Supported actions: \"navigate\", \"search\", \"3d\", \"2d\", \"cancel\", \"follow\", \"north\".\n" +
-                "If the user asks questions, motorcycle maintenance advice, or general conversation, answer in 1-2 helpful sentences. NEVER output JSON for general questions or chat."
+            val navStatus = if (riderContext.isNavigating) {
+                "En route to ${riderContext.destinationName} (${String.format(Locale.US, "%.1f", riderContext.remainingDistanceKm)} km remaining)"
+            } else {
+                "Free exploration (no active navigation route)"
+            }
+
+            val systemPrompt = "You are Gabay, an offline tactical motorcycle cockpit assistant and navigation co-pilot in the Philippines.\n" +
+                "LIVE RIDER TELEMETRY:\n" +
+                "- Coordinates: Lat ${String.format(Locale.US, "%.4f", riderContext.latitude)}, Lon ${String.format(Locale.US, "%.4f", riderContext.longitude)}\n" +
+                "- Current Road: ${riderContext.currentRoad}\n" +
+                "- Speed: ${riderContext.speedKmh.toInt()} km/h | Heading: ${riderContext.heading.toInt()}°\n" +
+                "- Status: $navStatus\n\n" +
+                "INSTRUCTIONS:\n" +
+                "1. If rider commands an action, output a JSON object ONLY: {\"action\": \"...\", \"target\": \"...\"}.\n" +
+                "2. Supported actions: \"navigate\", \"search\", \"3d\", \"2d\", \"cancel\", \"follow\", \"north\", \"where_am_i\".\n" +
+                "3. If rider asks \"Where am I?\", \"What road is this?\", or asks for their location, output: {\"action\": \"where_am_i\"}.\n" +
+                "4. If rider asks motorcycle maintenance, riding tips, or conversation, reply in 1-2 concise, helpful sentences. NEVER output JSON for general questions."
 
             val messagesArray = org.json.JSONArray().apply {
                 put(JSONObject().apply {
                     put("role", "system")
                     put("content", systemPrompt)
+                })
+                put(JSONObject().apply {
+                    put("role", "user")
+                    put("content", "where am i?")
+                })
+                put(JSONObject().apply {
+                    put("role", "assistant")
+                    put("content", "{\"action\": \"where_am_i\"}")
+                })
+                put(JSONObject().apply {
+                    put("role", "user")
+                    put("content", "what road is this?")
+                })
+                put(JSONObject().apply {
+                    put("role", "assistant")
+                    put("content", "{\"action\": \"where_am_i\"}")
                 })
                 put(JSONObject().apply {
                     put("role", "user")
@@ -160,14 +202,6 @@ object LlamaDaemon {
                 put(JSONObject().apply {
                     put("role", "assistant")
                     put("content", "{\"action\": \"3d\"}")
-                })
-                put(JSONObject().apply {
-                    put("role", "user")
-                    put("content", "2D top view")
-                })
-                put(JSONObject().apply {
-                    put("role", "assistant")
-                    put("content", "{\"action\": \"2d\"}")
                 })
                 put(JSONObject().apply {
                     put("role", "user")
@@ -260,14 +294,19 @@ object LlamaDaemon {
             Log.e(TAG, "Inference exception", e)
         }
 
-        val fallback = fastHeuristic(trimmed)
+        val fallback = fastHeuristic(trimmed, riderContext)
         lastResult = fallback
         return@withContext fallback
     }
 
-    private fun fastHeuristic(prompt: String): IntentResult {
-        val lower = prompt.lowercase()
+    private fun fastHeuristic(prompt: String, riderContext: RiderContext = RiderContext()): IntentResult {
+        val lower = prompt.lowercase(Locale.ROOT)
         return when {
+            lower.contains("where am i") || lower.contains("what road") ||
+                lower.contains("where are we") || lower.contains("current location") ||
+                lower.contains("saan ako") || lower.contains("nasaan tayo") || lower.contains("anong kalsada") -> {
+                IntentResult.Action("where_am_i")
+            }
             lower.contains("disengage") || lower.contains("cancel") || lower.contains("stop") ||
                 lower.contains("end route") || lower.contains("clear route") || lower.contains("turn off navigation") -> IntentResult.Action("cancel")
             lower.contains("3d") || lower.contains("tilt") -> IntentResult.Action("3d")

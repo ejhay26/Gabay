@@ -1158,19 +1158,64 @@ fun CockpitScreen(
         audioController.speakTerseCue("ROUTE CANCELLED")
     }
 
+    fun resolveCurrentRoad(lat: Double, lon: Double): String {
+        val dbFile = File("/sdcard/Documents/Gabay/pois_fts.sqlite")
+        if (dbFile.exists()) {
+            try {
+                val db = SQLiteDatabase.openDatabase(dbFile.absolutePath, null, SQLiteDatabase.OPEN_READONLY)
+                val dLat = 0.003
+                val dLon = 0.003
+                val cursor = db.rawQuery(
+                    "SELECT name FROM roads WHERE id > 120000 AND name != 'Road' AND min_lat <= ? AND max_lat >= ? AND min_lon <= ? AND max_lon >= ? LIMIT 1",
+                    arrayOf((lat + dLat).toString(), (lat - dLat).toString(), (lon + dLon).toString(), (lon - dLon).toString())
+                )
+                var roadName: String? = null
+                if (cursor.moveToFirst()) {
+                    roadName = cursor.getString(0)
+                }
+                cursor.close()
+                db.close()
+                if (!roadName.isNullOrBlank()) return roadName
+            } catch (e: Exception) {}
+        }
+        return activeRoute?.maneuvers?.firstOrNull()?.roadName?.takeIf { it != "Connecting Road" && it != "Direct Route" && it != "Destination" }
+            ?: "San Isidro Arterial Road"
+    }
+
     // Agentic Command & Contextual Intent Dispatcher powered by on-device model.gguf
     fun processAgentPrompt(prompt: String) {
         val now = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
+        val previousHistory = chatMessages.takeLast(6).map { it.sender to it.text }
         chatMessages.add(ChatMessage("RIDER", prompt, now))
 
+        val currentRoad = resolveCurrentRoad(userLat, userLon)
+        val riderCtx = dev.gabay.app.ai.RiderContext(
+            latitude = userLat,
+            longitude = userLon,
+            speedKmh = userSpeed,
+            heading = userHeading,
+            currentRoad = currentRoad,
+            isNavigating = isNavigating,
+            destinationName = destinationName,
+            remainingDistanceKm = telemetry.remainingDistanceKm
+        )
+
         coroutineScope.launch {
-            val recentHistory = chatMessages.takeLast(6).map { it.sender to it.text }
-            val result = LlamaDaemon.processWithBrain(prompt, recentHistory)
+            val result = LlamaDaemon.processWithBrain(prompt, previousHistory, riderCtx)
             val replyTime = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
 
             when (result) {
                 is IntentResult.Action -> {
                     when (result.action.lowercase(Locale.ROOT)) {
+                        "where_am_i", "status", "location" -> {
+                            val locMsg = if (isNavigating) {
+                                "You are on $currentRoad heading towards $destinationName (${String.format(Locale.US, "%.1f", telemetry.remainingDistanceKm)} km remaining). Speed ${userSpeed.toInt()} km/h."
+                            } else {
+                                "You are on $currentRoad at coordinates ${String.format(Locale.US, "%.4f, %.4f", userLat, userLon)}. Free exploration active."
+                            }
+                            chatMessages.add(ChatMessage("GABAY AGENT", locMsg, replyTime))
+                            audioController.speakTerseCue(locMsg)
+                        }
                         "3d" -> {
                             is3dMode = true
                             val msg = "3D perspective enabled."
