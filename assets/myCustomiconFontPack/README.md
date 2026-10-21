@@ -1,6 +1,6 @@
 # Apex Alon Icon Font Pack
 
-A unique, production-grade modular icon font pack designed for tactical motorcycle cockpit HUDs, automotive navigation, and mobile/web applications.
+A unique, production-grade modular icon font pack designed in Automotive Signal Amber for tactical motorcycle cockpit HUDs, automotive navigation, and mobile/web applications.
 
 ## Directory Structure
 - `svg/` - Individual production-ready vector SVGs (24x24 standard grid).
@@ -36,7 +36,7 @@ A unique, production-grade modular icon font pack designed for tactical motorcyc
 Icon(
     imageVector = ApexAlonIcons.Scooter,
     contentDescription = "Scooter",
-    tint = GabayColors.AccentMint
+    tint = GabayColors.AccentPrimary
 )
 ```
 
@@ -44,7 +44,7 @@ Icon(
 ```tsx
 import { ScooterIcon, CompassStarIcon } from 'myCustomiconFontPack/react';
 
-<ScooterIcon size={28} color="#00F5D4" />
+<ScooterIcon size={28} color="#FFB300" />
 ```
 
 ### 3. Web HTML / CSS
