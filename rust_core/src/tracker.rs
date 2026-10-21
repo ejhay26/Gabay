@@ -9,6 +9,7 @@ pub struct Tracker {
     pub smoothed_speed_kmh: f32,
     pub last_telemetry: Option<HudTelemetry>,
     pub off_route_threshold_m: f32,
+    pub last_lat_lon: Option<(f64, f64)>,
 }
 
 impl Tracker {
@@ -18,6 +19,7 @@ impl Tracker {
             smoothed_speed_kmh: 0.0,
             last_telemetry: None,
             off_route_threshold_m: 35.0,
+            last_lat_lon: None,
         }
     }
 
@@ -46,6 +48,7 @@ impl Tracker {
     ) -> HudTelemetry {
         // Exponential Moving Average filter on speed (alpha = 0.3)
         self.smoothed_speed_kmh = 0.7 * self.smoothed_speed_kmh + 0.3 * raw_speed_kmh.max(0.0);
+        self.last_lat_lon = Some((latitude, longitude));
 
         let current_pos = LatLng { latitude, longitude };
         let cardinal = Self::heading_to_cardinal(heading_deg);
@@ -60,7 +63,7 @@ impl Tracker {
                     let mut proj_point = route.polyline[0].clone();
 
                     for i in 0..route.polyline.len() - 1 {
-                        let (proj, dist) = Router::project_point_on_segment(&current_pos, &route.polyline[i], &route.polyline[i+1]);
+                        let (proj, dist, _) = Router::project_point_on_segment(&current_pos, &route.polyline[i], &route.polyline[i+1]);
                         if dist < min_dist_to_segment {
                             min_dist_to_segment = dist;
                             closest_seg_idx = i;

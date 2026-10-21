@@ -90,8 +90,15 @@ impl GabayEngine {
     }
 
     pub fn search_pois(&self, query: String, limit: u32) -> Vec<PoiSearchResult> {
+        let (user_lat, user_lon) = {
+            let tracker = self.tracker.lock().unwrap();
+            match tracker.last_lat_lon {
+                Some((lat, lon)) => (Some(lat), Some(lon)),
+                None => (None, None),
+            }
+        };
         let poi_search = self.poi_search.lock().unwrap();
-        poi_search.search(&query, limit as usize).unwrap_or_default()
+        poi_search.search_around(&query, user_lat, user_lon, limit as usize).unwrap_or_default()
     }
 
     pub fn get_vault_path(&self) -> String {

@@ -71,8 +71,11 @@ fun TwoWayRouteHeader(
     originName: String = "Your location",
     destinationName: String = "Dropped pin",
     isLoading: Boolean = false,
+    isNavigating: Boolean = false,
     onSwap: () -> Unit,
     onClose: () -> Unit,
+    onPickOrigin: (() -> Unit)? = null,
+    onPickDestination: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     Card(
@@ -124,37 +127,85 @@ fun TwoWayRouteHeader(
 
                 Spacer(modifier = Modifier.width(12.dp))
 
-                // Middle Column: Origin & Destination Names
+                // Middle Column: Origin & Destination Names (Clickable to edit Point A or Point B)
                 Column(
                     modifier = Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Text(
-                        text = originName,
-                        style = TextStyle(
-                            fontFamily = FontFamily.Default,
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 13.sp,
-                            color = GabayColors.TextPrimary
-                        ),
-                        maxLines = 1
-                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .then(
+                                if (onPickOrigin != null && !isNavigating) {
+                                    Modifier.clickable { onPickOrigin() }
+                                } else Modifier
+                            ),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = originName,
+                            style = TextStyle(
+                                fontFamily = FontFamily.Default,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 13.sp,
+                                color = GabayColors.TextPrimary
+                            ),
+                            maxLines = 1,
+                            modifier = Modifier.weight(1f)
+                        )
+                        if (onPickOrigin != null && !isNavigating) {
+                            Text(
+                                text = "CHANGE",
+                                style = TextStyle(
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = GabayColors.TextMuted
+                                ),
+                                modifier = Modifier.padding(start = 4.dp)
+                            )
+                        }
+                    }
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(0.5.dp)
                             .background(GabayColors.UiBorder.copy(alpha = 0.5f))
                     )
-                    Text(
-                        text = destinationName,
-                        style = TextStyle(
-                            fontFamily = FontFamily.Default,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 13.sp,
-                            color = GabayColors.AccentPrimary
-                        ),
-                        maxLines = 1
-                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .then(
+                                if (onPickDestination != null && !isNavigating) {
+                                    Modifier.clickable { onPickDestination() }
+                                } else Modifier
+                            ),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = destinationName,
+                            style = TextStyle(
+                                fontFamily = FontFamily.Default,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp,
+                                color = GabayColors.AccentPrimary
+                            ),
+                            maxLines = 1,
+                            modifier = Modifier.weight(1f)
+                        )
+                        if (onPickDestination != null && !isNavigating) {
+                            Text(
+                                text = "CHANGE",
+                                style = TextStyle(
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = GabayColors.AccentPrimary.copy(alpha = 0.7f)
+                                ),
+                                modifier = Modifier.padding(start = 4.dp)
+                            )
+                        }
+                    }
                     if (isLoading) {
                         Text(
                             text = "Finding best route via road network...",
@@ -169,34 +220,36 @@ fun TwoWayRouteHeader(
                     }
                 }
 
-                Spacer(modifier = Modifier.width(8.dp))
+                Spacer(modifier = Modifier.width(10.dp))
 
-                // Right Column: Swap Action [⇅] and Close Action [✕]
+                // Right Column: Swap Action [⇅] (Only in Preview) and Close Action [✕]
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    // Reverse origin <-> destination
-                    IconButton(
-                        onClick = onSwap,
-                        enabled = !isLoading,
-                        modifier = Modifier
-                            .size(36.dp)
-                            .background(
-                                if (isLoading) GabayColors.UiInput.copy(alpha = 0.4f) else GabayColors.UiInput,
-                                CircleShape
+                    if (!isNavigating) {
+                        // Reverse origin <-> destination (Hidden during active navigation to prevent button collision)
+                        IconButton(
+                            onClick = onSwap,
+                            enabled = !isLoading,
+                            modifier = Modifier
+                                .size(36.dp)
+                                .background(
+                                    if (isLoading) GabayColors.UiInput.copy(alpha = 0.4f) else GabayColors.UiInput,
+                                    CircleShape
+                                )
+                                .border(1.dp, GabayColors.UiBorder, CircleShape)
+                        ) {
+                            Icon(
+                                imageVector = GabayIcons.ModeSwap,
+                                contentDescription = "Swap Origin and Destination",
+                                tint = if (isLoading) GabayColors.AccentPrimary.copy(alpha = 0.4f) else GabayColors.AccentPrimary,
+                                modifier = Modifier.size(18.dp)
                             )
-                            .border(1.dp, GabayColors.UiBorder, CircleShape)
-                    ) {
-                        Icon(
-                            imageVector = GabayIcons.ModeSwap,
-                            contentDescription = "Swap Origin and Destination",
-                            tint = if (isLoading) GabayColors.AccentPrimary.copy(alpha = 0.4f) else GabayColors.AccentPrimary,
-                            modifier = Modifier.size(18.dp)
-                        )
+                        }
                     }
 
-                    // Close / Cancel route
+                    // Close / Cancel route / Stop navigation
                     IconButton(
                         onClick = onClose,
                         modifier = Modifier
@@ -213,7 +266,7 @@ fun TwoWayRouteHeader(
                     ) {
                         Icon(
                             imageVector = GabayIcons.ActionClose,
-                            contentDescription = "Cancel Route",
+                            contentDescription = if (isNavigating) "Stop Navigation" else "Cancel Route",
                             tint = if (GabayColors.isSunlightLightMode) Color(0xFFB91C1C) else Color(0xFFFF3B30),
                             modifier = Modifier.size(16.dp)
                         )
@@ -303,6 +356,9 @@ fun TopSearchBar(
     onSelectRecent: (dev.gabay.app.data.RecentDestination) -> Unit = {},
     onClearRecents: () -> Unit = {},
     onCategoryClick: (String) -> Unit = {},
+    hint: String = "Search places, roads, landmarks...",
+    onCancelSearch: (() -> Unit)? = null,
+    onUseCurrentLocation: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     var isSearchFocused by remember { mutableStateOf(false) }
@@ -324,19 +380,35 @@ fun TopSearchBar(
                 .padding(horizontal = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Left: Circular Menu Button
-            IconButton(
-                onClick = onMenuClick,
-                modifier = Modifier
-                    .size(40.dp)
-                    .clip(CircleShape)
-            ) {
-                Icon(
-                    imageVector = GabayIcons.Menu,
-                    contentDescription = "Menu",
-                    tint = GabayColors.TextPrimary,
-                    modifier = Modifier.size(20.dp)
-                )
+            // Left: Back Button (if custom search) or Circular Menu Button
+            if (onCancelSearch != null) {
+                IconButton(
+                    onClick = onCancelSearch,
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                ) {
+                    Icon(
+                        imageVector = ApexAlonIcons.ArrowBack,
+                        contentDescription = "Back",
+                        tint = GabayColors.TextPrimary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            } else {
+                IconButton(
+                    onClick = onMenuClick,
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                ) {
+                    Icon(
+                        imageVector = GabayIcons.Menu,
+                        contentDescription = "Menu",
+                        tint = GabayColors.TextPrimary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.width(6.dp))
@@ -350,7 +422,7 @@ fun TopSearchBar(
             ) {
                 if (query.isEmpty()) {
                     Text(
-                        text = "Search places, roads, landmarks...",
+                        text = hint,
                         style = GabayTypography.SearchPlaceholder,
                         maxLines = 1
                     )
@@ -453,6 +525,66 @@ fun TopSearchBar(
                                 fontWeight = FontWeight.SemiBold,
                                 fontSize = 12.sp,
                                 color = GabayColors.TextPrimary
+                            )
+                        )
+                    }
+                }
+            }
+        }
+
+        // Use Current Location Card (When picking Point A)
+        if (onUseCurrentLocation != null) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = GabayColors.UiCardElevated),
+                border = CardDefaults.outlinedCardBorder().copy(brush = SolidColor(GabayColors.AccentMint.copy(alpha = 0.6f)))
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            onUseCurrentLocation()
+                            isSearchFocused = false
+                            keyboardController?.hide()
+                            focusManager.clearFocus()
+                        }
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(34.dp)
+                            .background(GabayColors.AccentMint.copy(alpha = 0.2f), CircleShape)
+                            .border(1.dp, GabayColors.AccentMint, CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = GabayIcons.GpsFixed,
+                            contentDescription = null,
+                            tint = GabayColors.AccentMint,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Your current location",
+                            style = TextStyle(
+                                fontFamily = FontFamily.Default,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp,
+                                color = GabayColors.AccentMint
+                            )
+                        )
+                        Text(
+                            text = "GPS real-time position as start point",
+                            style = TextStyle(
+                                fontFamily = FontFamily.Default,
+                                fontSize = 11.5.sp,
+                                color = GabayColors.TextSecondary
                             )
                         )
                     }
@@ -1459,6 +1591,8 @@ fun TopMenuSheet(
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
     var offsetY by remember { mutableFloatStateOf(0f) }
+    var currentAudioMode by remember { mutableStateOf(audioController.guidanceMode) }
+    var currentVoiceEngine by remember { mutableStateOf(audioController.voiceEngine) }
 
     Card(
         modifier = modifier
@@ -1763,7 +1897,7 @@ fun TopMenuSheet(
                                         AudioGuidanceMode.ALERTS_ONLY to "ALERTS ONLY",
                                         AudioGuidanceMode.MUTED to "MUTED"
                                     ).forEach { (mode, label) ->
-                                        val isSel = audioController.guidanceMode == mode
+                                        val isSel = currentAudioMode == mode
                                         Box(
                                             modifier = Modifier
                                                 .weight(1f)
@@ -1773,7 +1907,10 @@ fun TopMenuSheet(
                                                     RoundedCornerShape(8.dp)
                                                 )
                                                 .border(1.dp, if (isSel) GabayColors.AccentMint else Color.Transparent, RoundedCornerShape(8.dp))
-                                                .clickable { audioController.guidanceMode = mode },
+                                                .clickable {
+                                                    currentAudioMode = mode
+                                                    audioController.guidanceMode = mode
+                                                },
                                             contentAlignment = Alignment.Center
                                         ) {
                                             Text(
@@ -1793,7 +1930,7 @@ fun TopMenuSheet(
                                         dev.gabay.app.audio.VoiceEngineType.TACTICAL_EXTERNAL to "EXTERNAL (WAV)",
                                         dev.gabay.app.audio.VoiceEngineType.SYSTEM_TTS to "SYSTEM TTS"
                                     ).forEach { (engine, label) ->
-                                        val isSel = audioController.voiceEngine == engine
+                                        val isSel = currentVoiceEngine == engine
                                         Box(
                                             modifier = Modifier
                                                 .weight(1f)
@@ -1803,7 +1940,10 @@ fun TopMenuSheet(
                                                     RoundedCornerShape(8.dp)
                                                 )
                                                 .border(1.dp, if (isSel) GabayColors.AccentMint else Color.Transparent, RoundedCornerShape(8.dp))
-                                                .clickable { audioController.voiceEngine = engine },
+                                                .clickable {
+                                                    currentVoiceEngine = engine
+                                                    audioController.voiceEngine = engine
+                                                },
                                             contentAlignment = Alignment.Center
                                         ) {
                                             Text(

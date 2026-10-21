@@ -23,6 +23,8 @@ class NavigationService : LifecycleService() {
         const val ACTION_START_NAV = "dev.gabay.app.action.START_NAV"
         const val ACTION_STOP_NAV = "dev.gabay.app.action.STOP_NAV"
 
+        var onStopNavigationRequested: (() -> Unit)? = null
+
         fun start(context: Context) {
             val hasFine = androidx.core.content.ContextCompat.checkSelfPermission(
                 context,
@@ -69,7 +71,16 @@ class NavigationService : LifecycleService() {
         super.onStartCommand(intent, flags, startId)
         when (intent?.action) {
             ACTION_START_NAV -> startForegroundServiceInternal()
-            ACTION_STOP_NAV -> stopSelf()
+            ACTION_STOP_NAV -> {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                } else {
+                    @Suppress("DEPRECATION")
+                    stopForeground(true)
+                }
+                onStopNavigationRequested?.invoke()
+                stopSelf()
+            }
         }
         return START_STICKY
     }
@@ -119,6 +130,16 @@ class NavigationService : LifecycleService() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
+        val stopIntent = Intent(this, NavigationService::class.java).apply {
+            action = ACTION_STOP_NAV
+        }
+        val stopPendingIntent = PendingIntent.getService(
+            this,
+            1,
+            stopIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(title)
             .setContentText(content)
@@ -126,6 +147,11 @@ class NavigationService : LifecycleService() {
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setContentIntent(pendingIntent)
+            .addAction(
+                android.R.drawable.ic_menu_close_clear_cancel,
+                "Stop Navigation",
+                stopPendingIntent
+            )
             .build()
     }
 

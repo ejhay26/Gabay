@@ -477,6 +477,10 @@ fun CockpitScreen(
 
     var activeDestCoord by remember { mutableStateOf<LatLng?>(null) }
 
+    var isPickingOrigin by remember { mutableStateOf(false) }
+
+    var isPickingDestination by remember { mutableStateOf(false) }
+
     val speechRecognizer = remember {
 
         if (SpeechRecognizer.isRecognitionAvailable(context)) {
@@ -493,7 +497,15 @@ fun CockpitScreen(
 
     DisposableEffect(Unit) {
 
+        NavigationService.onStopNavigationRequested = {
+
+            cancelActiveRoute()
+
+        }
+
         onDispose {
+
+            NavigationService.onStopNavigationRequested = null
 
             try {
 
@@ -1653,7 +1665,7 @@ fun CockpitScreen(
 
         ) {
 
-            if (activeRoute != null || isRouteLoading) {
+            if ((activeRoute != null || isRouteLoading) && !isPickingOrigin && !isPickingDestination) {
 
                 TwoWayRouteHeader(
 
@@ -1663,9 +1675,333 @@ fun CockpitScreen(
 
                     isLoading = isRouteLoading,
 
+                    isNavigating = isNavigating,
+
                     onSwap = { swapRoute() },
 
                     onClose = { cancelActiveRoute() },
+
+                    onPickOrigin = {
+
+                        isPickingOrigin = true
+
+                        isPickingDestination = false
+
+                        searchQuery = ""
+
+                        searchResults = emptyList()
+
+                    },
+
+                    onPickDestination = {
+
+                        isPickingDestination = true
+
+                        isPickingOrigin = false
+
+                        searchQuery = ""
+
+                        searchResults = emptyList()
+
+                    },
+
+                    modifier = Modifier.fillMaxWidth()
+
+                )
+
+            } else if (isPickingOrigin) {
+
+                TopSearchBar(
+
+                    query = searchQuery,
+
+                    onQueryChange = { searchQuery = it },
+
+                    searchResults = searchResults,
+
+                    onSelectPlace = { place ->
+
+                        originName = place.name
+
+                        activeOriginCoord = place.coordinate
+
+                        isPickingOrigin = false
+
+                        searchQuery = ""
+
+                        searchResults = emptyList()
+
+                        val dest = activeDestCoord ?: destinationPin
+
+                        if (dest != null) {
+
+                            val options = RouteOptions(
+
+                                mode = selectedMode,
+
+                                avoidTolls = avoidTolls,
+
+                                avoidExpressways = avoidExpressways,
+
+                                avoidFerries = false
+
+                            )
+
+                            requestRouteCalculation(place.coordinate, dest, options, destinationName)
+
+                        }
+
+                    },
+
+                    onMenuClick = { isMenuSheetOpen = true },
+
+                    audioGuidanceMode = audioGuidanceMode,
+
+                    onToggleAudioMode = {
+
+                        val nextMode = when (audioGuidanceMode) {
+
+                            dev.gabay.app.audio.AudioGuidanceMode.FULL_VOICE -> dev.gabay.app.audio.AudioGuidanceMode.ALERTS_ONLY
+
+                            dev.gabay.app.audio.AudioGuidanceMode.ALERTS_ONLY -> dev.gabay.app.audio.AudioGuidanceMode.MUTED
+
+                            dev.gabay.app.audio.AudioGuidanceMode.MUTED -> dev.gabay.app.audio.AudioGuidanceMode.FULL_VOICE
+
+                        }
+
+                        audioGuidanceMode = nextMode
+
+                        audioController.guidanceMode = nextMode
+
+                    },
+
+                    recentDestinations = recentDestinations,
+
+                    onSelectRecent = { recent ->
+
+                        originName = recent.name
+
+                        val origCoord = LatLng(recent.latitude, recent.longitude)
+
+                        activeOriginCoord = origCoord
+
+                        isPickingOrigin = false
+
+                        searchQuery = ""
+
+                        searchResults = emptyList()
+
+                        val dest = activeDestCoord ?: destinationPin
+
+                        if (dest != null) {
+
+                            val options = RouteOptions(
+
+                                mode = selectedMode,
+
+                                avoidTolls = avoidTolls,
+
+                                avoidExpressways = avoidExpressways,
+
+                                avoidFerries = false
+
+                            )
+
+                            requestRouteCalculation(origCoord, dest, options, destinationName)
+
+                        }
+
+                    },
+
+                    onClearRecents = {
+
+                        dev.gabay.app.data.RecentDestinationsManager.clearRecents(context)
+
+                        recentDestinations = emptyList()
+
+                    },
+
+                    onCategoryClick = { category ->
+
+                        searchQuery = category
+
+                    },
+
+                    hint = "Choose start point (Point A)...",
+
+                    onCancelSearch = {
+
+                        isPickingOrigin = false
+
+                        searchQuery = ""
+
+                        searchResults = emptyList()
+
+                    },
+
+                    onUseCurrentLocation = {
+
+                        originName = "Your location"
+
+                        activeOriginCoord = null
+
+                        isPickingOrigin = false
+
+                        searchQuery = ""
+
+                        searchResults = emptyList()
+
+                        val dest = activeDestCoord ?: destinationPin
+
+                        if (dest != null) {
+
+                            val options = RouteOptions(
+
+                                mode = selectedMode,
+
+                                avoidTolls = avoidTolls,
+
+                                avoidExpressways = avoidExpressways,
+
+                                avoidFerries = false
+
+                            )
+
+                            requestRouteCalculation(LatLng(userLat, userLon), dest, options, destinationName)
+
+                        }
+
+                    },
+
+                    modifier = Modifier.fillMaxWidth()
+
+                )
+
+            } else if (isPickingDestination) {
+
+                TopSearchBar(
+
+                    query = searchQuery,
+
+                    onQueryChange = { searchQuery = it },
+
+                    searchResults = searchResults,
+
+                    onSelectPlace = { place ->
+
+                        destinationName = place.name
+
+                        activeDestCoord = place.coordinate
+
+                        destinationPin = place.coordinate
+
+                        isPickingDestination = false
+
+                        searchQuery = ""
+
+                        searchResults = emptyList()
+
+                        val start = activeOriginCoord ?: LatLng(userLat, userLon)
+
+                        val options = RouteOptions(
+
+                            mode = selectedMode,
+
+                            avoidTolls = avoidTolls,
+
+                            avoidExpressways = avoidExpressways,
+
+                            avoidFerries = false
+
+                        )
+
+                        requestRouteCalculation(start, place.coordinate, options, place.name)
+
+                    },
+
+                    onMenuClick = { isMenuSheetOpen = true },
+
+                    audioGuidanceMode = audioGuidanceMode,
+
+                    onToggleAudioMode = {
+
+                        val nextMode = when (audioGuidanceMode) {
+
+                            dev.gabay.app.audio.AudioGuidanceMode.FULL_VOICE -> dev.gabay.app.audio.AudioGuidanceMode.ALERTS_ONLY
+
+                            dev.gabay.app.audio.AudioGuidanceMode.ALERTS_ONLY -> dev.gabay.app.audio.AudioGuidanceMode.MUTED
+
+                            dev.gabay.app.audio.AudioGuidanceMode.MUTED -> dev.gabay.app.audio.AudioGuidanceMode.FULL_VOICE
+
+                        }
+
+                        audioGuidanceMode = nextMode
+
+                        audioController.guidanceMode = nextMode
+
+                    },
+
+                    recentDestinations = recentDestinations,
+
+                    onSelectRecent = { recent ->
+
+                        destinationName = recent.name
+
+                        val destCoord = LatLng(recent.latitude, recent.longitude)
+
+                        activeDestCoord = destCoord
+
+                        destinationPin = destCoord
+
+                        isPickingDestination = false
+
+                        searchQuery = ""
+
+                        searchResults = emptyList()
+
+                        val start = activeOriginCoord ?: LatLng(userLat, userLon)
+
+                        val options = RouteOptions(
+
+                            mode = selectedMode,
+
+                            avoidTolls = avoidTolls,
+
+                            avoidExpressways = avoidExpressways,
+
+                            avoidFerries = false
+
+                        )
+
+                        requestRouteCalculation(start, destCoord, options, recent.name)
+
+                    },
+
+                    onClearRecents = {
+
+                        dev.gabay.app.data.RecentDestinationsManager.clearRecents(context)
+
+                        recentDestinations = emptyList()
+
+                    },
+
+                    onCategoryClick = { category ->
+
+                        searchQuery = category
+
+                    },
+
+                    hint = "Choose destination (Point B)...",
+
+                    onCancelSearch = {
+
+                        isPickingDestination = false
+
+                        searchQuery = ""
+
+                        searchResults = emptyList()
+
+                    },
 
                     modifier = Modifier.fillMaxWidth()
 
@@ -1701,7 +2037,7 @@ fun CockpitScreen(
 
                         )
 
-                        val startCoord = LatLng(userLat, userLon)
+                        val startCoord = activeOriginCoord ?: LatLng(userLat, userLon)
 
                         requestRouteCalculation(startCoord, dest, options, place.name)
 
@@ -1761,7 +2097,7 @@ fun CockpitScreen(
 
                         )
 
-                        val startCoord = LatLng(userLat, userLon)
+                        val startCoord = activeOriginCoord ?: LatLng(userLat, userLon)
 
                         val destCoord = LatLng(recent.latitude, recent.longitude)
 

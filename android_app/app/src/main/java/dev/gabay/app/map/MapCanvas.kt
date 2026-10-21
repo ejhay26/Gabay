@@ -19,6 +19,7 @@ import org.maplibre.android.maps.Style
 import org.maplibre.android.style.layers.CircleLayer
 import org.maplibre.android.style.layers.FillLayer
 import org.maplibre.android.style.layers.LineLayer
+import org.maplibre.android.style.layers.SymbolLayer
 import org.maplibre.android.style.layers.PropertyFactory.*
 import org.maplibre.android.style.sources.GeoJsonSource
 import org.maplibre.geojson.Feature
@@ -235,6 +236,7 @@ fun MapCanvas(
         val routeCasing = style.getLayer("route_casing")
         val poisLayer = style.getLayer("pmtiles_pois")
         val roadLabels = style.getLayer("pmtiles_roads_labels")
+        val sqlitePoiLabel = style.getLayer("sqlite_poi_label")
 
         if (isSunlightLightMode) {
             bgLayer?.setProperties(backgroundColor(AndroidColor.parseColor("#F1F5F9")))
@@ -251,6 +253,7 @@ fun MapCanvas(
             routeCasing?.setProperties(lineColor(AndroidColor.parseColor("#7C2D12")))
             poisLayer?.setProperties(textColor(AndroidColor.parseColor("#0F172A")), textHaloColor(AndroidColor.WHITE))
             roadLabels?.setProperties(textColor(AndroidColor.parseColor("#334155")), textHaloColor(AndroidColor.WHITE))
+            sqlitePoiLabel?.setProperties(textColor(AndroidColor.parseColor("#0F172A")), textHaloColor(AndroidColor.WHITE))
         } else {
             bgLayer?.setProperties(backgroundColor(AndroidColor.parseColor("#16191E")))
             earthLayer?.setProperties(fillColor(AndroidColor.parseColor("#16191E")))
@@ -266,6 +269,7 @@ fun MapCanvas(
             routeCasing?.setProperties(lineColor(AndroidColor.parseColor("#4D3200")))
             poisLayer?.setProperties(textColor(AndroidColor.parseColor("#FFB300")), textHaloColor(AndroidColor.parseColor("#080B10")))
             roadLabels?.setProperties(textColor(AndroidColor.parseColor("#CBD5E1")), textHaloColor(AndroidColor.parseColor("#0B0E14")))
+            sqlitePoiLabel?.setProperties(textColor(AndroidColor.parseColor("#F1F5F9")), textHaloColor(AndroidColor.parseColor("#0B0E14")))
         }
     }
 
@@ -358,6 +362,62 @@ fun MapCanvas(
                     .build()
 
                 map.easeCamera(CameraUpdateFactory.newCameraPosition(newPos), 350)
+            }
+        }
+    }
+
+    // Query and render rich offline SQLite POIs (NEUST, hospitals, schools, municipal halls, clinics)
+    var lastPoiQueryLat by remember { mutableDoubleStateOf(0.0) }
+    var lastPoiQueryLon by remember { mutableDoubleStateOf(0.0) }
+
+    LaunchedEffect(userLat, userLon, mapInstance) {
+        val map = mapInstance ?: return@LaunchedEffect
+        val style = map.style ?: return@LaunchedEffect
+        val poiSource = style.getSourceAs<GeoJsonSource>("sqlite_poi_source") ?: return@LaunchedEffect
+
+        // Throttle updates: only re-query when rider moved > 500m
+        val dLat = Math.abs(userLat - lastPoiQueryLat)
+        val dLon = Math.abs(userLon - lastPoiQueryLon)
+        if (lastPoiQueryLat != 0.0 && dLat < 0.005 && dLon < 0.005) {
+            return@LaunchedEffect
+        }
+        lastPoiQueryLat = userLat
+        lastPoiQueryLon = userLon
+
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                val dbFile = File("/sdcard/Documents/Gabay/pois_fts.sqlite")
+                if (dbFile.exists()) {
+                    val db = android.database.sqlite.SQLiteDatabase.openDatabase(dbFile.absolutePath, null, android.database.sqlite.SQLiteDatabase.OPEN_READONLY)
+                    val pad = 0.05 // ~5.5 km radius around user
+                    val cursor = db.rawQuery(
+                        "SELECT name, category, latitude, longitude FROM pois WHERE latitude BETWEEN ? AND ? AND longitude BETWEEN ? AND ? LIMIT 200",
+                        arrayOf(
+                            (userLat - pad).toString(),
+                            (userLat + pad).toString(),
+                            (userLon - pad).toString(),
+                            (userLon + pad).toString()
+                        )
+                    )
+                    val features = mutableListOf<Feature>()
+                    while (cursor.moveToNext()) {
+                        val name = cursor.getString(0) ?: continue
+                        val cat = cursor.getString(1) ?: ""
+                        val lat = cursor.getDouble(2)
+                        val lon = cursor.getDouble(3)
+                        val feat = Feature.fromGeometry(Point.fromLngLat(lon, lat))
+                        feat.addStringProperty("name", name)
+                        feat.addStringProperty("category", cat)
+                        features.add(feat)
+                    }
+                    cursor.close()
+                    db.close()
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                        poiSource.setGeoJson(FeatureCollection.fromFeatures(features))
+                    }
+                }
+            } catch (e: Exception) {
+                android.util.Log.w("MapCanvas", "Error querying SQLite POIs: ${e.message}")
             }
         }
     }
@@ -850,6 +910,39 @@ private fun setupTacticalMap(
             )
         }
         style.addLayer(userDot)
+
+        // 7. Rich SQLite Offline POIs (NEUST, hospitals, clinics, schools, municipal halls, barangays)
+        val sqlitePoiSource = GeoJsonSource("sqlite_poi_source", FeatureCollection.fromFeatures(emptyList()))
+        style.addSource(sqlitePoiSource)
+
+        val sqlitePoiCircle = CircleLayer("sqlite_poi_circle", "sqlite_poi_source").apply {
+            minZoom = 11.0f
+            setProperties(
+                circleRadius(4.5f),
+                circleColor(AndroidColor.parseColor("#FFB300")),
+                circleStrokeWidth(1.5f),
+                circleStrokeColor(AndroidColor.parseColor("#0B0E14"))
+            )
+        }
+        style.addLayer(sqlitePoiCircle)
+
+        val sqlitePoiLabel = SymbolLayer("sqlite_poi_label", "sqlite_poi_source").apply {
+            minZoom = 12.0f
+            setProperties(
+                textField("{name}"),
+                textFont(arrayOf("Noto Sans Regular")),
+                textSize(11.0f),
+                textColor(if (isSunlightLightMode) AndroidColor.parseColor("#0F172A") else AndroidColor.parseColor("#F1F5F9")),
+                textHaloColor(if (isSunlightLightMode) AndroidColor.WHITE else AndroidColor.parseColor("#0B0E14")),
+                textHaloWidth(1.75f),
+                textAnchor(org.maplibre.android.style.layers.Property.TEXT_ANCHOR_TOP),
+                textOffset(arrayOf(0f, 0.6f)),
+                textMaxWidth(8.0f),
+                textAllowOverlap(false),
+                textOptional(true)
+            )
+        }
+        style.addLayer(sqlitePoiLabel)
     }
 
     // Long Press Listener: Drop Destination Pin
