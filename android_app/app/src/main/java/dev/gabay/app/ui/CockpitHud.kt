@@ -287,6 +287,8 @@ fun TopSearchBar(
     searchResults: List<PoiSearchResult>,
     onSelectPlace: (PoiSearchResult) -> Unit,
     onMenuClick: () -> Unit,
+    audioGuidanceMode: dev.gabay.app.audio.AudioGuidanceMode = dev.gabay.app.audio.AudioGuidanceMode.FULL_VOICE,
+    onToggleAudioMode: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var isSearchFocused by remember { mutableStateOf(false) }
@@ -352,7 +354,7 @@ fun TopSearchBar(
                 )
             }
 
-            // Right: Clear or Search Icon
+            // Right: Clear Button or HUD Audio Guidance Mode Toggle
             if (query.isNotEmpty()) {
                 IconButton(
                     onClick = {
@@ -372,13 +374,18 @@ fun TopSearchBar(
                 }
             } else {
                 IconButton(
-                    onClick = {},
+                    onClick = onToggleAudioMode,
                     modifier = Modifier.size(36.dp)
                 ) {
+                    val (icon, tint, desc) = when (audioGuidanceMode) {
+                        dev.gabay.app.audio.AudioGuidanceMode.FULL_VOICE -> Triple(GabayIcons.AudioTts, Color(0xFF10B981), "Full Voice Guidance")
+                        dev.gabay.app.audio.AudioGuidanceMode.ALERTS_ONLY -> Triple(GabayIcons.WarningHazard, Color(0xFFF59E0B), "Alerts Only")
+                        dev.gabay.app.audio.AudioGuidanceMode.MUTED -> Triple(GabayIcons.AudioMute, Color(0xFFEF4444), "Muted Guidance")
+                    }
                     Icon(
-                        imageVector = GabayIcons.SearchPoi,
-                        contentDescription = "Search",
-                        tint = GabayColors.TextSecondary,
+                        imageVector = icon,
+                        contentDescription = desc,
+                        tint = tint,
                         modifier = Modifier.size(18.dp)
                     )
                 }

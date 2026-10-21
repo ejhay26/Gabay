@@ -188,6 +188,7 @@ fun CockpitScreen(
     // Rider & Vehicle States
     var selectedMode by remember { mutableStateOf(VehicleMode.SCOOTER) }
     var fusedMapMode by remember { mutableStateOf(FusedMapMode.STREET) }
+    var audioGuidanceMode by remember { mutableStateOf(audioController.guidanceMode) }
 
     // User GPS state (Defaults to real Central Luzon coordinates detected on device)
     var userLat by remember { mutableDoubleStateOf(15.2611) }
@@ -1477,6 +1478,22 @@ fun CockpitScreen(
                         requestRouteCalculation(startCoord, dest, options, place.name)
                     },
                     onMenuClick = { isMenuSheetOpen = true },
+                    audioGuidanceMode = audioGuidanceMode,
+                    onToggleAudioMode = {
+                        val nextMode = when (audioGuidanceMode) {
+                            dev.gabay.app.audio.AudioGuidanceMode.FULL_VOICE -> dev.gabay.app.audio.AudioGuidanceMode.ALERTS_ONLY
+                            dev.gabay.app.audio.AudioGuidanceMode.ALERTS_ONLY -> dev.gabay.app.audio.AudioGuidanceMode.MUTED
+                            dev.gabay.app.audio.AudioGuidanceMode.MUTED -> dev.gabay.app.audio.AudioGuidanceMode.FULL_VOICE
+                        }
+                        audioGuidanceMode = nextMode
+                        audioController.guidanceMode = nextMode
+                        val toastMsg = when (nextMode) {
+                            dev.gabay.app.audio.AudioGuidanceMode.FULL_VOICE -> "Voice Guidance: FULL (Voice & Alerts)"
+                            dev.gabay.app.audio.AudioGuidanceMode.ALERTS_ONLY -> "Voice Guidance: ALERTS ONLY"
+                            dev.gabay.app.audio.AudioGuidanceMode.MUTED -> "Voice Guidance: MUTED"
+                        }
+                        android.widget.Toast.makeText(context, toastMsg, android.widget.Toast.LENGTH_SHORT).show()
+                    },
                     modifier = Modifier.fillMaxWidth()
                 )
             }
