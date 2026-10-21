@@ -220,11 +220,13 @@ impl Router {
                 }
             }
 
-            // Planarize junctions: connect all vertices to intermediate segments of other roads within 8m
-            let junction_threshold = 8.0f64;
+            // Planarize junctions: connect road vertices to intermediate segments of intersecting roads within 35m
+            let junction_threshold = 35.0f64;
             for (r_idx, road) in candidate_roads.iter().enumerate() {
+                let is_end_r = |idx: usize| idx == 0 || idx == road.pts.len() - 1;
                 for (p_idx, pt) in road.pts.iter().enumerate() {
                     let u = road_node_map[r_idx][p_idx];
+                    let current_threshold = if is_end_r(p_idx) { 45.0f64 } else { junction_threshold };
                     for (other_ridx, other_road) in candidate_roads.iter().enumerate() {
                         if other_ridx == r_idx { continue; }
                         let other_cost = if other_road.kind.contains("major") || other_road.name.contains("Arterial") || other_road.name.contains("Bypass") {
@@ -234,7 +236,7 @@ impl Router {
                         };
                         for i in 0..other_road.pts.len() - 1 {
                             let (proj, d) = Self::project_point_on_segment(pt, &other_road.pts[i], &other_road.pts[i + 1]);
-                            if d <= junction_threshold {
+                            if d <= current_threshold {
                                 let seg_len = Self::haversine_distance(&other_road.pts[i], &other_road.pts[i + 1]);
                                 let d_to_a = Self::haversine_distance(&proj, &other_road.pts[i]);
                                 let t = if seg_len > 0.1 { (d_to_a / seg_len).clamp(0.0, 1.0) } else { 0.5 };
