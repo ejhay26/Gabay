@@ -12,6 +12,7 @@ import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.util.Log
 import java.util.Locale
+import android.media.SoundPool
 import kotlin.math.sin
 
 enum class AudioGuidanceMode {
@@ -28,7 +29,7 @@ enum class VoiceEngineType {
 /**
  * Offline Audio Controller with Audio Focus Ducking.
  * Prioritizes terse rally-cockpit voice navigation cues while smoothly ducking background audio.
- * Supports external offline tactical audio chimes, intelligent debounce, and 3 guidance modes.
+ * Supports external offline voice audio pack (WAV assets), synthesized chimes, and system TTS.
  */
 class AudioController(private val context: Context) : TextToSpeech.OnInitListener {
 
@@ -36,6 +37,20 @@ class AudioController(private val context: Context) : TextToSpeech.OnInitListene
     private var tts: TextToSpeech? = null
     private var isTtsReady = false
     private var audioFocusRequest: AudioFocusRequest? = null
+
+    // External Offline Voice Pack Engine (SoundPool)
+    private val soundPool: SoundPool = SoundPool.Builder()
+        .setMaxStreams(3)
+        .setAudioAttributes(
+            AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_ASSISTANCE_NAVIGATION_GUIDANCE)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                .build()
+        )
+        .build()
+
+    private val voiceSoundMap = mutableMapOf<String, Int>()
+    private var isVoicePackLoaded = false
 
     private val prefs = context.getSharedPreferences("gabay_audio_prefs", Context.MODE_PRIVATE)
 
@@ -66,6 +81,47 @@ class AudioController(private val context: Context) : TextToSpeech.OnInitListene
 
     init {
         tts = TextToSpeech(context.applicationContext, this)
+        loadExternalVoicePack()
+    }
+
+    private fun loadExternalVoicePack() {
+        Thread {
+            try {
+                val voiceFiles = listOf(
+                    "turn_left.wav", "turn_right.wav", "sharp_left.wav", "sharp_right.wav",
+                    "slight_left.wav", "slight_right.wav", "u_turn.wav", "straight.wav",
+                    "arrived.wav", "rerouting.wav", "route_ready.wav", "hazard_ahead.wav",
+                    "speed_warning.wav", "in_50m.wav", "in_100m.wav", "in_200m.wav",
+                    "in_500m.wav", "in_1km.wav", "gps_acquired.wav", "gps_lost.wav", "where_am_i.wav"
+                )
+                val am = context.assets
+                for (fileName in voiceFiles) {
+                    try {
+                        val afd = am.openFd("voice/$fileName")
+                        val soundId = soundPool.load(afd, 1)
+                        val key = fileName.removeSuffix(".wav")
+                        voiceSoundMap[key] = soundId
+                    } catch (e: Exception) {
+                        Log.w("GabayAudio", "Could not load voice asset $fileName: ${e.message}")
+                    }
+                }
+                isVoicePackLoaded = true
+                Log.d("GabayAudio", "External offline voice pack loaded: ${voiceSoundMap.size} cues.")
+            } catch (e: Exception) {
+                Log.w("GabayAudio", "Error loading voice pack: ${e.message}")
+            }
+        }.start()
+    }
+
+    fun playVoiceAsset(key: String): Boolean {
+        val soundId = voiceSoundMap[key] ?: return false
+        requestAudioFocus()
+        soundPool.play(soundId, 1.0f, 1.0f, 1, 0, 1.0f)
+        // Automatically release audio focus after sound completes
+        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+            abandonAudioFocus()
+        }, 2200L)
+        return true
     }
 
     override fun onInit(status: Int) {
@@ -193,6 +249,34 @@ class AudioController(private val context: Context) : TextToSpeech.OnInitListene
         }.start()
     }
 
+    private fun matchVoiceKey(cue: String): String? {
+        val lower = cue.lowercase()
+        return when {
+            "sharp left" in lower -> "sharp_left"
+            "sharp right" in lower -> "sharp_right"
+            "slight left" in lower || "keep left" in lower -> "slight_left"
+            "slight right" in lower || "keep right" in lower -> "slight_right"
+            "turn left" in lower -> "turn_left"
+            "turn right" in lower -> "turn_right"
+            "u-turn" in lower || "uturn" in lower -> "u_turn"
+            "straight" in lower || "continue" in lower -> "straight"
+            "arrived" in lower || "destination" in lower -> "arrived"
+            "recalculat" in lower || "off-route" in lower || "off route" in lower -> "rerouting"
+            "route calculated" in lower || "route ready" in lower || "route verified" in lower -> "route_ready"
+            "hazard" in lower || "caution" in lower -> "hazard_ahead"
+            "speed" in lower -> "speed_warning"
+            "50 meter" in lower || "50m" in lower -> "in_50m"
+            "100 meter" in lower || "100m" in lower -> "in_100m"
+            "200 meter" in lower || "200m" in lower -> "in_200m"
+            "500 meter" in lower || "500m" in lower -> "in_500m"
+            "1 kilometer" in lower || "1 km" in lower || "1km" in lower -> "in_1km"
+            "where am i" in lower || "location" in lower -> "where_am_i"
+            "gps acquired" in lower || "gps lock" in lower || "gps connected" in lower -> "gps_acquired"
+            "gps lost" in lower || "gps weak" in lower -> "gps_lost"
+            else -> null
+        }
+    }
+
     /**
      * Speaks a terse verbal advisory cue with background audio ducking and intelligent spam debounce.
      */
@@ -212,8 +296,16 @@ class AudioController(private val context: Context) : TextToSpeech.OnInitListene
         lastCueText = cue
         lastCueTimeMs = now
 
-        if (voiceEngine == VoiceEngineType.TACTICAL_EXTERNAL && isCriticalAlert) {
-            playTacticalChime(880.0, 1320.0, 140)
+        // Check if external offline voice engine handles this cue
+        if (voiceEngine == VoiceEngineType.TACTICAL_EXTERNAL) {
+            if (isCriticalAlert) {
+                playTacticalChime(880.0, 1320.0, 120)
+            }
+            val voiceKey = matchVoiceKey(cue)
+            if (voiceKey != null && playVoiceAsset(voiceKey)) {
+                Log.d("GabayAudio", "Played external offline voice cue: $voiceKey")
+                return
+            }
         }
 
         if (guidanceMode == AudioGuidanceMode.FULL_VOICE) {
@@ -238,6 +330,7 @@ class AudioController(private val context: Context) : TextToSpeech.OnInitListene
     fun shutdown() {
         tts?.stop()
         tts?.shutdown()
+        soundPool.release()
         abandonAudioFocus()
     }
 }
