@@ -1,0 +1,39 @@
+/* Apex Alon Icon Font Stylesheet - v1.0.0 */
+@font-face {
+  font-family: 'ApexAlon';
+  src: url('apex-alon.woff2') format('woff2'), url('apex-alon.woff') format('woff');
+  font-weight: normal;
+  font-style: normal;
+  font-display: block;
+}
+
+[class^='ai-'], [class*=' ai-'] {
+  font-family: 'ApexAlon' !important;
+  speak: never;
+  font-style: normal;
+  font-weight: normal;
+  font-variant: normal;
+  text-transform: none;
+  line-height: 1;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  display: inline-block;
+  vertical-align: middle;
+}
+
+.ai-scooter:before { content: '\e900'; }
+.ai-compass-star:before { content: '\e901'; }
+.ai-waypoint-pin:before { content: '\e902'; }
+.ai-fuel-pump:before { content: '\e903'; }
+.ai-road-centerline:before { content: '\e904'; }
+.ai-perspective-cube:before { content: '\e905'; }
+.ai-wrench-tool:before { content: '\e906'; }
+.ai-speaker-waves:before { content: '\e907'; }
+.ai-speedometer-dial:before { content: '\e908'; }
+.ai-shield-crest:before { content: '\e909'; }
+.ai-battery-bolt:before { content: '\e90A'; }
+.ai-gear-settings:before { content: '\e90B'; }
+.ai-helmet-safety:before { content: '\e90C'; }
+.ai-hazard-triangle:before { content: '\e90D'; }
+.ai-gforce-meter:before { content: '\e90E'; }
+.ai-satellite-dish:before { content: '\e90F'; }

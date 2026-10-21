@@ -1,0 +1,28 @@
+{
+  "name": "@gabay/apex-alon-icons",
+  "version": "1.0.0",
+  "description": "Unique, modular tactile & cockpit HUD navigation icon font pack.",
+  "main": "react/index.tsx",
+  "types": "react/index.tsx",
+  "style": "font/apex-alon.css",
+  "files": [
+    "svg",
+    "font",
+    "compose",
+    "react",
+    "manifest.json"
+  ],
+  "keywords": [
+    "icons",
+    "icon-font",
+    "navigation",
+    "hud",
+    "motorcycle",
+    "tactical",
+    "react",
+    "compose",
+    "svg"
+  ],
+  "author": "Gabay Navigation Systems",
+  "license": "MIT"
+}
