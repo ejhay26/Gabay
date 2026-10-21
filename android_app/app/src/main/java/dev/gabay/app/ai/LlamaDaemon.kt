@@ -154,79 +154,41 @@ object LlamaDaemon {
                 "Free exploration (no active navigation route)"
             }
 
-            val systemPrompt = "You are Gabay, an offline tactical motorcycle cockpit assistant and navigation co-pilot in the Philippines.\n" +
-                "LIVE RIDER TELEMETRY:\n" +
-                "- Coordinates: Lat ${String.format(Locale.US, "%.4f", riderContext.latitude)}, Lon ${String.format(Locale.US, "%.4f", riderContext.longitude)}\n" +
+            val systemPrompt = "You are Gabay, a smart offline AI motorcycle co-pilot and tactical cockpit assistant in the Philippines.\n" +
+                "You assist riders with navigation, route guidance, motorcycle maintenance, road rules, and general riding knowledge.\n\n" +
+                "LIVE RIDER CONTEXT:\n" +
                 "- Current Road: ${riderContext.currentRoad}\n" +
+                "- Coordinates: Lat ${String.format(Locale.US, "%.4f", riderContext.latitude)}, Lon ${String.format(Locale.US, "%.4f", riderContext.longitude)}\n" +
                 "- Speed: ${riderContext.speedKmh.toInt()} km/h | Heading: ${riderContext.heading.toInt()}°\n" +
-                "- Status: $navStatus\n\n" +
+                "- Navigation Status: $navStatus\n\n" +
                 "INSTRUCTIONS:\n" +
-                "1. If rider commands an action, output a JSON object ONLY: {\"action\": \"...\", \"target\": \"...\"}.\n" +
-                "2. Supported actions: \"navigate\", \"search\", \"3d\", \"2d\", \"cancel\", \"follow\", \"north\", \"where_am_i\".\n" +
-                "3. If rider asks \"Where am I?\", \"What road is this?\", or asks for their location, output: {\"action\": \"where_am_i\"}.\n" +
-                "4. If rider asks motorcycle maintenance, riding tips, or conversation, reply in 1-2 concise, helpful sentences. NEVER output JSON for general questions."
+                "1. If the rider commands an action or navigation task, respond with a JSON object ONLY: {\"action\": \"...\", \"target\": \"...\"}.\n" +
+                "   Supported actions: \"where_am_i\", \"navigate\", \"search\", \"3d\", \"2d\", \"cancel\", \"follow\", \"north\".\n" +
+                "   Examples:\n" +
+                "   - \"Where am I?\" / \"What road is this?\" -> {\"action\": \"where_am_i\"}\n" +
+                "   - \"Take me to Gapan City\" -> {\"action\": \"navigate\", \"target\": \"Gapan City\"}\n" +
+                "   - \"Find gas station\" -> {\"action\": \"search\", \"target\": \"Gas\"}\n" +
+                "   - \"Switch to 3D\" -> {\"action\": \"3d\"}\n" +
+                "   - \"Cancel route\" -> {\"action\": \"cancel\"}\n" +
+                "2. For ANY other question, conversation, motorcycle advice, tire pressure, engine maintenance, or follow-up question, reply as a knowledgeable companion in 1 to 2 clear, helpful sentences.\n" +
+                "3. NEVER output JSON for conversational or informational questions."
 
             val messagesArray = org.json.JSONArray().apply {
                 put(JSONObject().apply {
                     put("role", "system")
                     put("content", systemPrompt)
                 })
-                put(JSONObject().apply {
-                    put("role", "user")
-                    put("content", "where am i?")
-                })
-                put(JSONObject().apply {
-                    put("role", "assistant")
-                    put("content", "{\"action\": \"where_am_i\"}")
-                })
-                put(JSONObject().apply {
-                    put("role", "user")
-                    put("content", "what road is this?")
-                })
-                put(JSONObject().apply {
-                    put("role", "assistant")
-                    put("content", "{\"action\": \"where_am_i\"}")
-                })
-                put(JSONObject().apply {
-                    put("role", "user")
-                    put("content", "take me to Gapan City")
-                })
-                put(JSONObject().apply {
-                    put("role", "assistant")
-                    put("content", "{\"action\": \"navigate\", \"target\": \"Gapan City\"}")
-                })
-                put(JSONObject().apply {
-                    put("role", "user")
-                    put("content", "switch to 3D")
-                })
-                put(JSONObject().apply {
-                    put("role", "assistant")
-                    put("content", "{\"action\": \"3d\"}")
-                })
-                put(JSONObject().apply {
-                    put("role", "user")
-                    put("content", "cancel route")
-                })
-                put(JSONObject().apply {
-                    put("role", "assistant")
-                    put("content", "{\"action\": \"cancel\"}")
-                })
-                put(JSONObject().apply {
-                    put("role", "user")
-                    put("content", "Why does motorcycle oil turn black?")
-                })
-                put(JSONObject().apply {
-                    put("role", "assistant")
-                    put("content", "Engine oil darkens because it collects carbon deposits, soot, and heat breaks down additives over time.")
-                })
 
                 // Inject recent conversational history for multi-turn context
                 for (turn in recentHistory) {
-                    put(JSONObject().apply {
-                        val role = if (turn.first.equals("RIDER", ignoreCase = true)) "user" else "assistant"
-                        put("role", role)
-                        put("content", turn.second)
-                    })
+                    val content = turn.second.trim()
+                    if (content.isNotEmpty()) {
+                        put(JSONObject().apply {
+                            val role = if (turn.first.equals("RIDER", ignoreCase = true)) "user" else "assistant"
+                            put("role", role)
+                            put("content", content)
+                        })
+                    }
                 }
 
                 put(JSONObject().apply {
@@ -237,8 +199,8 @@ object LlamaDaemon {
 
             val requestJson = JSONObject().apply {
                 put("messages", messagesArray)
-                put("temperature", 0.1)
-                put("max_tokens", 60)
+                put("temperature", 0.2)
+                put("max_tokens", 128)
             }
 
             val conn = (URL(SERVER_URL).openConnection() as HttpURLConnection).apply {

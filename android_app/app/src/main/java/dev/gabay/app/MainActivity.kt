@@ -1190,7 +1190,7 @@ fun CockpitScreen(
     // Agentic Command & Contextual Intent Dispatcher powered by on-device model.gguf
     fun processAgentPrompt(prompt: String) {
         val now = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
-        val previousHistory = chatMessages.takeLast(6).map { it.sender to it.text }
+        val previousHistory = chatMessages.takeLast(8).map { it.sender to it.text }
         chatMessages.add(ChatMessage("RIDER", prompt, now))
 
         val currentRoad = resolveCurrentRoad(userLat, userLon)
