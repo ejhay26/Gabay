@@ -1133,13 +1133,19 @@ fun CockpitScreen(
                 // AI Route Advisory Analysis
                 val distKm = String.format(Locale.US, "%.1f", route.totalDistanceMeters / 1000.0).toDoubleOrNull() ?: 1.0
                 val roads = route.maneuvers.map { it.roadName }
+                val straightDistResults = FloatArray(1)
+                Location.distanceBetween(startCoord.latitude, startCoord.longitude, destCoord.latitude, destCoord.longitude, straightDistResults)
+                val straightKm = (straightDistResults[0] / 1000.0)
+
                 activeRouteAdvisory = LlamaDaemon.evaluateRoute(
                     originName = originName,
                     destName = targetName,
                     distanceKm = distKm,
+                    straightLineKm = straightKm,
                     roadsTraversed = roads,
                     mode = options.mode.name
                 )
+                audioController.speakTerseCue("Route ready")
                 onComplete?.invoke()
             } catch (e: Exception) {
                 android.util.Log.e("GabayRoute", "Route calculation failure: ${e.message}")

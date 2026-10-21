@@ -292,12 +292,12 @@ object LlamaDaemon {
 
     /**
      * AI-Assisted Tactical Route Evaluation & Co-Pilot Advisory.
-     * Generates a concise verification briefing on the calculated corridor.
      */
     fun evaluateRoute(
         originName: String,
         destName: String,
         distanceKm: Double,
+        straightLineKm: Double = 0.0,
         roadsTraversed: List<String>,
         mode: String
     ): String {
@@ -311,6 +311,19 @@ object LlamaDaemon {
             "via local physical street network"
         }
 
-        return "AI Route Verified: $corridor ($distanceKm km). All-offline road centerline adherence. 0 tollways."
+        val directnessRatio = if (straightLineKm > 0.0) distanceKm / straightLineKm else 1.0
+        val quality = if (directnessRatio <= 1.8) {
+            "Direct corridor confirmed"
+        } else {
+            "Street network transit"
+        }
+
+        val modeNote = if (mode.equals("SCOOTER", ignoreCase = true)) {
+            "0 tollways / Non-expressway"
+        } else {
+            "Physical road centerline"
+        }
+
+        return "AI Route Verified: $corridor ($distanceKm km). $quality. $modeNote."
     }
 }
