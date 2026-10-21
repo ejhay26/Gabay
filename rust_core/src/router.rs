@@ -407,32 +407,14 @@ impl Router {
             }
         }
 
-        // Direct fallback
-        let duration_secs = (straight_dist / avg_speed_mps) as u64;
-        let maneuvers = vec![
-            TurnManeuver {
-                instruction: "Depart towards destination".to_string(),
-                road_name: "Direct Route".to_string(),
-                turn_type: "maneuver_straight".to_string(),
-                distance_meters: straight_dist,
-                coordinate: start.clone(),
-            },
-            TurnManeuver {
-                instruction: "Arrive at Destination".to_string(),
-                road_name: "Destination".to_string(),
-                turn_type: "destination_pin".to_string(),
-                distance_meters: 0.0,
-                coordinate: end.clone(),
-            },
-        ];
-
+        // Explicit failure when no connected road path exists (Zero straight-line chords)
         RouteResult {
-            success: true,
-            total_distance_meters: straight_dist,
-            estimated_duration_seconds: duration_secs,
-            polyline: vec![start, end],
-            maneuvers,
-            error_message: None,
+            success: false,
+            total_distance_meters: 0.0,
+            estimated_duration_seconds: 0,
+            polyline: Vec::new(),
+            maneuvers: Vec::new(),
+            error_message: Some("No connected road path found between locations".to_string()),
         }
     }
 }

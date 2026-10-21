@@ -78,6 +78,35 @@ impl PoiSearch {
                 results.push(item);
             }
         }
+
+        // Resilient Fallback: If FTS5 yields 0 results, query table pois directly with LIKE
+        if results.is_empty() {
+            let like_query = format!("%{}%", query.trim());
+            if let Ok(mut fallback_stmt) = conn.prepare(
+                "SELECT id, name, category, latitude, longitude 
+                 FROM pois 
+                 WHERE name LIKE ?1 OR category LIKE ?1 
+                 LIMIT ?2",
+            ) {
+                if let Ok(fallback_rows) = fallback_stmt.query_map(params![like_query, limit as i64], |row| {
+                    Ok(PoiSearchResult {
+                        id: row.get(0)?,
+                        name: row.get(1)?,
+                        category: row.get(2)?,
+                        coordinate: LatLng {
+                            latitude: row.get(3)?,
+                            longitude: row.get(4)?,
+                        },
+                        distance_meters: 0.0,
+                    })
+                }) {
+                    for r in fallback_rows.flatten() {
+                        results.push(r);
+                    }
+                }
+            }
+        }
+
         Ok(results)
     }
 }

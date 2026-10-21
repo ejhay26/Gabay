@@ -54,49 +54,49 @@ impl CoPilotGatekeeper {
             let lower = query.to_lowercase();
             if lower.contains("where am i") || lower.contains("location") || lower.contains("status") {
                 if telemetry.remaining_distance_km > 0.0 {
-                    return format!("EN ROUTE ON {} — {:.1} KM REMAINING", telemetry.next_turn_road.to_uppercase(), telemetry.remaining_distance_km);
+                    return format!("On {}, {:.1} km remaining", telemetry.next_turn_road, telemetry.remaining_distance_km);
                 } else {
-                    return "PARKED AT CURRENT LOCATION — STANDBY".to_string();
+                    return "Stationary at your current location. Ready to navigate.".to_string();
                 }
             } else if lower.contains("how many km") || lower.contains("remaining") || lower.contains("how far") || lower.contains("distance") {
                 if telemetry.remaining_distance_km > 0.0 {
-                    return format!("{:.1} KM REMAINING TO DESTINATION ({})", telemetry.remaining_distance_km, telemetry.pace_window_min);
+                    return format!("{:.1} km to destination ({})", telemetry.remaining_distance_km, telemetry.pace_window_min);
                 } else {
-                    return "NO ACTIVE ROUTE — PIN OR SEARCH DESTINATION".to_string();
+                    return "No active route. Search a place or drop a pin to begin.".to_string();
                 }
             } else if lower.contains("speed") || lower.contains("how fast") {
-                return format!("CURRENT SPEED {:.0} KM/H", telemetry.live_speed_kmh);
+                return format!("Current speed: {:.0} km/h", telemetry.live_speed_kmh);
             } else if lower.contains("eta") || lower.contains("time") || lower.contains("arrival") {
                 if telemetry.remaining_distance_km > 0.0 {
-                    return format!("ESTIMATED ARRIVAL IN {}", telemetry.pace_window_min);
+                    return format!("Estimated arrival in {}", telemetry.pace_window_min);
                 } else {
-                    return "NO ACTIVE ROUTE — ETA UNAVAILABLE".to_string();
+                    return "No active route set.".to_string();
                 }
             } else if lower.contains("gas") || lower.contains("fuel") || lower.contains("petron") || lower.contains("shell") {
-                return "SEARCHING CLOSEST GAS STATIONS".to_string();
+                return "Searching nearby gas stations...".to_string();
             } else if lower.contains("cancel") || lower.contains("stop") {
-                return "ACTIVE ROUTE CANCELLED — FREE EXPLORE".to_string();
+                return "Route ended.".to_string();
             } else if lower.contains("follow") || lower.contains("magnet") || lower.contains("recenter") {
-                return "MAGNETIC CAMERA TRACKING ENGAGED".to_string();
+                return "Centered on your location.".to_string();
             } else if lower.contains("who are you") || lower.contains("help") {
-                return "GABAY OFFLINE PHILIPPINE NAVIGATION CO-PILOT ACTIVE".to_string();
+                return "Gabay offline motorcycle co-pilot. I can guide your turns, search places, and answer riding questions.".to_string();
             } else {
                 if telemetry.remaining_distance_km > 0.0 {
-                    return format!("PROCEEDING ON ROUTE — {}", telemetry.next_turn_road.to_uppercase());
+                    return format!("Following route on {}", telemetry.next_turn_road);
                 } else {
-                    return "GABAY CO-PILOT READY — ASK A COMMAND OR SEARCH A PLACE".to_string();
+                    return "Ready. Where would you like to go?".to_string();
                 }
             }
         }
 
         if telemetry.is_off_route {
-            let adv = format!("OFF-ROUTE +{:.0}M — REROUTING", telemetry.off_route_delta_m);
+            let adv = format!("Off-route by {:.0}m. Recalculating...", telemetry.off_route_delta_m);
             self.last_advisory_text = Some(adv.clone());
             return adv;
         }
 
         if telemetry.next_turn_distance_m > 0.0 && telemetry.next_turn_distance_m <= 200.0 {
-            let adv = format!("IN {:.0}M {}", telemetry.next_turn_distance_m, telemetry.next_turn_road.to_uppercase());
+            let adv = format!("In {:.0}m, {}", telemetry.next_turn_distance_m, telemetry.next_turn_road);
             self.last_advisory_text = Some(adv.clone());
             return adv;
         }

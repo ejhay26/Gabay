@@ -301,4 +301,75 @@ object ApexAlonIcons {
         builder.build()
     }
 
+    val ClockHistory: ImageVector by lazy {
+        val builder = ImageVector.Builder(
+            name = "ApexAlon.ClockHistory",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f
+        )
+        builder.addPath(
+            pathData = PathParser().parsePathString("M12 4a8 8 0 1 0 8 8 8 8 0 0 0-8-8zm0 14a6 6 0 1 1 6-6 6 6 0 0 1-6 6zm.5-10H11v5l4.2 2.5.8-1.3-3.5-2.1z").toNodes(),
+            stroke = SolidColor(Color.White),
+            strokeLineWidth = 1.8f,
+            strokeLineCap = StrokeCap.Round,
+            strokeLineJoin = StrokeJoin.Round
+        )
+        builder.build()
+    }
+
+    val HospitalCross: ImageVector by lazy {
+        val builder = ImageVector.Builder(
+            name = "ApexAlon.HospitalCross",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f
+        )
+        builder.addPath(
+            pathData = PathParser().parsePathString("M3 5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zm8 3v3H8v2h3v3h2v-3h3v-2h-3V8z").toNodes(),
+            stroke = SolidColor(Color.White),
+            strokeLineWidth = 1.8f,
+            strokeLineCap = StrokeCap.Round,
+            strokeLineJoin = StrokeJoin.Round
+        )
+        builder.build()
+    }
+
+    val GraduationCap: ImageVector by lazy {
+        val builder = ImageVector.Builder(
+            name = "ApexAlon.GraduationCap",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f
+        )
+        builder.addPath(
+            pathData = PathParser().parsePathString("M12 3L1 9l11 6 9-4.91V17h2V9z M5 13.18v4L12 21l7-3.82v-4L12 17z").toNodes(),
+            stroke = SolidColor(Color.White),
+            strokeLineWidth = 1.8f,
+            strokeLineCap = StrokeCap.Round,
+            strokeLineJoin = StrokeJoin.Round
+        )
+        builder.build()
+    }
+
+    val CivicBuilding: ImageVector by lazy {
+        val builder = ImageVector.Builder(
+            name = "ApexAlon.CivicBuilding",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f
+        )
+        builder.addPath(
+            pathData = PathParser().parsePathString("M12 2L2 7v2h20V7z M4 11v8h3v-8zm5 0v8h3v-8zm5 0v8h3v-8zm5 0v8h3v-8z M2 21h20v2H2z").toNodes(),
+            stroke = SolidColor(Color.White),
+            strokeLineWidth = 1.8f,
+            strokeLineCap = StrokeCap.Round,
+            strokeLineJoin = StrokeJoin.Round
+        )
+        builder.build()
+    }
 }

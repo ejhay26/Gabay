@@ -154,8 +154,9 @@ object LlamaDaemon {
                 "Free exploration (no active navigation route)"
             }
 
-            val systemPrompt = "You are Gabay, a smart offline AI motorcycle co-pilot and tactical cockpit assistant in the Philippines.\n" +
-                "You assist riders with navigation, route guidance, motorcycle maintenance, road rules, and general riding knowledge.\n\n" +
+            val systemPrompt = "You are Gabay, an offline motorcycle navigation co-pilot in the Philippines.\n" +
+                "You provide concise, clear, and direct vehicular voice guidance.\n" +
+                "Never use generic AI filler, marketing fluff, or robotic sci-fi phrases.\n\n" +
                 "LIVE RIDER CONTEXT:\n" +
                 "- Current Road: ${riderContext.currentRoad}\n" +
                 "- Coordinates: Lat ${String.format(Locale.US, "%.4f", riderContext.latitude)}, Lon ${String.format(Locale.US, "%.4f", riderContext.longitude)}\n" +
@@ -170,8 +171,8 @@ object LlamaDaemon {
                 "   - \"Find gas station\" -> {\"action\": \"search\", \"target\": \"Gas\"}\n" +
                 "   - \"Switch to 3D\" -> {\"action\": \"3d\"}\n" +
                 "   - \"Cancel route\" -> {\"action\": \"cancel\"}\n" +
-                "2. For ANY other question, conversation, motorcycle advice, tire pressure, engine maintenance, or follow-up question, reply as a knowledgeable companion in 1 to 2 clear, helpful sentences.\n" +
-                "3. NEVER output JSON for conversational or informational questions."
+                "2. For ANY other question, conversation, motorcycle advice, tire pressure, or road rules, reply in 1 to 2 clear, natural sentences.\n" +
+                "3. NEVER output JSON for conversational questions."
 
             val messagesArray = org.json.JSONArray().apply {
                 put(JSONObject().apply {
@@ -184,7 +185,7 @@ object LlamaDaemon {
                     val content = turn.second.trim()
                     if (content.isNotEmpty()) {
                         put(JSONObject().apply {
-                            val role = if (turn.first.equals("RIDER", ignoreCase = true)) "user" else "assistant"
+                            val role = if (turn.first.equals("RIDER", ignoreCase = true) || turn.first.equals("You", ignoreCase = true)) "user" else "assistant"
                             put("role", role)
                             put("content", content)
                         })
@@ -286,44 +287,7 @@ object LlamaDaemon {
             lower.contains("gas") || lower.contains("fuel") || lower.contains("petron") || lower.contains("shell") || lower.contains("caltex") -> IntentResult.Action("search", "Gas")
             lower.contains("restaurant") || lower.contains("food") || lower.contains("jollibee") || lower.contains("kain") || lower.contains("eat") -> IntentResult.Action("search", "Restaurant")
             lower.contains("hospital") || lower.contains("emergency") || lower.contains("clinic") || lower.contains("pharmacy") -> IntentResult.Action("search", "Hospital")
-            else -> IntentResult.Conversational("I heard \"$prompt\". Co-pilot active.")
+            else -> IntentResult.Conversational("I'm ready. Tell me where you'd like to go or search a place.")
         }
-    }
-
-    /**
-     * AI-Assisted Tactical Route Evaluation & Co-Pilot Advisory.
-     */
-    fun evaluateRoute(
-        originName: String,
-        destName: String,
-        distanceKm: Double,
-        straightLineKm: Double = 0.0,
-        roadsTraversed: List<String>,
-        mode: String
-    ): String {
-        val namedRoads = roadsTraversed.filter {
-            it.isNotBlank() && it != "Road" && it != "Connecting Road" && it != "Access Road" && it != "Direct Route"
-        }.distinct()
-
-        val corridor = if (namedRoads.isNotEmpty()) {
-            "via " + namedRoads.take(2).joinToString(" & ")
-        } else {
-            "via local physical street network"
-        }
-
-        val directnessRatio = if (straightLineKm > 0.0) distanceKm / straightLineKm else 1.0
-        val quality = if (directnessRatio <= 1.8) {
-            "Direct corridor confirmed"
-        } else {
-            "Street network transit"
-        }
-
-        val modeNote = if (mode.equals("SCOOTER", ignoreCase = true)) {
-            "0 tollways / Non-expressway"
-        } else {
-            "Physical road centerline"
-        }
-
-        return "AI Route Verified: $corridor ($distanceKm km). $quality. $modeNote."
     }
 }

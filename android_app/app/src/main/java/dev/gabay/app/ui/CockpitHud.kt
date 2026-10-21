@@ -285,10 +285,10 @@ fun RouteCalculatingIndicator(
         }
     }
 }
-
 /**
  * Top Search Bar (Google Maps Style + Apple OS Fluidity)
- * Includes Menu icon, live search text field, and SQLite FTS5 live suggestions dropdown.
+ * Includes Menu icon, live search text field, quick category chips,
+ * Google Maps style Recent Searches dropdown, and SQLite FTS5 live suggestions.
  */
 @Composable
 fun TopSearchBar(
@@ -299,6 +299,10 @@ fun TopSearchBar(
     onMenuClick: () -> Unit,
     audioGuidanceMode: dev.gabay.app.audio.AudioGuidanceMode = dev.gabay.app.audio.AudioGuidanceMode.FULL_VOICE,
     onToggleAudioMode: () -> Unit = {},
+    recentDestinations: List<dev.gabay.app.data.RecentDestination> = emptyList(),
+    onSelectRecent: (dev.gabay.app.data.RecentDestination) -> Unit = {},
+    onClearRecents: () -> Unit = {},
+    onCategoryClick: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var isSearchFocused by remember { mutableStateOf(false) }
@@ -365,7 +369,7 @@ fun TopSearchBar(
             }
 
             // Right: Clear Button or HUD Audio Guidance Mode Toggle
-            if (query.isNotEmpty()) {
+            if (query.isNotEmpty() || isSearchFocused) {
                 IconButton(
                     onClick = {
                         onQueryChange("")
@@ -402,7 +406,196 @@ fun TopSearchBar(
             }
         }
 
-        // Search Results Dropdown (SQLite FTS5 Results)
+        // Quick Category Chips (Google Maps Style horizontal chips)
+        if (query.isEmpty()) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                val categories = listOf(
+                    Triple("Gas", "Gas", ApexAlonIcons.FuelPump),
+                    Triple("Hospital", "Hospital", ApexAlonIcons.HospitalCross),
+                    Triple("School", "School", ApexAlonIcons.GraduationCap),
+                    Triple("Food", "Food", ApexAlonIcons.WaypointPin),
+                    Triple("Civic", "Civic", ApexAlonIcons.CivicBuilding),
+                    Triple("Market", "Market", ApexAlonIcons.WaypointPin)
+                )
+                categories.forEach { (catKey, label, icon) ->
+                    Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(GabayColors.UiCardGlass)
+                            .border(1.dp, GabayColors.UiBorder, RoundedCornerShape(16.dp))
+                            .clickable {
+                                isSearchFocused = false
+                                keyboardController?.hide()
+                                focusManager.clearFocus()
+                                onCategoryClick(catKey)
+                            }
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(5.dp)
+                    ) {
+                        Icon(
+                            imageVector = icon,
+                            contentDescription = label,
+                            tint = GabayColors.AccentPrimary,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Text(
+                            text = label,
+                            style = TextStyle(
+                                fontFamily = FontFamily.Default,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 12.sp,
+                                color = GabayColors.TextPrimary
+                            )
+                        )
+                    }
+                }
+            }
+        }
+
+        // Google Maps Style Recently Viewed / Searches Dropdown
+        AnimatedVisibility(
+            visible = query.isEmpty() && isSearchFocused && recentDestinations.isNotEmpty(),
+            enter = fadeIn() + expandVertically(),
+            exit = fadeOut() + shrinkVertically()
+        ) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp),
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(containerColor = GabayColors.UiCardElevated),
+                border = CardDefaults.outlinedCardBorder().copy(brush = SolidColor(GabayColors.UiBorder))
+            ) {
+                Column(modifier = Modifier.padding(vertical = 10.dp)) {
+                    // Header row: Recent Searches with Clear All
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                imageVector = ApexAlonIcons.ClockHistory,
+                                contentDescription = null,
+                                tint = GabayColors.TextSecondary,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Text(
+                                text = "RECENT SEARCHES",
+                                style = TextStyle(
+                                    fontFamily = FontFamily.Default,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 11.sp,
+                                    letterSpacing = 0.5.sp,
+                                    color = GabayColors.TextSecondary
+                                )
+                            )
+                        }
+                        Text(
+                            text = "CLEAR ALL",
+                            style = TextStyle(
+                                fontFamily = FontFamily.Default,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 11.sp,
+                                color = GabayColors.AccentPrimary
+                            ),
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable { onClearRecents() }
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(0.5.dp)
+                            .background(GabayColors.UiBorder.copy(alpha = 0.5f))
+                            .padding(top = 4.dp, bottom = 4.dp)
+                    )
+
+                    recentDestinations.take(5).forEach { recent ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    onSelectRecent(recent)
+                                    isSearchFocused = false
+                                    keyboardController?.hide()
+                                    focusManager.clearFocus()
+                                }
+                                .padding(horizontal = 16.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(34.dp)
+                                    .background(GabayColors.UiInput, CircleShape)
+                                    .border(1.dp, GabayColors.UiBorder, CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = when (recent.category.lowercase(Locale.ROOT)) {
+                                        "hospital" -> ApexAlonIcons.HospitalCross
+                                        "school" -> ApexAlonIcons.GraduationCap
+                                        "gas" -> ApexAlonIcons.FuelPump
+                                        "government", "civic" -> ApexAlonIcons.CivicBuilding
+                                        else -> ApexAlonIcons.ClockHistory
+                                    },
+                                    contentDescription = null,
+                                    tint = GabayColors.AccentPrimary,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = recent.name,
+                                    style = TextStyle(
+                                        fontFamily = FontFamily.Default,
+                                        fontWeight = FontWeight.SemiBold,
+                                        fontSize = 14.sp,
+                                        color = GabayColors.TextPrimary
+                                    ),
+                                    maxLines = 1
+                                )
+                                Text(
+                                    text = recent.subtitle,
+                                    style = TextStyle(
+                                        fontFamily = FontFamily.Default,
+                                        fontWeight = FontWeight.Normal,
+                                        fontSize = 11.5.sp,
+                                        color = GabayColors.TextSecondary
+                                    ),
+                                    maxLines = 1
+                                )
+                            }
+                            Icon(
+                                imageVector = ApexAlonIcons.RoadCenterline,
+                                contentDescription = "Route",
+                                tint = GabayColors.TextSecondary.copy(alpha = 0.6f),
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // Live Search Results Dropdown (SQLite FTS5 Results)
         AnimatedVisibility(
             visible = query.isNotBlank() && searchResults.isNotEmpty(),
             enter = fadeIn() + expandVertically(),
@@ -417,7 +610,7 @@ fun TopSearchBar(
                 border = CardDefaults.outlinedCardBorder().copy(brush = SolidColor(GabayColors.UiBorder))
             ) {
                 Column(modifier = Modifier.padding(vertical = 6.dp)) {
-                    searchResults.take(5).forEach { place ->
+                    searchResults.take(6).forEach { place ->
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -432,13 +625,19 @@ fun TopSearchBar(
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .size(32.dp)
+                                    .size(34.dp)
                                     .background(GabayColors.UiInput, CircleShape)
                                     .border(1.dp, GabayColors.UiBorder, CircleShape),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
-                                    imageVector = ApexAlonIcons.WaypointPin,
+                                    imageVector = when (place.category.lowercase(Locale.ROOT)) {
+                                        "hospital" -> ApexAlonIcons.HospitalCross
+                                        "school", "university", "college" -> ApexAlonIcons.GraduationCap
+                                        "gas" -> ApexAlonIcons.FuelPump
+                                        "government", "administrative" -> ApexAlonIcons.CivicBuilding
+                                        else -> ApexAlonIcons.WaypointPin
+                                    },
                                     contentDescription = null,
                                     tint = GabayColors.AccentPrimary,
                                     modifier = Modifier.size(16.dp)
@@ -2014,29 +2213,6 @@ fun RoutePreviewSheet(
                             color = GabayColors.TextSecondary
                         )
                     )
-                    if (!routeAdvisory.isNullOrBlank()) {
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            Icon(
-                                imageVector = GabayIcons.CopilotMic,
-                                contentDescription = null,
-                                tint = GabayColors.AccentEmerald,
-                                modifier = Modifier.size(12.dp)
-                            )
-                            Text(
-                                text = routeAdvisory,
-                                style = TextStyle(
-                                    fontFamily = FontFamily.Default,
-                                    fontSize = 10.5.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = GabayColors.AccentEmerald
-                                )
-                            )
-                        }
-                    }
                 }
             }
 
