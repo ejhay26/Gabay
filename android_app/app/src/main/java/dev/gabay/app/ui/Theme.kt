@@ -17,47 +17,53 @@ import androidx.compose.ui.unit.sp
  * ZERO gradients, ZERO emojis, ZERO bubbly pastel pill shapes.
  */
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+
 object GabayColors {
-    // Map Canvas Palette (Exact match to reference photo)
-    val MapCanvasBg = Color(0xFF202328)      // Deep matte charcoal land
-    val MapWater = Color(0xFF131519)         // Dark liquid slate water
-    val MapParks = Color(0xFF1B231F)         // Subtle dark tone-on-tone park green
-    val MapRoadMinor = Color(0xFF2D323C)     // Subtle graphite minor streets
-    val MapRoadSecondary = Color(0xFF424A58) // Distinct secondary roads
-    val MapRoadPrimary = Color(0xFF565F70)   // Prominent highways & expressways
-    val RouteMint = Color(0xFF00F5D4)        // Vibrant neon mint / cyan route glow
+    var isSunlightLightMode by mutableStateOf(false)
+
+    // Map Canvas Palette (Exact match to reference photo in Dark; High-Contrast in Sunlight)
+    val MapCanvasBg: Color get() = if (isSunlightLightMode) Color(0xFFF1F5F9) else Color(0xFF202328)
+    val MapWater: Color get() = if (isSunlightLightMode) Color(0xFFBAE6FD) else Color(0xFF131519)
+    val MapParks: Color get() = if (isSunlightLightMode) Color(0xFFDCFCE7) else Color(0xFF1B231F)
+    val MapRoadMinor: Color get() = if (isSunlightLightMode) Color(0xFFCBD5E1) else Color(0xFF2D323C)
+    val MapRoadSecondary: Color get() = if (isSunlightLightMode) Color(0xFF94A3B8) else Color(0xFF424A58)
+    val MapRoadPrimary: Color get() = if (isSunlightLightMode) Color(0xFF64748B) else Color(0xFF565F70)
+    val RouteMint: Color get() = if (isSunlightLightMode) Color(0xFF0284C7) else Color(0xFF00F5D4)
     
-    // UI Chrome (Apple-style frosted obsidian glass)
-    val BgObsidian = Color(0xFF121418)
-    val UiCard = Color(0xFF181A1F)
-    val UiCardGlass = Color(0xEE181A1F)
-    val UiCardElevated = Color(0xFF22262E)
-    val UiInput = Color(0xFF232730)
-    val UiBorder = Color(0xFF2C313B)
-    val UiBorderActive = Color(0xFF00F5D4)
-    val UiBorderLight = Color(0xFF383F4C)
+    // UI Chrome (Apple-style frosted obsidian glass in Dark; Crisp Ceramic in Light)
+    val BgObsidian: Color get() = if (isSunlightLightMode) Color(0xFFF8FAFC) else Color(0xFF121418)
+    val UiCard: Color get() = if (isSunlightLightMode) Color(0xFFFFFFFF) else Color(0xFF181A1F)
+    val UiCardGlass: Color get() = if (isSunlightLightMode) Color(0xF2FFFFFF) else Color(0xEE181A1F)
+    val UiCardElevated: Color get() = if (isSunlightLightMode) Color(0xFFE2E8F0) else Color(0xFF22262E)
+    val UiInput: Color get() = if (isSunlightLightMode) Color(0xFFF1F5F9) else Color(0xFF232730)
+    val UiBorder: Color get() = if (isSunlightLightMode) Color(0xFFCBD5E1) else Color(0xFF2C313B)
+    val UiBorderActive: Color get() = if (isSunlightLightMode) Color(0xFF0284C7) else Color(0xFF00F5D4)
+    val UiBorderLight: Color get() = if (isSunlightLightMode) Color(0xFFE2E8F0) else Color(0xFF383F4C)
     
     // Typography Colors
-    val TextPrimary = Color(0xFFF1F5F9)
-    val TextSecondary = Color(0xFF94A3B8)
-    val TextMuted = Color(0xFF64748B)
+    val TextPrimary: Color get() = if (isSunlightLightMode) Color(0xFF0F172A) else Color(0xFFF1F5F9)
+    val TextSecondary: Color get() = if (isSunlightLightMode) Color(0xFF334155) else Color(0xFF94A3B8)
+    val TextMuted: Color get() = if (isSunlightLightMode) Color(0xFF64748B) else Color(0xFF64748B)
     
     // Accents & Signals
-    val AccentEmerald = Color(0xFF10B981)
-    val AccentMint = Color(0xFF00F5D4)
-    val AccentCyan = Color(0xFF06B6D4)
-    val AccentAmber = Color(0xFFF59E0B)
-    val AccentRed = Color(0xFFEF4444)
-    val AccentCrimson = Color(0xFFEF4444)
+    val AccentEmerald: Color get() = if (isSunlightLightMode) Color(0xFF059669) else Color(0xFF10B981)
+    val AccentMint: Color get() = if (isSunlightLightMode) Color(0xFF0284C7) else Color(0xFF00F5D4)
+    val AccentCyan: Color get() = if (isSunlightLightMode) Color(0xFF0284C7) else Color(0xFF06B6D4)
+    val AccentAmber: Color get() = if (isSunlightLightMode) Color(0xFFD97706) else Color(0xFFF59E0B)
+    val AccentRed: Color get() = if (isSunlightLightMode) Color(0xFFDC2626) else Color(0xFFEF4444)
+    val AccentCrimson: Color get() = if (isSunlightLightMode) Color(0xFFDC2626) else Color(0xFFEF4444)
 
     // Legacy Component Aliases
-    val BgCard = UiCard
-    val BgElevated = UiCardElevated
-    val BgInput = UiInput
-    val SurfacePanel = UiCard
-    val SurfaceInteractive = UiCardElevated
-    val BorderSubtle = UiBorder
-    val BorderHairline = UiBorder
+    val BgCard: Color get() = UiCard
+    val BgElevated: Color get() = UiCardElevated
+    val BgInput: Color get() = UiInput
+    val SurfacePanel: Color get() = UiCard
+    val SurfaceInteractive: Color get() = UiCardElevated
+    val BorderSubtle: Color get() = UiBorder
+    val BorderHairline: Color get() = UiBorder
 }
 
 object GabayShapes {
@@ -70,67 +76,67 @@ object GabayShapes {
 }
 
 object GabayTypography {
-    val SpeedHuge = TextStyle(
+    val SpeedHuge: TextStyle get() = TextStyle(
         fontFamily = FontFamily.Monospace,
         fontWeight = FontWeight.Black,
         fontSize = 52.sp,
         color = GabayColors.TextPrimary
     )
 
-    val SpeedMph = TextStyle(
+    val SpeedMph: TextStyle get() = TextStyle(
         fontFamily = FontFamily.Monospace,
         fontWeight = FontWeight.Medium,
         fontSize = 12.sp,
         color = GabayColors.TextMuted
     )
 
-    val SearchText = TextStyle(
+    val SearchText: TextStyle get() = TextStyle(
         fontFamily = FontFamily.Default,
         fontWeight = FontWeight.Normal,
         fontSize = 15.sp,
         color = GabayColors.TextPrimary
     )
 
-    val SearchPlaceholder = TextStyle(
+    val SearchPlaceholder: TextStyle get() = TextStyle(
         fontFamily = FontFamily.Default,
         fontWeight = FontWeight.Normal,
         fontSize = 15.sp,
         color = GabayColors.TextMuted
     )
 
-    val SpeedNumber = TextStyle(
+    val SpeedNumber: TextStyle get() = TextStyle(
         fontFamily = FontFamily.Monospace,
         fontWeight = FontWeight.Bold,
         fontSize = 44.sp,
         color = GabayColors.TextPrimary
     )
 
-    val SpeedometerReadout = SpeedNumber
+    val SpeedometerReadout: TextStyle get() = SpeedNumber
 
-    val ManeuverDistance = TextStyle(
+    val ManeuverDistance: TextStyle get() = TextStyle(
         fontFamily = FontFamily.Monospace,
         fontWeight = FontWeight.Bold,
         fontSize = 28.sp,
         color = GabayColors.TextPrimary
     )
 
-    val PrimaryManeuverDistance = ManeuverDistance
+    val PrimaryManeuverDistance: TextStyle get() = ManeuverDistance
 
-    val StreetName = TextStyle(
+    val StreetName: TextStyle get() = TextStyle(
         fontFamily = FontFamily.Default,
         fontWeight = FontWeight.SemiBold,
         fontSize = 16.sp,
         color = GabayColors.TextPrimary
     )
 
-    val TelemetryValue = TextStyle(
+    val TelemetryValue: TextStyle get() = TextStyle(
         fontFamily = FontFamily.Monospace,
         fontWeight = FontWeight.Bold,
         fontSize = 18.sp,
         color = GabayColors.TextPrimary
     )
 
-    val MonospaceLabel = TextStyle(
+    val MonospaceLabel: TextStyle get() = TextStyle(
         fontFamily = FontFamily.Monospace,
         fontWeight = FontWeight.Normal,
         fontSize = 10.sp,
@@ -138,16 +144,16 @@ object GabayTypography {
         color = GabayColors.TextMuted
     )
 
-    val HudMicroLabel = MonospaceLabel
+    val HudMicroLabel: TextStyle get() = MonospaceLabel
 
-    val TelemetryUnit = TextStyle(
+    val TelemetryUnit: TextStyle get() = TextStyle(
         fontFamily = FontFamily.Monospace,
         fontWeight = FontWeight.Normal,
         fontSize = 11.sp,
         color = GabayColors.TextSecondary
     )
 
-    val BadgeText = TextStyle(
+    val BadgeText: TextStyle get() = TextStyle(
         fontFamily = FontFamily.Monospace,
         fontWeight = FontWeight.Bold,
         fontSize = 10.sp,
@@ -155,7 +161,7 @@ object GabayTypography {
         color = GabayColors.AccentAmber
     )
 
-    val PillText = TextStyle(
+    val PillText: TextStyle get() = TextStyle(
         fontFamily = FontFamily.Default,
         fontWeight = FontWeight.Bold,
         fontSize = 12.sp,
@@ -163,7 +169,7 @@ object GabayTypography {
         color = GabayColors.TextPrimary
     )
 
-    val CoordinateDisplay = TextStyle(
+    val CoordinateDisplay: TextStyle get() = TextStyle(
         fontFamily = FontFamily.Monospace,
         fontWeight = FontWeight.SemiBold,
         fontSize = 13.sp,
@@ -171,26 +177,25 @@ object GabayTypography {
     )
 }
 
-private val DarkColorScheme = darkColorScheme(
-    primary = GabayColors.AccentMint,
-    onPrimary = GabayColors.BgObsidian,
-    primaryContainer = GabayColors.UiCard,
-    onPrimaryContainer = GabayColors.TextPrimary,
-    background = GabayColors.BgObsidian,
-    onBackground = GabayColors.TextPrimary,
-    surface = GabayColors.UiCard,
-    onSurface = GabayColors.TextPrimary,
-    surfaceVariant = GabayColors.UiCardElevated,
-    onSurfaceVariant = GabayColors.TextSecondary,
-    outline = GabayColors.UiBorder,
-    error = GabayColors.AccentRed,
-    onError = GabayColors.TextPrimary
-)
-
 @Composable
 fun GabayTheme(content: @Composable () -> Unit) {
+    val colorScheme = darkColorScheme(
+        primary = GabayColors.AccentMint,
+        onPrimary = GabayColors.BgObsidian,
+        primaryContainer = GabayColors.UiCard,
+        onPrimaryContainer = GabayColors.TextPrimary,
+        background = GabayColors.BgObsidian,
+        onBackground = GabayColors.TextPrimary,
+        surface = GabayColors.UiCard,
+        onSurface = GabayColors.TextPrimary,
+        surfaceVariant = GabayColors.UiCardElevated,
+        onSurfaceVariant = GabayColors.TextSecondary,
+        outline = GabayColors.UiBorder,
+        error = GabayColors.AccentRed,
+        onError = GabayColors.TextPrimary
+    )
     MaterialTheme(
-        colorScheme = DarkColorScheme,
+        colorScheme = colorScheme,
         content = content
     )
 }

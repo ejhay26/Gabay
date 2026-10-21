@@ -97,6 +97,7 @@ fun MapCanvas(
     fusedMapMode: FusedMapMode,
     is3dPerspective: Boolean = false,
     isFollowingVehicle: Boolean = true,
+    isSunlightLightMode: Boolean = dev.gabay.app.ui.GabayColors.isSunlightLightMode,
     resetRotationTrigger: Int = 0,
     cameraTarget: LatLng?,
     onBearingChanged: (Float) -> Unit = {},
@@ -212,6 +213,59 @@ fun MapCanvas(
                 roadsMajorLayer?.setProperties(lineColor(AndroidColor.parseColor("#505869")))
                 roadsMinorLayer?.setProperties(lineColor(AndroidColor.parseColor("#2D323C")))
             }
+        }
+    }
+
+    // React to sunlight light mode toggle (switch vector fills and route glow)
+    LaunchedEffect(isSunlightLightMode, mapInstance) {
+        val map = mapInstance ?: return@LaunchedEffect
+        val style = map.style ?: return@LaunchedEffect
+
+        val bgLayer = style.getLayer("background")
+        val earthLayer = style.getLayer("pmtiles_earth")
+        val waterLayer = style.getLayer("pmtiles_water")
+        val waterwayLayer = style.getLayer("pmtiles_waterway")
+        val landuseLayer = style.getLayer("pmtiles_landuse")
+        val buildingsLayer = style.getLayer("pmtiles_buildings")
+        val roadsCasingLayer = style.getLayer("pmtiles_roads_casing")
+        val roadsLayer = style.getLayer("pmtiles_roads")
+        val roadsMajorLayer = style.getLayer("roads_major")
+        val roadsMinorLayer = style.getLayer("roads_minor")
+        val routeLayer = style.getLayer("route_layer")
+        val routeCasing = style.getLayer("route_casing")
+        val poisLayer = style.getLayer("pmtiles_pois")
+        val roadLabels = style.getLayer("pmtiles_roads_labels")
+
+        if (isSunlightLightMode) {
+            bgLayer?.setProperties(backgroundColor(AndroidColor.parseColor("#F1F5F9")))
+            earthLayer?.setProperties(fillColor(AndroidColor.parseColor("#F1F5F9")))
+            waterLayer?.setProperties(fillColor(AndroidColor.parseColor("#BAE6FD")))
+            waterwayLayer?.setProperties(lineColor(AndroidColor.parseColor("#7DD3FC")))
+            landuseLayer?.setProperties(fillColor(AndroidColor.parseColor("#DCFCE7")))
+            buildingsLayer?.setProperties(fillColor(AndroidColor.parseColor("#E2E8F0")))
+            roadsCasingLayer?.setProperties(lineColor(AndroidColor.parseColor("#CBD5E1")))
+            roadsLayer?.setProperties(lineColor(AndroidColor.parseColor("#64748B")))
+            roadsMajorLayer?.setProperties(lineColor(AndroidColor.parseColor("#475569")))
+            roadsMinorLayer?.setProperties(lineColor(AndroidColor.parseColor("#94A3B8")))
+            routeLayer?.setProperties(lineColor(AndroidColor.parseColor("#0284C7")))
+            routeCasing?.setProperties(lineColor(AndroidColor.parseColor("#0369A1")))
+            poisLayer?.setProperties(textColor(AndroidColor.parseColor("#0F172A")), textHaloColor(AndroidColor.WHITE))
+            roadLabels?.setProperties(textColor(AndroidColor.parseColor("#334155")), textHaloColor(AndroidColor.WHITE))
+        } else {
+            bgLayer?.setProperties(backgroundColor(AndroidColor.parseColor("#16191E")))
+            earthLayer?.setProperties(fillColor(AndroidColor.parseColor("#16191E")))
+            waterLayer?.setProperties(fillColor(AndroidColor.parseColor("#111822")))
+            waterwayLayer?.setProperties(lineColor(AndroidColor.parseColor("#182230")))
+            landuseLayer?.setProperties(fillColor(AndroidColor.parseColor("#1A2420")))
+            buildingsLayer?.setProperties(fillColor(AndroidColor.parseColor("#252B35")))
+            roadsCasingLayer?.setProperties(lineColor(AndroidColor.parseColor("#11141A")))
+            roadsLayer?.setProperties(lineColor(AndroidColor.parseColor("#5C657A")))
+            roadsMajorLayer?.setProperties(lineColor(AndroidColor.parseColor("#505869")))
+            roadsMinorLayer?.setProperties(lineColor(AndroidColor.parseColor("#2D323C")))
+            routeLayer?.setProperties(lineColor(AndroidColor.parseColor("#00F5D4")))
+            routeCasing?.setProperties(lineColor(AndroidColor.parseColor("#00382C")))
+            poisLayer?.setProperties(textColor(AndroidColor.parseColor("#00F5D4")), textHaloColor(AndroidColor.parseColor("#080B10")))
+            roadLabels?.setProperties(textColor(AndroidColor.parseColor("#CBD5E1")), textHaloColor(AndroidColor.parseColor("#0B0E14")))
         }
     }
 
