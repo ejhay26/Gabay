@@ -247,8 +247,8 @@ fun MapCanvas(
             roadsLayer?.setProperties(lineColor(AndroidColor.parseColor("#64748B")))
             roadsMajorLayer?.setProperties(lineColor(AndroidColor.parseColor("#475569")))
             roadsMinorLayer?.setProperties(lineColor(AndroidColor.parseColor("#94A3B8")))
-            routeLayer?.setProperties(lineColor(AndroidColor.parseColor("#0284C7")))
-            routeCasing?.setProperties(lineColor(AndroidColor.parseColor("#0369A1")))
+            routeLayer?.setProperties(lineColor(AndroidColor.parseColor("#C2410C")))
+            routeCasing?.setProperties(lineColor(AndroidColor.parseColor("#7C2D12")))
             poisLayer?.setProperties(textColor(AndroidColor.parseColor("#0F172A")), textHaloColor(AndroidColor.WHITE))
             roadLabels?.setProperties(textColor(AndroidColor.parseColor("#334155")), textHaloColor(AndroidColor.WHITE))
         } else {
@@ -262,9 +262,9 @@ fun MapCanvas(
             roadsLayer?.setProperties(lineColor(AndroidColor.parseColor("#5C657A")))
             roadsMajorLayer?.setProperties(lineColor(AndroidColor.parseColor("#505869")))
             roadsMinorLayer?.setProperties(lineColor(AndroidColor.parseColor("#2D323C")))
-            routeLayer?.setProperties(lineColor(AndroidColor.parseColor("#00F5D4")))
-            routeCasing?.setProperties(lineColor(AndroidColor.parseColor("#00382C")))
-            poisLayer?.setProperties(textColor(AndroidColor.parseColor("#00F5D4")), textHaloColor(AndroidColor.parseColor("#080B10")))
+            routeLayer?.setProperties(lineColor(AndroidColor.parseColor("#FFB300")))
+            routeCasing?.setProperties(lineColor(AndroidColor.parseColor("#4D3200")))
+            poisLayer?.setProperties(textColor(AndroidColor.parseColor("#FFB300")), textHaloColor(AndroidColor.parseColor("#080B10")))
             roadLabels?.setProperties(textColor(AndroidColor.parseColor("#CBD5E1")), textHaloColor(AndroidColor.parseColor("#0B0E14")))
         }
     }
@@ -655,7 +655,7 @@ private fun setupTacticalMap(
             "text-allow-overlap": false
           },
           "paint": {
-            "text-color": "#00F5D4",
+            "text-color": "#FFB300",
             "text-halo-color": "#080B10",
             "text-halo-width": 1.5
           }
@@ -781,13 +781,13 @@ private fun setupTacticalMap(
             e.printStackTrace()
         }
 
-        // 4. Active Route Polyline (#00F5D4 Neon Mint as in Reference Photo)
+        // 4. Active Route Polyline (#FFB300 Tactical Solar Gold / Signal Amber)
         val routeSource = GeoJsonSource("route_source", FeatureCollection.fromFeatures(emptyList()))
         style.addSource(routeSource)
 
         val routeCasing = LineLayer("route_casing", "route_source").apply {
             setProperties(
-                lineColor(AndroidColor.parseColor("#00382C")),
+                lineColor(AndroidColor.parseColor("#4D3200")),
                 lineWidth(9.5f),
                 lineCap(org.maplibre.android.style.layers.Property.LINE_CAP_ROUND),
                 lineJoin(org.maplibre.android.style.layers.Property.LINE_JOIN_ROUND)
@@ -797,7 +797,7 @@ private fun setupTacticalMap(
 
         val routeLayer = LineLayer("route_layer", "route_source").apply {
             setProperties(
-                lineColor(AndroidColor.parseColor("#00F5D4")), // Mint / Cyan from photo
+                lineColor(AndroidColor.parseColor("#FFB300")),
                 lineWidth(5.5f),
                 lineCap(org.maplibre.android.style.layers.Property.LINE_CAP_ROUND),
                 lineJoin(org.maplibre.android.style.layers.Property.LINE_JOIN_ROUND)
@@ -805,14 +805,14 @@ private fun setupTacticalMap(
         }
         style.addLayer(routeLayer)
 
-        // 5. Destination Pin (White circular badge with drop shadow)
+        // 5. Destination Pin (Amber circular badge with drop shadow)
         val pinSource = GeoJsonSource("pin_source", FeatureCollection.fromFeatures(emptyList()))
         style.addSource(pinSource)
 
         val pinHalo = CircleLayer("pin_halo", "pin_source").apply {
             setProperties(
                 circleRadius(14f),
-                circleColor(AndroidColor.parseColor("#00F5D4")),
+                circleColor(AndroidColor.parseColor("#FFB300")),
                 circleOpacity(0.35f)
             )
         }
@@ -823,7 +823,7 @@ private fun setupTacticalMap(
                 circleRadius(8f),
                 circleColor(AndroidColor.WHITE),
                 circleStrokeWidth(3f),
-                circleStrokeColor(AndroidColor.parseColor("#00F5D4"))
+                circleStrokeColor(AndroidColor.parseColor("#FFB300"))
             )
         }
         style.addLayer(pinDot)
@@ -835,7 +835,7 @@ private fun setupTacticalMap(
         val userHalo = CircleLayer("user_halo", "user_source").apply {
             setProperties(
                 circleRadius(16f),
-                circleColor(AndroidColor.parseColor("#00F5D4")),
+                circleColor(AndroidColor.parseColor("#FFB300")),
                 circleOpacity(0.25f)
             )
         }
@@ -844,7 +844,7 @@ private fun setupTacticalMap(
         val userDot = CircleLayer("user_dot", "user_source").apply {
             setProperties(
                 circleRadius(7f),
-                circleColor(AndroidColor.parseColor("#00F5D4")),
+                circleColor(AndroidColor.parseColor("#FFB300")),
                 circleStrokeWidth(2.5f),
                 circleStrokeColor(AndroidColor.WHITE)
             )

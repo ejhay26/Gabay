@@ -82,7 +82,7 @@ fun TwoWayRouteHeader(
         shape = RoundedCornerShape(22.dp),
         colors = CardDefaults.cardColors(containerColor = GabayColors.UiCardElevated),
         border = CardDefaults.outlinedCardBorder().copy(
-            brush = SolidColor(if (isLoading) Color(0xFF00E5FF).copy(alpha = 0.6f) else GabayColors.UiBorder)
+            brush = SolidColor(if (isLoading) GabayColors.AccentPrimary.copy(alpha = 0.6f) else GabayColors.UiBorder)
         )
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
@@ -103,7 +103,7 @@ fun TwoWayRouteHeader(
                         modifier = Modifier
                             .size(13.dp)
                             .background(Color.Transparent, CircleShape)
-                            .border(2.5.dp, Color(0xFF00E5FF), CircleShape)
+                            .border(2.5.dp, GabayColors.AccentPrimary, CircleShape)
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     // 3 subtle vertical connector dots
@@ -151,7 +151,7 @@ fun TwoWayRouteHeader(
                             fontFamily = FontFamily.Default,
                             fontWeight = FontWeight.Bold,
                             fontSize = 13.sp,
-                            color = Color(0xFF00E5FF)
+                            color = GabayColors.AccentPrimary
                         ),
                         maxLines = 1
                     )
@@ -162,7 +162,7 @@ fun TwoWayRouteHeader(
                                 fontFamily = FontFamily.Monospace,
                                 fontWeight = FontWeight.Normal,
                                 fontSize = 10.sp,
-                                color = Color(0xFF38BDF8)
+                                color = GabayColors.TextSecondary
                             ),
                             maxLines = 1
                         )
@@ -191,7 +191,7 @@ fun TwoWayRouteHeader(
                         Icon(
                             imageVector = GabayIcons.ModeSwap,
                             contentDescription = "Swap Origin and Destination",
-                            tint = if (isLoading) Color(0xFF00E5FF).copy(alpha = 0.4f) else Color(0xFF00E5FF),
+                            tint = if (isLoading) GabayColors.AccentPrimary.copy(alpha = 0.4f) else GabayColors.AccentPrimary,
                             modifier = Modifier.size(18.dp)
                         )
                     }
@@ -201,13 +201,20 @@ fun TwoWayRouteHeader(
                         onClick = onClose,
                         modifier = Modifier
                             .size(36.dp)
-                            .background(Color(0x33FF3B30), CircleShape)
-                            .border(1.dp, Color(0xFFFF3B30).copy(alpha = 0.5f), CircleShape)
+                            .background(
+                                if (GabayColors.isSunlightLightMode) Color(0xFFFEE2E2) else Color(0x33FF3B30),
+                                CircleShape
+                            )
+                            .border(
+                                1.dp,
+                                if (GabayColors.isSunlightLightMode) Color(0xFFEF4444) else Color(0xFFFF3B30).copy(alpha = 0.5f),
+                                CircleShape
+                            )
                     ) {
                         Icon(
                             imageVector = GabayIcons.ActionClose,
                             contentDescription = "Cancel Route",
-                            tint = Color(0xFFFF3B30),
+                            tint = if (GabayColors.isSunlightLightMode) Color(0xFFB91C1C) else Color(0xFFFF3B30),
                             modifier = Modifier.size(16.dp)
                         )
                     }
@@ -220,8 +227,8 @@ fun TwoWayRouteHeader(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(3.dp),
-                    color = Color(0xFF00E5FF),
-                    trackColor = Color(0xFF0B192C)
+                    color = GabayColors.AccentPrimary,
+                    trackColor = GabayColors.UiCardElevated
                 )
             }
         }
@@ -381,8 +388,8 @@ fun TopSearchBar(
                     modifier = Modifier.size(36.dp)
                 ) {
                     val (icon, tint, desc) = when (audioGuidanceMode) {
-                        dev.gabay.app.audio.AudioGuidanceMode.FULL_VOICE -> Triple(GabayIcons.AudioTts, Color(0xFF10B981), "Full Voice Guidance")
-                        dev.gabay.app.audio.AudioGuidanceMode.ALERTS_ONLY -> Triple(GabayIcons.WarningHazard, Color(0xFFF59E0B), "Alerts Only")
+                        dev.gabay.app.audio.AudioGuidanceMode.FULL_VOICE -> Triple(ApexAlonIcons.SpeakerWaves, GabayColors.AccentPrimary, "Full Voice Guidance")
+                        dev.gabay.app.audio.AudioGuidanceMode.ALERTS_ONLY -> Triple(ApexAlonIcons.HazardTriangle, GabayColors.AccentAmber, "Alerts Only")
                         dev.gabay.app.audio.AudioGuidanceMode.MUTED -> Triple(GabayIcons.AudioMute, Color(0xFFEF4444), "Muted Guidance")
                     }
                     Icon(
@@ -431,9 +438,9 @@ fun TopSearchBar(
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
-                                    imageVector = GabayIcons.DestinationPin,
+                                    imageVector = ApexAlonIcons.WaypointPin,
                                     contentDescription = null,
-                                    tint = GabayColors.AccentMint,
+                                    tint = GabayColors.AccentPrimary,
                                     modifier = Modifier.size(16.dp)
                                 )
                             }
@@ -1822,7 +1829,7 @@ fun RoutePreviewSheet(
 
             // Mode Selector Tabs (Google Maps Style: Two-wheeler, Car, Walk)
             val modes = listOf(
-                Triple(VehicleMode.SCOOTER, "Two-wheeler", GabayIcons.ModeScooter),
+                Triple(VehicleMode.SCOOTER, "Two-wheeler", ApexAlonIcons.Scooter),
                 Triple(VehicleMode.CAR, "Car", GabayIcons.ModeCar),
                 Triple(VehicleMode.WALK, "Walk", GabayIcons.ModeWalk)
             )
@@ -1855,7 +1862,7 @@ fun RoutePreviewSheet(
                             Icon(
                                 imageVector = icon,
                                 contentDescription = title,
-                                tint = if (isSelected) Color(0xFF00E5FF) else GabayColors.TextSecondary,
+                                tint = if (isSelected) GabayColors.AccentPrimary else GabayColors.TextSecondary,
                                 modifier = Modifier.size(18.dp)
                             )
                             Text(
@@ -1864,7 +1871,7 @@ fun RoutePreviewSheet(
                                     fontFamily = FontFamily.Default,
                                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                                     fontSize = 13.sp,
-                                    color = if (isSelected) Color(0xFF00E5FF) else GabayColors.TextSecondary
+                                    color = if (isSelected) GabayColors.AccentPrimary else GabayColors.TextSecondary
                                 )
                             )
                         }
@@ -1874,7 +1881,7 @@ fun RoutePreviewSheet(
                                 modifier = Modifier
                                     .width(32.dp)
                                     .height(2.5.dp)
-                                    .background(Color(0xFF00E5FF), CircleShape)
+                                    .background(GabayColors.AccentPrimary, CircleShape)
                             )
                         }
                     }
@@ -1893,10 +1900,10 @@ fun RoutePreviewSheet(
                 Box(
                     modifier = Modifier
                         .clip(RoundedCornerShape(16.dp))
-                        .background(if (avoidTolls) Color(0xFF1E293B) else Color.Transparent)
+                        .background(if (avoidTolls) GabayColors.AccentPrimary.copy(alpha = 0.15f) else Color.Transparent)
                         .border(
                             1.dp,
-                            if (avoidTolls) Color(0xFF00E5FF) else GabayColors.UiBorder,
+                            if (avoidTolls) GabayColors.AccentPrimary else GabayColors.UiBorder,
                             RoundedCornerShape(16.dp)
                         )
                         .clickable { onToggleAvoidTolls() }
@@ -1910,7 +1917,7 @@ fun RoutePreviewSheet(
                             Icon(
                                 imageVector = GabayIcons.ActionCheck,
                                 contentDescription = null,
-                                tint = Color(0xFF00E5FF),
+                                tint = GabayColors.AccentPrimary,
                                 modifier = Modifier.size(12.dp)
                             )
                         }
@@ -1919,7 +1926,7 @@ fun RoutePreviewSheet(
                             style = TextStyle(
                                 fontSize = 11.sp,
                                 fontWeight = if (avoidTolls) FontWeight.SemiBold else FontWeight.Normal,
-                                color = if (avoidTolls) Color(0xFF00E5FF) else GabayColors.TextSecondary
+                                color = if (avoidTolls) GabayColors.AccentPrimary else GabayColors.TextSecondary
                             )
                         )
                     }
@@ -1929,10 +1936,10 @@ fun RoutePreviewSheet(
                 Box(
                     modifier = Modifier
                         .clip(RoundedCornerShape(16.dp))
-                        .background(if (avoidHighways) Color(0xFF1E293B) else Color.Transparent)
+                        .background(if (avoidHighways) GabayColors.AccentPrimary.copy(alpha = 0.15f) else Color.Transparent)
                         .border(
                             1.dp,
-                            if (avoidHighways) Color(0xFF00E5FF) else GabayColors.UiBorder,
+                            if (avoidHighways) GabayColors.AccentPrimary else GabayColors.UiBorder,
                             RoundedCornerShape(16.dp)
                         )
                         .clickable { onToggleAvoidHighways() }
@@ -1946,7 +1953,7 @@ fun RoutePreviewSheet(
                             Icon(
                                 imageVector = GabayIcons.ActionCheck,
                                 contentDescription = null,
-                                tint = Color(0xFF00E5FF),
+                                tint = GabayColors.AccentPrimary,
                                 modifier = Modifier.size(12.dp)
                             )
                         }
@@ -1955,7 +1962,7 @@ fun RoutePreviewSheet(
                             style = TextStyle(
                                 fontSize = 11.sp,
                                 fontWeight = if (avoidHighways) FontWeight.SemiBold else FontWeight.Normal,
-                                color = if (avoidHighways) Color(0xFF00E5FF) else GabayColors.TextSecondary
+                                color = if (avoidHighways) GabayColors.AccentPrimary else GabayColors.TextSecondary
                             )
                         )
                     }
@@ -1985,7 +1992,7 @@ fun RoutePreviewSheet(
                                 fontFamily = FontFamily.Default,
                                 fontWeight = FontWeight.ExtraBold,
                                 fontSize = 22.sp,
-                                color = Color(0xFF00E5FF)
+                                color = GabayColors.AccentPrimary
                             )
                         )
                         Text(
@@ -2004,7 +2011,7 @@ fun RoutePreviewSheet(
                             fontFamily = FontFamily.Default,
                             fontWeight = FontWeight.Medium,
                             fontSize = 11.sp,
-                            color = Color(0xFF94A3B8)
+                            color = GabayColors.TextSecondary
                         )
                     )
                     if (!routeAdvisory.isNullOrBlank()) {
@@ -2016,7 +2023,7 @@ fun RoutePreviewSheet(
                             Icon(
                                 imageVector = GabayIcons.CopilotMic,
                                 contentDescription = null,
-                                tint = Color(0xFF10B981),
+                                tint = GabayColors.AccentEmerald,
                                 modifier = Modifier.size(12.dp)
                             )
                             Text(
@@ -2025,7 +2032,7 @@ fun RoutePreviewSheet(
                                     fontFamily = FontFamily.Default,
                                     fontSize = 10.5.sp,
                                     fontWeight = FontWeight.SemiBold,
-                                    color = Color(0xFF10B981)
+                                    color = GabayColors.AccentEmerald
                                 )
                             )
                         }
@@ -2075,13 +2082,20 @@ fun RoutePreviewSheet(
                     onClick = onCancelRoute,
                     modifier = Modifier
                         .size(48.dp)
-                        .background(Color(0x33FF3B30), CircleShape)
-                        .border(1.dp, Color(0xFFFF3B30).copy(alpha = 0.5f), CircleShape)
+                        .background(
+                            if (GabayColors.isSunlightLightMode) Color(0xFFFEE2E2) else Color(0x33FF3B30),
+                            CircleShape
+                        )
+                        .border(
+                            1.dp,
+                            if (GabayColors.isSunlightLightMode) Color(0xFFEF4444) else Color(0xFFFF3B30).copy(alpha = 0.5f),
+                            CircleShape
+                        )
                 ) {
                     Icon(
                         imageVector = GabayIcons.ActionClose,
                         contentDescription = "Cancel Route",
-                        tint = Color(0xFFFF3B30),
+                        tint = if (GabayColors.isSunlightLightMode) Color(0xFFB91C1C) else Color(0xFFFF3B30),
                         modifier = Modifier.size(20.dp)
                     )
                 }

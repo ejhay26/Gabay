@@ -115,7 +115,7 @@ fun PinInspectorSheet(
                 Text(
                     text = coordString,
                     style = GabayTypography.CoordinateDisplay,
-                    color = GabayColors.AccentCyan
+                    color = GabayColors.AccentPrimary
                 )
 
                 Box(
@@ -142,12 +142,12 @@ fun PinInspectorSheet(
                     .fillMaxWidth()
                     .defaultMinSize(minHeight = 46.dp)
                     .background(
-                        if (isRouteLoading) Color(0xFF1E293B) else GabayColors.AccentEmerald,
+                        if (isRouteLoading) GabayColors.UiCardElevated else GabayColors.AccentPrimary,
                         RoundedCornerShape(8.dp)
                     )
                     .border(
                         1.dp,
-                        if (isRouteLoading) Color(0xFF00E5FF) else Color.Transparent,
+                        if (isRouteLoading) GabayColors.AccentPrimary else Color.Transparent,
                         RoundedCornerShape(8.dp)
                     )
                     .clickable(enabled = !isRouteLoading) { onStartRoute(pinInfo.coordinate) }
@@ -161,12 +161,12 @@ fun PinInspectorSheet(
                     ) {
                         CircularProgressIndicator(
                             modifier = Modifier.size(16.dp),
-                            color = Color(0xFF00E5FF),
+                            color = GabayColors.AccentPrimary,
                             strokeWidth = 2.dp
                         )
                         Text(
                             text = "CALCULATING ROUTE...",
-                            style = GabayTypography.PillText.copy(color = Color(0xFF00E5FF))
+                            style = GabayTypography.PillText.copy(color = GabayColors.AccentPrimary)
                         )
                     }
                 } else {
@@ -177,12 +177,12 @@ fun PinInspectorSheet(
                         Icon(
                             imageVector = GabayIcons.RerouteActive,
                             contentDescription = "Route Here",
-                            tint = GabayColors.BgObsidian,
+                            tint = Color.White,
                             modifier = Modifier.size(18.dp)
                         )
                         Text(
                             text = if (isRouteActive) "REROUTE TO PIN" else "NAVIGATE TO PIN",
-                            style = GabayTypography.PillText.copy(color = GabayColors.BgObsidian)
+                            style = GabayTypography.PillText.copy(color = Color.White)
                         )
                     }
                 }
@@ -198,8 +198,15 @@ fun PinInspectorSheet(
                         modifier = Modifier
                             .weight(1f)
                             .defaultMinSize(minHeight = 42.dp)
-                            .background(Color(0xFF2A1111), RoundedCornerShape(8.dp))
-                            .border(1.dp, Color(0xFFFF3B30).copy(alpha = 0.7f), RoundedCornerShape(8.dp))
+                            .background(
+                                if (GabayColors.isSunlightLightMode) Color(0xFFFEE2E2) else Color(0xFF2A1111),
+                                RoundedCornerShape(8.dp)
+                            )
+                            .border(
+                                1.dp,
+                                if (GabayColors.isSunlightLightMode) Color(0xFFEF4444) else Color(0xFFFF3B30).copy(alpha = 0.7f),
+                                RoundedCornerShape(8.dp)
+                            )
                             .clickable { onCancelRoute() }
                             .padding(vertical = 10.dp),
                         contentAlignment = Alignment.Center
@@ -211,7 +218,7 @@ fun PinInspectorSheet(
                             Icon(
                                 imageVector = GabayIcons.ActionClose,
                                 contentDescription = "Cancel Route",
-                                tint = Color(0xFFFF3B30),
+                                tint = if (GabayColors.isSunlightLightMode) Color(0xFFB91C1C) else Color(0xFFFF3B30),
                                 modifier = Modifier.size(16.dp)
                             )
                             Text(
@@ -220,7 +227,7 @@ fun PinInspectorSheet(
                                     fontFamily = FontFamily.Monospace,
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 11.sp,
-                                    color = Color(0xFFFF3B30)
+                                    color = if (GabayColors.isSunlightLightMode) Color(0xFFB91C1C) else Color(0xFFFF3B30)
                                 )
                             )
                         }
