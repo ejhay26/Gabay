@@ -340,24 +340,8 @@ fun CockpitScreen(
                     val db = SQLiteDatabase.openDatabase(dbFile.absolutePath, null, SQLiteDatabase.OPEN_READONLY)
                     // High-detail Zoom 11/12 tiles have id > 120000.
                     // Coarse overview Zoom 10 tiles have id <= 120000 and cut straight chords across fields (ghost roads).
-                    val detailedCountCursor = db.rawQuery(
-                        "SELECT count(*) FROM roads WHERE id > 120000 AND min_lat <= ? AND max_lat >= ? AND min_lon <= ? AND max_lon >= ?",
-                        arrayOf(maxLat.toString(), minLat.toString(), maxLon.toString(), minLon.toString())
-                    )
-                    var hasDetailedRoads = false
-                    if (detailedCountCursor.moveToFirst()) {
-                        hasDetailedRoads = detailedCountCursor.getInt(0) >= 8
-                    }
-                    detailedCountCursor.close()
-
-                    val sql = if (hasDetailedRoads) {
-                        "SELECT id, name, kind, geometry FROM roads WHERE id > 120000 AND min_lat <= ? AND max_lat >= ? AND min_lon <= ? AND max_lon >= ?"
-                    } else {
-                        "SELECT id, name, kind, geometry FROM roads WHERE min_lat <= ? AND max_lat >= ? AND min_lon <= ? AND max_lon >= ?"
-                    }
-
                     val cursor = db.rawQuery(
-                        sql,
+                        "SELECT id, name, kind, geometry FROM roads WHERE min_lat <= ? AND max_lat >= ? AND min_lon <= ? AND max_lon >= ?",
                         arrayOf(maxLat.toString(), minLat.toString(), maxLon.toString(), minLon.toString())
                     )
                     if (cursor.moveToFirst()) {
@@ -367,7 +351,6 @@ fun CockpitScreen(
                             val kind = cursor.getString(2) ?: "road"
                             val geomStr = cursor.getString(3) ?: ""
                             if (!isRoadDrivable(name, kind)) continue
-                            val isDetailed = (roadId > 120000L)
 
                             // Zero-allocation coordinate parser: parses coordinates with char indices instead of allocating thousands of String objects
                             val pts = ArrayList<LatLng>(32)
@@ -386,8 +369,15 @@ fun CockpitScreen(
                                 }
                                 cStart = semi + 1
                             }
+
+                            // Filter out coarse overview chords (ghost roads cutting through open fields)
+                            if (pts.size == 2 && (name == "Road" || name.isBlank())) {
+                                val chordLen = distBetween(pts[0].latitude, pts[0].longitude, pts[1].latitude, pts[1].longitude)
+                                if (chordLen > 350f) continue
+                            }
+
                             if (pts.size >= 2) {
-                                candidateRoads.add(RoadRaw(name, kind, pts, isDetailed))
+                                candidateRoads.add(RoadRaw(name, kind, pts, true))
                             }
                         } while (cursor.moveToNext())
                     }
@@ -497,12 +487,12 @@ fun CockpitScreen(
                         road.name.contains("Arterial", ignoreCase = true) || road.name.contains("Bypass", ignoreCase = true) ||
                         road.name.contains("Highway", ignoreCase = true) || road.name.contains("Avenue", ignoreCase = true)
                     val isNamed = road.name.isNotBlank() && road.name != "Road"
-                    val costFactor = (when {
+                    val costFactor = when {
                         isMajor -> 1.0f
-                        isNamed -> 1.25f
-                        k == "path" || k == "track" || k == "service" -> 4.5f
-                        else -> 2.5f
-                    }) * (if (road.isDetailed) 1.0f else 4.0f)
+                        isNamed -> 1.15f
+                        k == "path" || k == "track" || k == "service" -> 3.5f
+                        else -> 1.5f
+                    }
 
                     for (i in 0 until pts.size - 1) {
                         val u = nodeIds[i]
@@ -527,8 +517,8 @@ fun CockpitScreen(
                 }
 
                 // 3. Planarize road endpoints: OSM roads intersect at/near their endpoints (0 and last)
-                // This preserves fast O(E) execution, bridges OSM gaps, and eliminates false cross-field shortcuts
-                val junctionThreshold = 38.0f
+                // Threshold increased to 65.0f meters to bridge OpenStreetMap coordinate offset splits seamlessly
+                val junctionThreshold = 65.0f
                 for (rIdx in candidateRoads.indices) {
                     val pts = candidateRoads[rIdx].points
                     val nodeIds = roadNodeMap[rIdx]
@@ -568,6 +558,37 @@ fun CockpitScreen(
                                         addEdge(u, cand.v, w2, otherRoad.name, listOf(ep, projPt, p2))
                                     }
                                 }
+                            }
+                        }
+                    }
+                }
+
+                // Dead-end endpoint bridging: if an OSM road endpoint has no junction connection, bridge to nearest road node within 75m
+                for (rIdx in candidateRoads.indices) {
+                    val pts = candidateRoads[rIdx].points
+                    val nodeIds = roadNodeMap[rIdx]
+                    for (pIdx in intArrayOf(0, pts.size - 1)) {
+                        val u = nodeIds[pIdx]
+                        val ep = pts[pIdx]
+                        if ((adj[u]?.size ?: 0) <= 1) {
+                            var bestDist = 75.0f
+                            var bestTargetNid = -1
+                            var bestRoadName = "Connecting Road"
+                            for (oIdx in candidateRoads.indices) {
+                                if (oIdx == rIdx) continue
+                                val oPts = candidateRoads[oIdx].points
+                                val oNids = roadNodeMap[oIdx]
+                                for (opIdx in intArrayOf(0, oPts.size - 1)) {
+                                    val d = distBetween(ep.latitude, ep.longitude, oPts[opIdx].latitude, oPts[opIdx].longitude)
+                                    if (d < bestDist) {
+                                        bestDist = d
+                                        bestTargetNid = oNids[opIdx]
+                                        bestRoadName = candidateRoads[oIdx].name
+                                    }
+                                }
+                            }
+                            if (bestTargetNid != -1) {
+                                addEdge(u, bestTargetNid, bestDist, bestRoadName, listOf(ep, nodeCoords[bestTargetNid]))
                             }
                         }
                     }
@@ -702,6 +723,7 @@ fun CockpitScreen(
                 val visitedB = HashSet<Int>()
                 var meetingNode: Int? = null
                 var bestTotalCost = Float.MAX_VALUE
+                var itersAfterMeeting = 0
 
                 while (!pqF.isEmpty() && !pqB.isEmpty()) {
                     // Forward step
@@ -715,7 +737,6 @@ fun CockpitScreen(
                             if (totalC < bestTotalCost) {
                                 bestTotalCost = totalC
                                 meetingNode = uf
-                                break
                             }
                         }
                         val incomingStep = prevF[uf]
@@ -754,7 +775,6 @@ fun CockpitScreen(
                             if (totalC < bestTotalCost) {
                                 bestTotalCost = totalC
                                 meetingNode = ub
-                                break
                             }
                         }
                         val edges = adj[ub]
@@ -769,6 +789,16 @@ fun CockpitScreen(
                                     pqB.add(PQEntry(vb, nd, nd + h))
                                 }
                             }
+                        }
+                    }
+
+                    // Sound termination: once a candidate path is found, allow alternative direct paths to be explored
+                    if (meetingNode != null) {
+                        itersAfterMeeting++
+                        val minPqF = pqF.peek()?.priority ?: Float.MAX_VALUE
+                        val minPqB = pqB.peek()?.priority ?: Float.MAX_VALUE
+                        if ((bestTotalCost <= minPqF && bestTotalCost <= minPqB) || itersAfterMeeting >= 35) {
+                            break
                         }
                     }
                 }
