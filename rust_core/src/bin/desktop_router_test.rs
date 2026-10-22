@@ -129,7 +129,7 @@ fn main() -> anyhow::Result<()> {
             avoid_ferries: false,
         };
 
-        let res = router.calculate_route(start, end, options);
+        let res = router.calculate_route(start.clone(), end.clone(), options.clone());
         let elapsed_ms = t_route.elapsed().as_secs_f64() * 1000.0;
 
         print!("Test #{}: {} ... ", tc.id, tc.name);
@@ -152,6 +152,20 @@ fn main() -> anyhow::Result<()> {
         }
         if res.maneuvers.len() > 3 {
             println!("   ... ({} more maneuvers)", res.maneuvers.len() - 3);
+        }
+
+        // Test Alternative Route calculation if route is long (> 2.5 km)
+        if tc.expected_km > 2.5 {
+            let mut alt_opts = options.clone();
+            alt_opts.avoid_ferries = true;
+            let alt_res = router.calculate_route(start.clone(), end.clone(), alt_opts);
+            if alt_res.success && !alt_res.polyline.is_empty() {
+                let alt_km = alt_res.total_distance_meters / 1000.0;
+                println!("   [ALT DETOUR] Detected alternative corridor! Dist: {:.2} km (Δ: {:.2} km vs primary) | Pts: {}", 
+                    alt_km, (alt_km - dist_km).abs(), alt_res.polyline.len());
+            } else {
+                println!("   [ALT DETOUR] Single corridor only: {:?}", alt_res.error_message.unwrap_or_default());
+            }
         }
 
         total_passed += 1;
@@ -194,6 +208,12 @@ fn main() -> anyhow::Result<()> {
         ));
     }
     routes_json.push(']');
+
+    let json_path = "G:/gabay_builds/routes_output.json";
+    if let Ok(mut jf) = File::create(json_path) {
+        let _ = jf.write_all(routes_json.as_bytes());
+        println!("[OK] Generated raw routes JSON: {:?}", json_path);
+    }
 
     let html_content = format!(r#"<!DOCTYPE html>
 <html lang="en">

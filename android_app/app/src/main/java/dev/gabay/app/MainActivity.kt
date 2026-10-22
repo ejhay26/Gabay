@@ -432,7 +432,7 @@ fun CockpitScreen(
     // Navigation and Routing state
 
     var activeRoute by remember { mutableStateOf<RouteResult?>(null) }
-
+    var alternativeRoute by remember { mutableStateOf<RouteResult?>(null) }
     var activeRouteAdvisory by remember { mutableStateOf<String?>(null) }
 
     var destinationPin by remember { mutableStateOf<LatLng?>(null) }
@@ -854,10 +854,26 @@ fun CockpitScreen(
                 }
 
                 if (route.success && route.polyline.isNotEmpty()) {
-
                     activeRoute = route
-
                     try { engine?.setActiveRoute(route) } catch (e: Exception) {}
+
+                    // Compute translucent alternative route if route is long (> 2.5 km)
+                    if (route.totalDistanceMeters > 2500.0) {
+                        try {
+                            val altOptions = options.copy(avoidFerries = true)
+                            val alt = engine?.calculateRoute(startCoord, destCoord, altOptions)
+                            if (alt != null && alt.success && alt.polyline.isNotEmpty() &&
+                                Math.abs(alt.totalDistanceMeters - route.totalDistanceMeters) > 30.0) {
+                                alternativeRoute = alt
+                            } else {
+                                alternativeRoute = null
+                            }
+                        } catch (e: Exception) {
+                            alternativeRoute = null
+                        }
+                    } else {
+                        alternativeRoute = null
+                    }
 
                     val durMin = (route.estimatedDurationSeconds / 60u).coerceAtLeast(1u)
 
@@ -892,21 +908,15 @@ fun CockpitScreen(
                     onComplete?.invoke()
 
                 } else {
-
                     activeRoute = null
-
+                    alternativeRoute = null
                     audioController.speakTerseCue("No road route found")
-
                     android.widget.Toast.makeText(context, "No connected road route found", android.widget.Toast.LENGTH_SHORT).show()
-
                 }
-
             } catch (e: Exception) {
-
                 android.util.Log.e("GabayRoute", "Route calculation failure: ${e.message}")
-
                 activeRoute = null
-
+                alternativeRoute = null
                 audioController.speakTerseCue("Route calculation failed")
 
             } finally {
@@ -982,9 +992,8 @@ fun CockpitScreen(
         isRouteLoading = false
 
         isNavigating = false
-
         activeRoute = null
-
+        alternativeRoute = null
         activeRouteAdvisory = null
 
         try { engine?.clearActiveRoute() } catch (e: Exception) {}
@@ -1496,7 +1505,7 @@ fun CockpitScreen(
             userHeading = userHeading,
 
             activeRoute = activeRoute,
-
+            alternativeRoute = alternativeRoute,
             destinationPin = destinationPin,
 
             fusedMapMode = fusedMapMode,

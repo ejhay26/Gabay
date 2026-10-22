@@ -94,6 +94,7 @@ fun MapCanvas(
     userHeading: Float,
     userSpeed: Float = 0.0f,
     activeRoute: RouteResult?,
+    alternativeRoute: RouteResult? = null,
     destinationPin: uniffi.gabay_core.LatLng?,
     fusedMapMode: FusedMapMode,
     is3dPerspective: Boolean = false,
@@ -306,6 +307,20 @@ fun MapCanvas(
             }
         } else {
             routeSource?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
+        }
+    }
+
+    // React to alternative route updates (rendered semi-translucent)
+    LaunchedEffect(alternativeRoute, mapInstance) {
+        val map = mapInstance ?: return@LaunchedEffect
+        val style = map.style ?: return@LaunchedEffect
+        val altSource = style.getSourceAs<GeoJsonSource>("alt_route_source")
+        if (alternativeRoute != null && alternativeRoute.success && alternativeRoute.polyline.isNotEmpty()) {
+            val points = alternativeRoute.polyline.map { Point.fromLngLat(it.longitude, it.latitude) }
+            val lineString = LineString.fromLngLats(points)
+            altSource?.setGeoJson(FeatureCollection.fromFeature(Feature.fromGeometry(lineString)))
+        } else {
+            altSource?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
         }
     }
 
@@ -840,6 +855,21 @@ private fun setupTacticalMap(
         } catch (e: Exception) {
             e.printStackTrace()
         }
+
+        // 3.5. Alternative Detour Route Polyline (Translucent Slate underneath primary route)
+        val altRouteSource = GeoJsonSource("alt_route_source", FeatureCollection.fromFeatures(emptyList()))
+        style.addSource(altRouteSource)
+
+        val altRouteLayer = LineLayer("alt_route_layer", "alt_route_source").apply {
+            setProperties(
+                lineColor(AndroidColor.parseColor("#64748B")),
+                lineWidth(4.5f),
+                lineOpacity(0.55f),
+                lineCap(org.maplibre.android.style.layers.Property.LINE_CAP_ROUND),
+                lineJoin(org.maplibre.android.style.layers.Property.LINE_JOIN_ROUND)
+            )
+        }
+        style.addLayer(altRouteLayer)
 
         // 4. Active Route Polyline (#FFB300 Tactical Solar Gold / Signal Amber)
         val routeSource = GeoJsonSource("route_source", FeatureCollection.fromFeatures(emptyList()))

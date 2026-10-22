@@ -21,6 +21,5 @@ vault_output/
 .kotlin/
 *.log
 *.mvt
-scripts/
 __pycache__/
 *.db

@@ -5,7 +5,7 @@
 use crate::types::{LatLng, RouteOptions, RouteResult, TurnManeuver, VehicleMode};
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
-use std::collections::{BinaryHeap, HashMap};
+use std::collections::{BinaryHeap, HashMap, HashSet};
 use std::fs::File;
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
@@ -254,10 +254,11 @@ impl Router {
 
     /// Calculate route between start and destination
     pub fn calculate_route(&self, start: LatLng, end: LatLng, options: RouteOptions) -> RouteResult {
-        // Cache lookup: (start, end, mode)
+        // Cache lookup: (start, end, mode, exp, toll, alt)
         let cache_key = format!(
-            "{:.5},{:.5}->{:.5},{:.5}:{:?}:{}",
-            start.latitude, start.longitude, end.latitude, end.longitude, options.mode, options.avoid_expressways
+            "{:.5},{:.5}->{:.5},{:.5}:{:?}:exp={}:toll={}:alt={}",
+            start.latitude, start.longitude, end.latitude, end.longitude,
+            options.mode, options.avoid_expressways, options.avoid_tolls, options.avoid_ferries
         );
 
         if let Ok(cache) = self.cache.lock() {
@@ -375,6 +376,27 @@ impl Router {
             };
         }
 
+        // If avoid_ferries is true, this indicates an Alternative Route calculation request.
+        // We find the primary route first and penalize its intermediate nodes.
+        let primary_nodes_opt: Option<HashSet<u32>> = if options.avoid_ferries {
+            let mut base_opts = options.clone();
+            base_opts.avoid_ferries = false;
+            let primary = self.calculate_route(start.clone(), end.clone(), base_opts);
+            if primary.success && primary.polyline.len() >= 3 {
+                let mut p_set = HashSet::new();
+                for pt in &primary.polyline[1..primary.polyline.len().saturating_sub(1)] {
+                    if let Some(n_idx) = self.snap_to_node(pt, &graph_arc, &grid_arc) {
+                        p_set.insert(n_idx);
+                    }
+                }
+                Some(p_set)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
         // Dijkstra Shortest Path Search
         let mut dist: HashMap<u32, f32> = HashMap::new();
         let mut parent: HashMap<u32, (u32, String, f32)> = HashMap::new(); // target -> (from, road_name, edge_dist)
@@ -401,20 +423,48 @@ impl Router {
             let end_edge = graph_arc.node_edge_offsets[node as usize + 1] as usize;
 
             for edge in &graph_arc.edges[start_edge..end_edge] {
-                // Vehicle Mode Restrictions
-                if options.mode == VehicleMode::Scooter {
-                    if (edge.flags & FLAG_EXPRESSWAY) != 0 {
-                        continue; // Scooters prohibited on toll expressways
+                // Vehicle Mode Restrictions & Legal Philippine Road Access
+                let allowed = match options.mode {
+                    VehicleMode::Scooter => {
+                        // Standard scooters (<400cc) legally prohibited on expressways and tollways in the Philippines
+                        (edge.flags & FLAG_EXPRESSWAY) == 0
+                            && (edge.flags & FLAG_TOLL) == 0
+                            && (edge.flags & FLAG_SCOOTER) != 0
                     }
-                }
-                if options.avoid_expressways && (edge.flags & FLAG_EXPRESSWAY) != 0 {
-                    continue;
-                }
-                if options.avoid_tolls && (edge.flags & FLAG_TOLL) != 0 {
+                    VehicleMode::Car => {
+                        let mut ok = (edge.flags & FLAG_CAR) != 0;
+                        if options.avoid_expressways && (edge.flags & FLAG_EXPRESSWAY) != 0 {
+                            ok = false;
+                        }
+                        if options.avoid_tolls && (edge.flags & FLAG_TOLL) != 0 {
+                            ok = false;
+                        }
+                        ok
+                    }
+                    VehicleMode::Bicycle => {
+                        (edge.flags & FLAG_EXPRESSWAY) == 0
+                            && (edge.flags & FLAG_TOLL) == 0
+                            && (edge.flags & FLAG_BICYCLE) != 0
+                    }
+                    VehicleMode::Walk => {
+                        (edge.flags & FLAG_EXPRESSWAY) == 0
+                            && (edge.flags & FLAG_TOLL) == 0
+                            && (edge.flags & FLAG_WALK) != 0
+                    }
+                };
+
+                if !allowed {
                     continue;
                 }
 
-                let next_cost = cost + edge.distance_m;
+                // If calculating an alternative route, apply a 2.5x penalty to primary route nodes
+                let penalty = if let Some(ref p_nodes) = primary_nodes_opt {
+                    if p_nodes.contains(&edge.target_idx) { 2.5 } else { 1.0 }
+                } else {
+                    1.0
+                };
+
+                let next_cost = cost + edge.distance_m * penalty;
                 let is_cheaper = match dist.get(&edge.target_idx) {
                     Some(&old_cost) => next_cost < old_cost,
                     None => true,
@@ -457,6 +507,22 @@ impl Router {
         path_nodes.reverse();
         road_segments.reverse();
 
+        // If an alternative route was requested, verify that it is distinct from primary route
+        if let Some(ref p_nodes) = primary_nodes_opt {
+            let alt_unique_count = path_nodes.iter().filter(|n| !p_nodes.contains(n)).count();
+            let total_nodes = path_nodes.len();
+            if alt_unique_count < 3 || (alt_unique_count as f32 / total_nodes as f32) < 0.12 {
+                return RouteResult {
+                    success: false,
+                    total_distance_meters: 0.0,
+                    estimated_duration_seconds: 0,
+                    polyline: vec![],
+                    maneuvers: vec![],
+                    error_message: Some("No distinct alternative route available".to_string()),
+                };
+            }
+        }
+
         let polyline: Vec<LatLng> = path_nodes
             .iter()
             .map(|&idx| {
@@ -465,7 +531,8 @@ impl Router {
             })
             .collect();
 
-        let total_dist = *dist.get(&dest_node).unwrap_or(&0.0) as f64;
+        // Exact physical road distance (unpenalized sum of segment distances)
+        let total_dist: f64 = road_segments.iter().map(|s| s.1 as f64).sum();
 
         let avg_speed_mps = match options.mode {
             VehicleMode::Scooter => 9.72,  // ~35 km/h
