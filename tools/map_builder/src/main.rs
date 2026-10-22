@@ -1,13 +1,14 @@
 // tools/map_builder/src/main.rs
-// Offline Map & Multi-Vehicle Graph Builder CLI for Gabay
+// Deterministic OpenStreetMap PBF to Gabay Binary Graph & POI Database Compiler
 
 use clap::Parser;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use rusqlite::{params, Connection};
+use std::time::Instant;
 
 pub const FLAG_SCOOTER: u8 = 1 << 0;
 pub const FLAG_CAR: u8 = 1 << 1;
@@ -17,61 +18,49 @@ pub const FLAG_TOLL: u8 = 1 << 4;
 pub const FLAG_EXPRESSWAY: u8 = 1 << 5;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct GraphHeader {
-    pub magic: [u8; 4], // b"GBAY"
-    pub version: u32,
-    pub node_count: u64,
-    pub edge_count: u64,
-    pub bbox: [f64; 4], // [min_lon, min_lat, max_lon, max_lat]
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct GraphNode {
+pub struct OsmNode {
     pub id: i64,
     pub lat: f64,
     pub lon: f64,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct GraphEdge {
-    pub from: i64,
-    pub to: i64,
-    pub distance_meters: f32,
+pub struct OsmEdge {
+    pub target_idx: u32,
+    pub distance_m: f32,
     pub speed_limit_kmh: u8,
-    pub vehicle_flags: u8,
+    pub flags: u8,
     pub road_name: String,
-    pub oneway: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct GabayRoadNetwork {
-    pub header: GraphHeader,
-    pub nodes: Vec<GraphNode>,
-    pub edges: Vec<GraphEdge>,
+pub struct OsmRoutingGraph {
+    pub magic: [u8; 4], // b"GBAY"
+    pub version: u32,   // 2
+    pub nodes: Vec<OsmNode>,
+    /// node_offset[i]..node_offset[i+1] is the slice of outgoing edges from node i
+    pub node_edge_offsets: Vec<u32>,
+    pub edges: Vec<OsmEdge>,
 }
 
 #[derive(Parser, Debug)]
-#[command(author, version, about = "Gabay Offline Map & Road Graph Builder CLI", long_about = None)]
+#[command(author, version, about = "Gabay OSM PBF to Binary Routing Graph Builder", long_about = None)]
 struct Args {
     /// Path to input .osm.pbf file
     #[arg(short, long)]
-    input: Option<PathBuf>,
+    input: PathBuf,
 
     /// Path to output multi-vehicle road graph (e.g. ph.gabay)
-    #[arg(short = 'g', long, default_value = "local_assets/ph.gabay")]
+    #[arg(short = 'g', long, default_value = "G:/gabay_builds/ph.gabay")]
     output_graph: PathBuf,
 
     /// Path to output SQLite FTS5 database (e.g. pois_fts.sqlite)
-    #[arg(short = 'p', long, default_value = "local_assets/pois_fts.sqlite")]
+    #[arg(short = 'p', long, default_value = "G:/gabay_builds/pois_fts.sqlite")]
     output_pois: PathBuf,
 
-    /// Optional bounding box min_lon,min_lat,max_lon,max_lat
+    /// Optional bounding box min_lat,min_lon,max_lat,max_lon
     #[arg(short, long)]
     bbox: Option<String>,
-
-    /// Generate starter Philippine sample dataset if true or if input PBF not provided
-    #[arg(long)]
-    generate_sample: bool,
 }
 
 fn haversine_distance(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f32 {
@@ -82,6 +71,14 @@ fn haversine_distance(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f32 {
         + lat1.to_radians().cos() * lat2.to_radians().cos() * (d_lon / 2.0).sin().powi(2);
     let c = 2.0 * a.sqrt().asin();
     (R * c) as f32
+}
+
+struct ParsedWay {
+    name: String,
+    oneway: i8, // 1 for normal, -1 for reverse, 0 for both
+    flags: u8,
+    speed_limit: u8,
+    refs: Vec<i64>,
 }
 
 fn init_sqlite_pois(conn: &Connection) -> anyhow::Result<()> {
@@ -103,232 +100,50 @@ fn init_sqlite_pois(conn: &Connection) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn build_sample_dataset(out_graph: &Path, out_pois: &Path) -> anyhow::Result<()> {
-    println!("[SAMPLE] Building Philippine sample road network & POI database...");
-
-    // Create directories if needed
-    if let Some(parent) = out_graph.parent() {
-        std::fs::create_dir_all(parent)?;
+fn process_pbf(input: &Path, out_graph: &Path, out_pois: &Path, bbox_filter: Option<[f64; 4]>) -> anyhow::Result<()> {
+    println!("============================================================");
+    println!("GABAY OSM GRAPH COMPILER: CANONICAL DESKTOP BUILD");
+    println!("Input PBF:   {:?}", input);
+    println!("Output Graph: {:?}", out_graph);
+    println!("Output POIs:  {:?}", out_pois);
+    if let Some(b) = bbox_filter {
+        println!("Bounding Box: min_lat={}, min_lon={}, max_lat={}, max_lon={}", b[0], b[1], b[2], b[3]);
     }
-    if let Some(parent) = out_pois.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
+    println!("============================================================");
 
-    // Realistic Metro Manila key navigation nodes
-    let sample_nodes = vec![
-        GraphNode { id: 1, lat: 14.5547, lon: 121.0244 }, // Ayala Ave / Makati Ave
-        GraphNode { id: 2, lat: 14.5512, lon: 121.0280 }, // EDSA / Ayala Ave Flyover
-        GraphNode { id: 3, lat: 14.5480, lon: 121.0450 }, // BGC 5th Ave
-        GraphNode { id: 4, lat: 14.5505, lon: 121.0500 }, // BGC Bonifacio High Street
-        GraphNode { id: 5, lat: 14.5869, lon: 121.0614 }, // Ortigas Center / ADB Ave
-        GraphNode { id: 6, lat: 14.5830, lon: 121.0570 }, // EDSA / Ortigas Ave Flyover
-        GraphNode { id: 7, lat: 14.6507, lon: 121.0345 }, // Quezon City Circle / Elliptical
-        GraphNode { id: 8, lat: 14.5350, lon: 120.9820 }, // Roxas Blvd / Mall of Asia
-        GraphNode { id: 9, lat: 14.5200, lon: 121.0100 }, // SLEX Magallanes Interchange (Expressway)
-        GraphNode { id: 10, lat: 14.4500, lon: 121.0400 }, // SLEX Bicutan Exit (Toll)
-    ];
+    let t0 = Instant::now();
 
-    let mut edges = Vec::new();
-
-    // Ayala Ave: Scooter, Car, Bike, Walk
-    edges.push(GraphEdge {
-        from: 1,
-        to: 2,
-        distance_meters: haversine_distance(14.5547, 121.0244, 14.5512, 121.0280),
-        speed_limit_kmh: 40,
-        vehicle_flags: FLAG_SCOOTER | FLAG_CAR | FLAG_BICYCLE | FLAG_WALK,
-        road_name: "Ayala Avenue".to_string(),
-        oneway: false,
-    });
-
-    // McKinley Rd towards BGC: Scooter, Car, Bike, Walk
-    edges.push(GraphEdge {
-        from: 2,
-        to: 3,
-        distance_meters: haversine_distance(14.5512, 121.0280, 14.5480, 121.0450),
-        speed_limit_kmh: 40,
-        vehicle_flags: FLAG_SCOOTER | FLAG_CAR | FLAG_BICYCLE | FLAG_WALK,
-        road_name: "McKinley Road".to_string(),
-        oneway: false,
-    });
-
-    // BGC 5th Ave: Scooter, Car, Bike, Walk
-    edges.push(GraphEdge {
-        from: 3,
-        to: 4,
-        distance_meters: haversine_distance(14.5480, 121.0450, 14.5505, 121.0500),
-        speed_limit_kmh: 30,
-        vehicle_flags: FLAG_SCOOTER | FLAG_CAR | FLAG_BICYCLE | FLAG_WALK,
-        road_name: "5th Avenue BGC".to_string(),
-        oneway: false,
-    });
-
-    // EDSA Corridor: Scooter, Car
-    edges.push(GraphEdge {
-        from: 2,
-        to: 6,
-        distance_meters: haversine_distance(14.5512, 121.0280, 14.5830, 121.0570),
-        speed_limit_kmh: 60,
-        vehicle_flags: FLAG_SCOOTER | FLAG_CAR,
-        road_name: "Epifanio de los Santos Avenue (EDSA)".to_string(),
-        oneway: false,
-    });
-
-    // Ortigas Ave to ADB Ave: Scooter, Car, Bike
-    edges.push(GraphEdge {
-        from: 6,
-        to: 5,
-        distance_meters: haversine_distance(14.5830, 121.0570, 14.5869, 121.0614),
-        speed_limit_kmh: 40,
-        vehicle_flags: FLAG_SCOOTER | FLAG_CAR | FLAG_BICYCLE,
-        road_name: "ADB Avenue".to_string(),
-        oneway: false,
-    });
-
-    // SLEX Expressway: Car only (Scooter prohibited on expressway)
-    edges.push(GraphEdge {
-        from: 9,
-        to: 10,
-        distance_meters: haversine_distance(14.5200, 121.0100, 14.4500, 121.0400),
-        speed_limit_kmh: 100,
-        vehicle_flags: FLAG_CAR | FLAG_TOLL | FLAG_EXPRESSWAY,
-        road_name: "South Luzon Expressway (SLEX)".to_string(),
-        oneway: true,
-    });
-
-    let network = GabayRoadNetwork {
-        header: GraphHeader {
-            magic: *b"GBAY",
-            version: 1,
-            node_count: sample_nodes.len() as u64,
-            edge_count: edges.len() as u64,
-            bbox: [116.5, 4.5, 127.0, 21.5], // Philippine Archipelago
-        },
-        nodes: sample_nodes,
-        edges,
-    };
-
-    // Serialize network to ph.gabay
-    let graph_bytes = bincode::serialize(&network)?;
-    let mut file = BufWriter::new(File::create(out_graph)?);
-    file.write_all(&graph_bytes)?;
-    file.flush()?;
-    println!("[OK] Wrote road graph to {:?} ({} bytes)", out_graph, graph_bytes.len());
-
-    // Build SQLite POI Database
-    if out_pois.exists() {
-        let _ = std::fs::remove_file(out_pois);
-    }
-    let conn = Connection::open(out_pois)?;
-    init_sqlite_pois(&conn)?;
-
-    let sample_pois = vec![
-        ("Petron EDSA Magallanes", "GAS_STATION", 14.5385, 121.0180),
-        ("Shell SLEX San Pedro", "GAS_STATION", 14.3600, 121.0500),
-        ("Caltex C5 Bagong Ilog", "GAS_STATION", 14.5690, 121.0650),
-        ("SM Mall of Asia", "MALL", 14.5350, 120.9820),
-        ("Greenbelt Ayala Center", "MALL", 14.5510, 121.0210),
-        ("Robinsons Galleria Ortigas", "MALL", 14.5900, 121.0600),
-        ("Bonifacio High Street", "MALL", 14.5505, 121.0500),
-        ("St. Luke's Medical Center BGC", "HOSPITAL", 14.5540, 121.0480),
-        ("Makati Medical Center", "HOSPITAL", 14.5590, 121.0150),
-        ("The Medical City Ortigas", "HOSPITAL", 14.5890, 121.0690),
-        ("Barangay Bel-Air Makati", "BARANGAY", 14.5600, 121.0270),
-        ("Barangay San Antonio Pasig", "BARANGAY", 14.5820, 121.0630),
-        ("Barangay Fort Bonifacio Taguig", "BARANGAY", 14.5450, 121.0500),
-        ("Ayala Triangle Gardens", "LANDMARK", 14.5570, 121.0240),
-        ("Quezon Memorial Circle", "LANDMARK", 14.6507, 121.0345),
-        ("Rizal Monument Luneta", "LANDMARK", 14.5826, 120.9787),
-        ("Mercury Drug EDSA Shaw", "PHARMACY", 14.5810, 121.0540),
-        ("Motoworld BGC Motor Repair & Gear", "REPAIR_SHOP", 14.5520, 121.0490),
-    ];
-
-    let mut stmt = conn.prepare(
-        "INSERT INTO pois (name, category, latitude, longitude) VALUES (?1, ?2, ?3, ?4)"
-    )?;
-
-    for (name, cat, lat, lon) in sample_pois {
-        stmt.execute(params![name, cat, lat, lon])?;
-    }
-
-    conn.execute_batch(
-        "INSERT INTO pois_fts (rowid, name, category)
-         SELECT id, name, category FROM pois;"
-    )?;
-
-    println!("[OK] Wrote POI FTS5 database to {:?}", out_pois);
-    Ok(())
-}
-
-fn process_pbf(input: &Path, out_graph: &Path, out_pois: &Path) -> anyhow::Result<()> {
-    println!("[PBF] Ingesting OSM PBF: {:?}", input);
+    // -------------------------------------------------------------
+    // PASS 1: Scan Ways & Collect Referenced Road Nodes
+    // -------------------------------------------------------------
+    println!("\n[Pass 1/3] Scanning ways to extract road topology...");
     let reader = osmpbf::ElementReader::from_path(input)?;
 
-    let mut node_coords: HashMap<i64, (f64, f64)> = HashMap::new();
-    let mut edges = Vec::new();
-    let mut pois = Vec::new();
-
-    println!("[PBF] Step 1: Scanning nodes & POIs...");
-    reader.for_each(|element| {
-        match element {
-            osmpbf::Element::Node(node) => {
-                let id = node.id();
-                let lat = node.lat();
-                let lon = node.lon();
-                node_coords.insert(id, (lat, lon));
-
-                // Check POI tags
-                let mut name = None;
-                let mut category = None;
-
-                for (k, v) in node.tags() {
-                    if k == "name" {
-                        name = Some(v.to_string());
-                    } else if k == "amenity" && v == "fuel" {
-                        category = Some("GAS_STATION".to_string());
-                    } else if k == "amenity" && (v == "hospital" || v == "clinic") {
-                        category = Some("HOSPITAL".to_string());
-                    } else if k == "amenity" && v == "pharmacy" {
-                        category = Some("PHARMACY".to_string());
-                    } else if k == "shop" && (v == "mall" || v == "supermarket" || v == "convenience") {
-                        category = Some("MALL".to_string());
-                    } else if k == "place" && (v == "quarter" || v == "suburb" || v == "village" || v == "town") {
-                        category = Some("BARANGAY".to_string());
-                    }
-                }
-
-                if let (Some(n), Some(c)) = (name, category) {
-                    pois.push((n, c, lat, lon));
-                }
-            }
-            osmpbf::Element::DenseNode(dense) => {
-                let id = dense.id;
-                let lat = dense.lat();
-                let lon = dense.lon();
-                node_coords.insert(id, (lat, lon));
-            }
-            _ => {}
-        }
-    })?;
-
-    println!("[PBF] Step 2: Processing ways and building routing graph...");
-    let reader = osmpbf::ElementReader::from_path(input)?;
+    let mut highway_node_ids: HashSet<i64> = HashSet::new();
+    let mut extracted_ways: Vec<ParsedWay> = Vec::new();
 
     reader.for_each(|element| {
         if let osmpbf::Element::Way(way) = element {
-            let mut highway = None;
-            let mut name = "Unnamed Road".to_string();
-            let mut oneway = false;
+            let mut highway_type: Option<String> = None;
+            let mut road_name = "Road".to_string();
+            let mut oneway: i8 = 0;
             let mut is_expressway = false;
             let mut is_toll = false;
+            let mut is_roundabout = false;
 
             for (k, v) in way.tags() {
                 if k == "highway" {
-                    highway = Some(v);
+                    highway_type = Some(v.to_string());
                 } else if k == "name" {
-                    name = v.to_string();
-                } else if k == "oneway" && (v == "yes" || v == "1") {
-                    oneway = true;
+                    road_name = v.to_string();
+                } else if k == "oneway" {
+                    if v == "yes" || v == "1" || v == "true" {
+                        oneway = 1;
+                    } else if v == "-1" {
+                        oneway = -1;
+                    }
+                } else if k == "junction" && v == "roundabout" {
+                    is_roundabout = true;
                 } else if k == "toll" && (v == "yes" || v == "1") {
                     is_toll = true;
                 } else if (k == "highway" && v == "motorway") || (k == "expressway" && v == "yes") {
@@ -336,32 +151,45 @@ fn process_pbf(input: &Path, out_graph: &Path, out_pois: &Path) -> anyhow::Resul
                 }
             }
 
-            if let Some(hw) = highway {
+            if is_roundabout && oneway == 0 {
+                oneway = 1;
+            }
+
+            if let Some(hw) = highway_type {
+                // Filter out non-vehicular paths
+                if matches!(hw.as_str(), "footway" | "steps" | "pedestrian" | "path" | "cycleway" | "corridor" | "bridleway" | "rail" | "ferry" | "proposed" | "construction" | "platform" | "abandoned") {
+                    return;
+                }
+
                 let mut flags = 0u8;
-                let speed_limit = match hw {
-                    "motorway" => {
+                let speed_limit = match hw.as_str() {
+                    "motorway" | "motorway_link" => {
                         flags |= FLAG_CAR | FLAG_EXPRESSWAY;
                         100
                     }
-                    "trunk" | "primary" => {
+                    "trunk" | "trunk_link" => {
                         flags |= FLAG_CAR | FLAG_SCOOTER | FLAG_BICYCLE;
                         60
                     }
-                    "secondary" | "tertiary" => {
+                    "primary" | "primary_link" => {
+                        flags |= FLAG_CAR | FLAG_SCOOTER | FLAG_BICYCLE | FLAG_WALK;
+                        50
+                    }
+                    "secondary" | "secondary_link" => {
                         flags |= FLAG_CAR | FLAG_SCOOTER | FLAG_BICYCLE | FLAG_WALK;
                         40
+                    }
+                    "tertiary" | "tertiary_link" => {
+                        flags |= FLAG_CAR | FLAG_SCOOTER | FLAG_BICYCLE | FLAG_WALK;
+                        35
                     }
                     "residential" | "living_street" | "unclassified" => {
                         flags |= FLAG_CAR | FLAG_SCOOTER | FLAG_BICYCLE | FLAG_WALK;
                         30
                     }
-                    "cycleway" => {
-                        flags |= FLAG_BICYCLE | FLAG_WALK;
+                    "service" => {
+                        flags |= FLAG_CAR | FLAG_SCOOTER | FLAG_BICYCLE | FLAG_WALK;
                         20
-                    }
-                    "footway" | "path" | "pedestrian" => {
-                        flags |= FLAG_WALK;
-                        5
                     }
                     _ => {
                         flags |= FLAG_CAR | FLAG_SCOOTER | FLAG_BICYCLE | FLAG_WALK;
@@ -373,72 +201,213 @@ fn process_pbf(input: &Path, out_graph: &Path, out_pois: &Path) -> anyhow::Resul
                 if is_expressway { flags |= FLAG_EXPRESSWAY; }
 
                 let refs: Vec<i64> = way.refs().collect();
-                for window in refs.windows(2) {
-                    let from = window[0];
-                    let to = window[1];
-                    if let (Some(&(lat1, lon1)), Some(&(lat2, lon2))) = (node_coords.get(&from), node_coords.get(&to)) {
-                        let dist = haversine_distance(lat1, lon1, lat2, lon2);
-                        edges.push(GraphEdge {
-                            from,
-                            to,
-                            distance_meters: dist,
-                            speed_limit_kmh: speed_limit,
-                            vehicle_flags: flags,
-                            road_name: name.clone(),
-                            oneway,
-                        });
-                        if !oneway {
-                            edges.push(GraphEdge {
-                                from: to,
-                                to: from,
-                                distance_meters: dist,
-                                speed_limit_kmh: speed_limit,
-                                vehicle_flags: flags,
-                                road_name: name.clone(),
-                                oneway,
-                            });
-                        }
+                if refs.len() >= 2 {
+                    for &nid in &refs {
+                        highway_node_ids.insert(nid);
                     }
+                    extracted_ways.push(ParsedWay {
+                        name: road_name,
+                        oneway,
+                        flags,
+                        speed_limit,
+                        refs,
+                    });
                 }
             }
         }
     })?;
 
-    // Build serialized network
-    let mut active_nodes = Vec::new();
-    for (&id, &(lat, lon)) in &node_coords {
-        active_nodes.push(GraphNode { id, lat, lon });
-    }
+    println!("Pass 1 completed in {:.2}s. Extracted {} highway ways referencing {} unique nodes.", 
+        t0.elapsed().as_secs_f32(), extracted_ways.len(), highway_node_ids.len());
 
-    let network = GabayRoadNetwork {
-        header: GraphHeader {
-            magic: *b"GBAY",
-            version: 1,
-            node_count: active_nodes.len() as u64,
-            edge_count: edges.len() as u64,
-            bbox: [116.5, 4.5, 127.0, 21.5],
-        },
-        nodes: active_nodes,
-        edges,
+    // -------------------------------------------------------------
+    // PASS 2: Collect Coordinates for Highway Nodes & POIs
+    // -------------------------------------------------------------
+    println!("\n[Pass 2/3] Ingesting node coordinates & POIs...");
+    let t_pass2 = Instant::now();
+    let reader = osmpbf::ElementReader::from_path(input)?;
+
+    let mut node_coords: HashMap<i64, (f64, f64)> = HashMap::with_capacity(highway_node_ids.len());
+    let mut collected_pois: Vec<(String, String, f64, f64)> = Vec::new();
+
+    let check_bbox = |lat: f64, lon: f64| -> bool {
+        if let Some(b) = bbox_filter {
+            lat >= b[0] && lon >= b[1] && lat <= b[2] && lon <= b[3]
+        } else {
+            true
+        }
     };
 
-    let graph_bytes = bincode::serialize(&network)?;
+    reader.for_each(|element| {
+        match element {
+            osmpbf::Element::Node(node) => {
+                let id = node.id();
+                let lat = node.lat();
+                let lon = node.lon();
+
+                if highway_node_ids.contains(&id) {
+                    node_coords.insert(id, (lat, lon));
+                }
+
+                if check_bbox(lat, lon) {
+                    let mut name = None;
+                    let mut category = None;
+
+                    for (k, v) in node.tags() {
+                        if k == "name" {
+                            name = Some(v.to_string());
+                        } else if k == "amenity" && v == "fuel" {
+                            category = Some("GAS_STATION".to_string());
+                        } else if k == "amenity" && (v == "hospital" || v == "clinic") {
+                            category = Some("HOSPITAL".to_string());
+                        } else if k == "amenity" && v == "pharmacy" {
+                            category = Some("PHARMACY".to_string());
+                        } else if k == "shop" && (v == "mall" || v == "supermarket" || v == "convenience") {
+                            category = Some("MALL".to_string());
+                        } else if k == "place" && (v == "quarter" || v == "suburb" || v == "village" || v == "town") {
+                            category = Some("BARANGAY".to_string());
+                        }
+                    }
+
+                    if let (Some(n), Some(c)) = (name, category) {
+                        collected_pois.push((n, c, lat, lon));
+                    }
+                }
+            }
+            osmpbf::Element::DenseNode(dense) => {
+                let id = dense.id;
+                let lat = dense.lat();
+                let lon = dense.lon();
+
+                if highway_node_ids.contains(&id) {
+                    node_coords.insert(id, (lat, lon));
+                }
+            }
+            _ => {}
+        }
+    })?;
+
+    println!("Pass 2 completed in {:.2}s. Ingested {} node coordinates and {} POIs.", 
+        t_pass2.elapsed().as_secs_f32(), node_coords.len(), collected_pois.len());
+
+    // -------------------------------------------------------------
+    // PASS 3: Build Compact Indexed Graph (CSR Format)
+    // -------------------------------------------------------------
+    println!("\n[Pass 3/3] Compiling compact indexed road graph (CSR)...");
+    let t_pass3 = Instant::now();
+
+    // Map active OSM node IDs to compact index 0..N-1
+    let mut node_id_to_idx: HashMap<i64, u32> = HashMap::with_capacity(node_coords.len());
+    let mut final_nodes: Vec<OsmNode> = Vec::with_capacity(node_coords.len());
+
+    for (&id, &(lat, lon)) in &node_coords {
+        if check_bbox(lat, lon) {
+            let idx = final_nodes.len() as u32;
+            node_id_to_idx.insert(id, idx);
+            final_nodes.push(OsmNode { id, lat, lon });
+        }
+    }
+
+    println!("Indexed {} nodes within target boundary.", final_nodes.len());
+
+    // Build raw directed edge list: (from_idx, OsmEdge)
+    let mut raw_edges: Vec<(u32, OsmEdge)> = Vec::new();
+
+    for way in extracted_ways {
+        for window in way.refs.windows(2) {
+            let from_id = window[0];
+            let to_id = window[1];
+
+            if let (Some(&u), Some(&v)) = (node_id_to_idx.get(&from_id), node_id_to_idx.get(&to_id)) {
+                let n1 = &final_nodes[u as usize];
+                let n2 = &final_nodes[v as usize];
+                let dist = haversine_distance(n1.lat, n1.lon, n2.lat, n2.lon);
+
+                if way.oneway >= 0 {
+                    raw_edges.push((
+                        u,
+                        OsmEdge {
+                            target_idx: v,
+                            distance_m: dist,
+                            speed_limit_kmh: way.speed_limit,
+                            flags: way.flags,
+                            road_name: way.name.clone(),
+                        },
+                    ));
+                }
+                if way.oneway <= 0 {
+                    raw_edges.push((
+                        v,
+                        OsmEdge {
+                            target_idx: u,
+                            distance_m: dist,
+                            speed_limit_kmh: way.speed_limit,
+                            flags: way.flags,
+                            road_name: way.name.clone(),
+                        },
+                    ));
+                }
+            }
+        }
+    }
+
+    println!("Constructed {} directed road edges.", raw_edges.len());
+
+    // Sort edges by source node index for Compressed Sparse Row representation
+    raw_edges.sort_by_key(|e| e.0);
+
+    let num_nodes = final_nodes.len();
+    let mut node_edge_offsets = vec![0u32; num_nodes + 1];
+    let mut final_edges: Vec<OsmEdge> = Vec::with_capacity(raw_edges.len());
+
+    for (from_idx, edge) in raw_edges {
+        final_edges.push(edge);
+        node_edge_offsets[from_idx as usize + 1] += 1;
+    }
+
+    // Prefix sum to compute offsets
+    for i in 1..=num_nodes {
+        node_edge_offsets[i] += node_edge_offsets[i - 1];
+    }
+
+    let graph = OsmRoutingGraph {
+        magic: *b"GBAY",
+        version: 2,
+        nodes: final_nodes,
+        node_edge_offsets,
+        edges: final_edges,
+    };
+
+    println!("Pass 3 completed in {:.2}s. Serializing binary graph to disk...", t_pass3.elapsed().as_secs_f32());
+
+    // Create parent directory if needed
+    if let Some(parent) = out_graph.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    let graph_bytes = bincode::serialize(&graph)?;
     let mut file = BufWriter::new(File::create(out_graph)?);
     file.write_all(&graph_bytes)?;
     file.flush()?;
-    println!("[OK] Ingested PBF into {:?} ({} bytes)", out_graph, graph_bytes.len());
 
-    // SQLite POIs
+    println!("[SUCCESS] Road network compiled to {:?} ({:.2} MB, {} nodes, {} edges)", 
+        out_graph, graph_bytes.len() as f64 / 1_048_576.0, graph.nodes.len(), graph.edges.len());
+
+    // -------------------------------------------------------------
+    // Write SQLite POIs Database
+    // -------------------------------------------------------------
+    if let Some(parent) = out_pois.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
     if out_pois.exists() {
         let _ = std::fs::remove_file(out_pois);
     }
+
     let conn = Connection::open(out_pois)?;
     init_sqlite_pois(&conn)?;
 
-    let mut stmt = conn.prepare(
-        "INSERT INTO pois (name, category, latitude, longitude) VALUES (?1, ?2, ?3, ?4)"
-    )?;
-    for (name, cat, lat, lon) in pois {
+    let mut stmt = conn.prepare("INSERT INTO pois (name, category, latitude, longitude) VALUES (?1, ?2, ?3, ?4)")?;
+    for (name, cat, lat, lon) in collected_pois {
         stmt.execute(params![name, cat, lat, lon])?;
     }
     conn.execute_batch(
@@ -446,25 +415,24 @@ fn process_pbf(input: &Path, out_graph: &Path, out_pois: &Path) -> anyhow::Resul
          SELECT id, name, category FROM pois;"
     )?;
 
-    println!("[OK] Built SQLite POIs FTS5 DB at {:?}", out_pois);
+    println!("[SUCCESS] POI database written to {:?}", out_pois);
+    println!("\nALL TASKS COMPLETE in {:.2}s!", t0.elapsed().as_secs_f32());
     Ok(())
 }
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
-    println!("=== Gabay Offline Map Builder ===");
-
-    if args.generate_sample || args.input.is_none() {
-        build_sample_dataset(&args.output_graph, &args.output_pois)?;
-    } else if let Some(input) = args.input {
-        if input.exists() {
-            process_pbf(&input, &args.output_graph, &args.output_pois)?;
+    let bbox = if let Some(ref b) = args.bbox {
+        let parts: Vec<f64> = b.split(',').filter_map(|s| s.trim().parse::<f64>().ok()).collect();
+        if parts.len() == 4 {
+            Some([parts[0], parts[1], parts[2], parts[3]])
         } else {
-            eprintln!("[WARN] Input file {:?} not found. Falling back to sample dataset.", input);
-            build_sample_dataset(&args.output_graph, &args.output_pois)?;
+            None
         }
-    }
+    } else {
+        None
+    };
 
-    println!("Map builder completed successfully.");
+    process_pbf(&args.input, &args.output_graph, &args.output_pois, bbox)?;
     Ok(())
 }

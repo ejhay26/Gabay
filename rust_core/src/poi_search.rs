@@ -97,6 +97,7 @@ impl PoiSearch {
             }
         } else {
             // General query: Try FTS5 match
+            let formatted_query = format!("\"{}\"*", q_clean.replace('"', ""));
             let candidate_limit = (limit.max(5) * 10) as i64;
             if let Ok(mut stmt) = conn.prepare(
                 "SELECT p.id, p.name, p.category, p.latitude, p.longitude 

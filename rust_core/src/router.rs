@@ -1,43 +1,100 @@
 // rust_core/src/router.rs
-// High-performance multi-modal road network router for Gabay
-// Features: Spatial Grid indexing, Tile Seam bridging, Bidirectional search, and LRU caching
+// High-performance OpenStreetMap Canonical Graph Router for Gabay
+// Deterministic routing: Zero threshold heuristics, zero tile seam guessing.
 
 use crate::types::{LatLng, RouteOptions, RouteResult, TurnManeuver, VehicleMode};
-use rusqlite::Connection;
+use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap};
-use std::sync::Mutex;
+use std::fs::File;
+use std::io::BufReader;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, RwLock};
 
-pub struct Router {
-    pub db_path: Option<String>,
-    cache: Mutex<HashMap<String, RouteResult>>,
+pub const FLAG_SCOOTER: u8 = 1 << 0;
+pub const FLAG_CAR: u8 = 1 << 1;
+pub const FLAG_BICYCLE: u8 = 1 << 2;
+pub const FLAG_WALK: u8 = 1 << 3;
+pub const FLAG_TOLL: u8 = 1 << 4;
+pub const FLAG_EXPRESSWAY: u8 = 1 << 5;
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct OsmNode {
+    pub id: i64,
+    pub lat: f64,
+    pub lon: f64,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct OsmEdge {
+    pub target_idx: u32,
+    pub distance_m: f32,
+    pub speed_limit_kmh: u8,
+    pub flags: u8,
+    pub road_name: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct OsmRoutingGraph {
+    pub magic: [u8; 4], // b"GBAY"
+    pub version: u32,
+    pub nodes: Vec<OsmNode>,
+    /// node_offset[i]..node_offset[i+1] is the slice of outgoing edges from node i
+    pub node_edge_offsets: Vec<u32>,
+    pub edges: Vec<OsmEdge>,
 }
 
 #[derive(Copy, Clone, PartialEq)]
-struct State {
-    cost: f64,
-    node: usize,
+struct DijkstraState {
+    cost: f32,
+    node: u32,
 }
 
-impl Eq for State {}
+impl Eq for DijkstraState {}
 
-impl Ord for State {
+impl Ord for DijkstraState {
     fn cmp(&self, other: &Self) -> Ordering {
         // Reverse order for min-heap
         other.cost.partial_cmp(&self.cost).unwrap_or(Ordering::Equal)
     }
 }
 
-impl PartialOrd for State {
+impl PartialOrd for DijkstraState {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
+pub struct Router {
+    pub graph_path: Option<String>,
+    graph: RwLock<Option<Arc<OsmRoutingGraph>>>,
+    spatial_grid: RwLock<Option<Arc<HashMap<(i32, i32), Vec<u32>>>>>,
+    cache: Mutex<HashMap<String, RouteResult>>,
+}
+
 impl Router {
-    pub fn new(db_path: Option<String>) -> Self {
+    pub fn new(graph_path: Option<String>) -> Self {
+        let router = Self {
+            graph_path: graph_path.clone(),
+            graph: RwLock::new(None),
+            spatial_grid: RwLock::new(None),
+            cache: Mutex::new(HashMap::new()),
+        };
+
+        if let Some(ref path) = graph_path {
+            let _ = router.try_load_graph(path);
+        }
+
+        router
+    }
+
+    /// Load graph directly from memory or test harness
+    pub fn from_graph(graph: OsmRoutingGraph) -> Self {
+        let grid = Self::build_spatial_grid(&graph.nodes);
         Self {
-            db_path,
+            graph_path: None,
+            graph: RwLock::new(Some(Arc::new(graph))),
+            spatial_grid: RwLock::new(Some(Arc::new(grid))),
             cache: Mutex::new(HashMap::new()),
         }
     }
@@ -100,33 +157,315 @@ impl Router {
         while delta < -180.0 { delta += 360.0; }
 
         if delta > 135.0 || delta < -135.0 {
-            ("U-Turn".to_string(), "maneuver_u_turn".to_string())
+            ("Make a U-Turn".to_string(), "maneuver_u_turn".to_string())
         } else if delta < -45.0 {
             ("Turn Left".to_string(), "maneuver_left".to_string())
         } else if delta < -15.0 {
-            ("Slight Left".to_string(), "maneuver_slight_left".to_string())
+            ("Bear Slight Left".to_string(), "maneuver_slight_left".to_string())
         } else if delta > 45.0 {
             ("Turn Right".to_string(), "maneuver_right".to_string())
         } else if delta > 15.0 {
-            ("Slight Right".to_string(), "maneuver_slight_right".to_string())
+            ("Bear Slight Right".to_string(), "maneuver_slight_right".to_string())
         } else {
             ("Continue Straight".to_string(), "maneuver_straight".to_string())
         }
     }
 
-    /// Main route calculation entrypoint: Fast spatial-grid & tile-seam stitched router
+    /// Build ~550m spatial grid for fast coordinate snapping
+    fn build_spatial_grid(nodes: &[OsmNode]) -> HashMap<(i32, i32), Vec<u32>> {
+        const CELL_SIZE: f64 = 0.005;
+        let mut grid: HashMap<(i32, i32), Vec<u32>> = HashMap::new();
+        for (idx, node) in nodes.iter().enumerate() {
+            let cx = (node.lat / CELL_SIZE).floor() as i32;
+            let cy = (node.lon / CELL_SIZE).floor() as i32;
+            grid.entry((cx, cy)).or_default().push(idx as u32);
+        }
+        grid
+    }
+
+    /// Tries loading binary graph from file
+    fn try_load_graph(&self, path_str: &str) -> anyhow::Result<()> {
+        let candidate_path = if Path::new(path_str).is_dir() {
+            Path::new(path_str).join("ph.gabay")
+        } else if path_str.ends_with(".sqlite") {
+            Path::new(path_str).parent().unwrap_or(Path::new("")).join("ph.gabay")
+        } else {
+            PathBuf::from(path_str)
+        };
+
+        if !candidate_path.exists() {
+            anyhow::bail!("Graph file does not exist at {:?}", candidate_path);
+        }
+
+        let file = File::open(&candidate_path)?;
+        let reader = BufReader::new(file);
+        let loaded_graph: OsmRoutingGraph = bincode::deserialize_from(reader)?;
+
+        let grid = Self::build_spatial_grid(&loaded_graph.nodes);
+
+        if let Ok(mut g_lock) = self.graph.write() {
+            *g_lock = Some(Arc::new(loaded_graph));
+        }
+        if let Ok(mut grid_lock) = self.spatial_grid.write() {
+            *grid_lock = Some(Arc::new(grid));
+        }
+
+        Ok(())
+    }
+
+    /// Snaps a GPS coordinate to the closest graph node
+    fn snap_to_node(&self, coord: &LatLng, graph: &OsmRoutingGraph, grid: &HashMap<(i32, i32), Vec<u32>>) -> Option<u32> {
+        const CELL_SIZE: f64 = 0.005;
+        let cx = (coord.latitude / CELL_SIZE).floor() as i32;
+        let cy = (coord.longitude / CELL_SIZE).floor() as i32;
+
+        let mut best_idx = None;
+        let mut min_dist = f64::INFINITY;
+
+        // Search surrounding 5x5 cells (~2.5km radius)
+        for dx in -2..=2 {
+            for dy in -2..=2 {
+                if let Some(nodes) = grid.get(&(cx + dx, cy + dy)) {
+                    for &n_idx in nodes {
+                        let node = &graph.nodes[n_idx as usize];
+                        let d = Self::haversine_distance(coord, &LatLng { latitude: node.lat, longitude: node.lon });
+                        if d < min_dist {
+                            min_dist = d;
+                            best_idx = Some(n_idx);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Fallback: If point is outside the grid bounds, scan globally
+        if best_idx.is_none() {
+            for (idx, node) in graph.nodes.iter().enumerate() {
+                let d = Self::haversine_distance(coord, &LatLng { latitude: node.lat, longitude: node.lon });
+                if d < min_dist {
+                    min_dist = d;
+                    best_idx = Some(idx as u32);
+                }
+            }
+        }
+
+        best_idx
+    }
+
+    /// Calculate route between start and destination
     pub fn calculate_route(&self, start: LatLng, end: LatLng, options: RouteOptions) -> RouteResult {
         // Cache lookup: (start, end, mode)
         let cache_key = format!(
-            "{:.4},{:.4}->{:.4},{:.4}:{:?}:{}",
+            "{:.5},{:.5}->{:.5},{:.5}:{:?}:{}",
             start.latitude, start.longitude, end.latitude, end.longitude, options.mode, options.avoid_expressways
         );
 
         if let Ok(cache) = self.cache.lock() {
-            if let Some(cached_result) = cache.get(&cache_key) {
-                return cached_result.clone();
+            if let Some(cached) = cache.get(&cache_key) {
+                return cached.clone();
             }
         }
+
+        // Lazy load graph if not yet loaded
+        if self.graph.read().map(|g| g.is_none()).unwrap_or(true) {
+            if let Some(ref path) = self.graph_path {
+                let _ = self.try_load_graph(path);
+            }
+        }
+
+        let graph_arc = match self.graph.read() {
+            Ok(lock) => match lock.as_ref() {
+                Some(g) => Arc::clone(g),
+                None => {
+                    return RouteResult {
+                        success: false,
+                        total_distance_meters: 0.0,
+                        estimated_duration_seconds: 0,
+                        polyline: vec![],
+                        maneuvers: vec![],
+                        error_message: Some("Offline road graph not loaded".to_string()),
+                    };
+                }
+            },
+            Err(_) => {
+                return RouteResult {
+                    success: false,
+                    total_distance_meters: 0.0,
+                    estimated_duration_seconds: 0,
+                    polyline: vec![],
+                    maneuvers: vec![],
+                    error_message: Some("Failed to acquire graph lock".to_string()),
+                };
+            }
+        };
+
+        let grid_arc = match self.spatial_grid.read() {
+            Ok(lock) => match lock.as_ref() {
+                Some(grid) => Arc::clone(grid),
+                None => {
+                    return RouteResult {
+                        success: false,
+                        total_distance_meters: 0.0,
+                        estimated_duration_seconds: 0,
+                        polyline: vec![],
+                        maneuvers: vec![],
+                        error_message: Some("Spatial index not initialized".to_string()),
+                    };
+                }
+            },
+            Err(_) => {
+                return RouteResult {
+                    success: false,
+                    total_distance_meters: 0.0,
+                    estimated_duration_seconds: 0,
+                    polyline: vec![],
+                    maneuvers: vec![],
+                    error_message: Some("Failed to acquire spatial index lock".to_string()),
+                };
+            }
+        };
+
+        let start_node = match self.snap_to_node(&start, &graph_arc, &grid_arc) {
+            Some(idx) => idx,
+            None => {
+                return RouteResult {
+                    success: false,
+                    total_distance_meters: 0.0,
+                    estimated_duration_seconds: 0,
+                    polyline: vec![],
+                    maneuvers: vec![],
+                    error_message: Some("Unable to snap start coordinate to road network".to_string()),
+                };
+            }
+        };
+
+        let dest_node = match self.snap_to_node(&end, &graph_arc, &grid_arc) {
+            Some(idx) => idx,
+            None => {
+                return RouteResult {
+                    success: false,
+                    total_distance_meters: 0.0,
+                    estimated_duration_seconds: 0,
+                    polyline: vec![],
+                    maneuvers: vec![],
+                    error_message: Some("Unable to snap destination coordinate to road network".to_string()),
+                };
+            }
+        };
+
+        // Identical start & end point
+        if start_node == dest_node {
+            let pt = LatLng {
+                latitude: graph_arc.nodes[start_node as usize].lat,
+                longitude: graph_arc.nodes[start_node as usize].lon,
+            };
+            return RouteResult {
+                success: true,
+                total_distance_meters: 0.0,
+                estimated_duration_seconds: 0,
+                polyline: vec![pt.clone()],
+                maneuvers: vec![TurnManeuver {
+                    instruction: "You have arrived at your destination".to_string(),
+                    road_name: "Destination".to_string(),
+                    turn_type: "maneuver_arrive".to_string(),
+                    distance_meters: 0.0,
+                    coordinate: pt,
+                }],
+                error_message: None,
+            };
+        }
+
+        // Dijkstra Shortest Path Search
+        let mut dist: HashMap<u32, f32> = HashMap::new();
+        let mut parent: HashMap<u32, (u32, String, f32)> = HashMap::new(); // target -> (from, road_name, edge_dist)
+        let mut heap = BinaryHeap::new();
+
+        dist.insert(start_node, 0.0);
+        heap.push(DijkstraState { cost: 0.0, node: start_node });
+
+        let mut reached_dest = false;
+
+        while let Some(DijkstraState { cost, node }) = heap.pop() {
+            if node == dest_node {
+                reached_dest = true;
+                break;
+            }
+
+            if let Some(&current_best) = dist.get(&node) {
+                if cost > current_best {
+                    continue;
+                }
+            }
+
+            let start_edge = graph_arc.node_edge_offsets[node as usize] as usize;
+            let end_edge = graph_arc.node_edge_offsets[node as usize + 1] as usize;
+
+            for edge in &graph_arc.edges[start_edge..end_edge] {
+                // Vehicle Mode Restrictions
+                if options.mode == VehicleMode::Scooter {
+                    if (edge.flags & FLAG_EXPRESSWAY) != 0 {
+                        continue; // Scooters prohibited on toll expressways
+                    }
+                }
+                if options.avoid_expressways && (edge.flags & FLAG_EXPRESSWAY) != 0 {
+                    continue;
+                }
+                if options.avoid_tolls && (edge.flags & FLAG_TOLL) != 0 {
+                    continue;
+                }
+
+                let next_cost = cost + edge.distance_m;
+                let is_cheaper = match dist.get(&edge.target_idx) {
+                    Some(&old_cost) => next_cost < old_cost,
+                    None => true,
+                };
+
+                if is_cheaper {
+                    dist.insert(edge.target_idx, next_cost);
+                    parent.insert(edge.target_idx, (node, edge.road_name.clone(), edge.distance_m));
+                    heap.push(DijkstraState { cost: next_cost, node: edge.target_idx });
+                }
+            }
+        }
+
+        // Explicit Failure: If destination is unreachable (e.g. across water or disconnected graph)
+        if !reached_dest {
+            return RouteResult {
+                success: false,
+                total_distance_meters: 0.0,
+                estimated_duration_seconds: 0,
+                polyline: vec![],
+                maneuvers: vec![],
+                error_message: Some("No road connection found between origin and destination".to_string()),
+            };
+        }
+
+        // Backtrack path to reconstruct polyline & road names
+        let mut curr = dest_node;
+        let mut path_nodes: Vec<u32> = vec![curr];
+        let mut road_segments: Vec<(String, f32)> = Vec::new();
+
+        while let Some(&(prev, ref name, d)) = parent.get(&curr) {
+            path_nodes.push(prev);
+            road_segments.push((name.clone(), d));
+            curr = prev;
+            if curr == start_node {
+                break;
+            }
+        }
+
+        path_nodes.reverse();
+        road_segments.reverse();
+
+        let polyline: Vec<LatLng> = path_nodes
+            .iter()
+            .map(|&idx| {
+                let n = &graph_arc.nodes[idx as usize];
+                LatLng { latitude: n.lat, longitude: n.lon }
+            })
+            .collect();
+
+        let total_dist = *dist.get(&dest_node).unwrap_or(&0.0) as f64;
 
         let avg_speed_mps = match options.mode {
             VehicleMode::Scooter => 9.72,  // ~35 km/h
@@ -134,385 +473,79 @@ impl Router {
             VehicleMode::Bicycle => 4.16,  // ~15 km/h
             VehicleMode::Walk => 1.38,     // ~5 km/h
         };
+        let duration_secs = (total_dist / avg_speed_mps) as u64;
 
-        struct RoadItem {
-            name: String,
-            pts: Vec<LatLng>,
-        }
+        // Generate Turn-by-Turn Maneuvers
+        let mut maneuvers: Vec<TurnManeuver> = Vec::new();
 
-        let mut candidate_roads: Vec<RoadItem> = Vec::new();
+        if !polyline.is_empty() {
+            let first_road = road_segments.first().map(|s| s.0.clone()).unwrap_or_else(|| "Road".to_string());
+            maneuvers.push(TurnManeuver {
+                instruction: format!("Depart onto {}", first_road),
+                road_name: first_road,
+                turn_type: "maneuver_straight".to_string(),
+                distance_meters: total_dist,
+                coordinate: polyline[0].clone(),
+            });
 
-        if let Some(ref path) = self.db_path {
-            if let Ok(conn) = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY) {
-                let pad = 0.08f64;
-                let min_lat = start.latitude.min(end.latitude) - pad;
-                let max_lat = start.latitude.max(end.latitude) + pad;
-                let min_lon = start.longitude.min(end.longitude) - pad;
-                let max_lon = start.longitude.max(end.longitude) + pad;
+            // Check bearing changes where road names change or significant angular turns occur
+            let mut acc_dist = 0.0;
+            for i in 1..(polyline.len() - 1) {
+                let seg_dist = Self::haversine_distance(&polyline[i - 1], &polyline[i]);
+                acc_dist += seg_dist;
 
-                let sql = "SELECT name, kind, geometry FROM roads WHERE NOT (max_lat < ?1 OR min_lat > ?2 OR max_lon < ?3 OR min_lon > ?4)";
-                if let Ok(mut stmt) = conn.prepare(sql) {
-                    if let Ok(rows) = stmt.query_map([min_lat, max_lat, min_lon, max_lon], |row| {
-                        let name: String = row.get(0)?;
-                        let kind: String = row.get(1)?;
-                        let geom: String = row.get(2)?;
-                        Ok((name, kind, geom))
-                    }) {
-                        for item in rows.flatten() {
-                            let (name, kind, geom_str) = item;
-                            let k = kind.to_lowercase();
-                            if k.contains("motorway") && options.avoid_expressways {
-                                continue;
-                            }
-                            if matches!(k.as_str(), "path" | "footway" | "pedestrian" | "steps" | "corridor" | "bridleway" | "track" | "rail" | "ferry" | "aerialway") {
-                                continue;
-                            }
-                            let pts: Vec<LatLng> = geom_str.split(';')
-                                .filter_map(|pair| {
-                                    let mut parts = pair.split(',');
-                                    let lat = parts.next()?.parse::<f64>().ok()?;
-                                    let lon = parts.next()?.parse::<f64>().ok()?;
-                                    Some(LatLng { latitude: lat, longitude: lon })
-                                })
-                                .collect();
+                let b1 = Self::calculate_bearing(&polyline[i - 1], &polyline[i]);
+                let b2 = Self::calculate_bearing(&polyline[i], &polyline[i + 1]);
 
-                            if pts.len() >= 2 {
-                                candidate_roads.push(RoadItem { name, pts });
-                            }
-                        }
-                    }
-                }
-            }
-        }
+                let (turn_text, turn_icon) = Self::determine_turn_type(b1, b2);
 
-        if !candidate_roads.is_empty() {
-            // Spatial Grid cell size: ~550m (0.005 degrees)
-            const CELL_SIZE: f64 = 0.005;
-            let get_cell = |p: &LatLng| -> (i32, i32) {
-                ((p.latitude / CELL_SIZE).floor() as i32, (p.longitude / CELL_SIZE).floor() as i32)
-            };
+                let seg_idx = (i - 1).min(road_segments.len() - 1);
+                let next_seg_idx = i.min(road_segments.len() - 1);
 
-            // Build road nodes and index segments into spatial grid
-            let mut node_coords: Vec<LatLng> = Vec::new();
-            let mut road_node_map: Vec<Vec<usize>> = Vec::with_capacity(candidate_roads.len());
-            let mut seg_grid: HashMap<(i32, i32), Vec<(usize, usize)>> = HashMap::new();
-            let mut endpt_grid: HashMap<(i32, i32), Vec<(usize, usize, usize)>> = HashMap::new();
+                let road_name = &road_segments[next_seg_idx].0;
+                let road_changed = road_segments[seg_idx].0 != road_segments[next_seg_idx].0;
 
-            for (r_idx, road) in candidate_roads.iter().enumerate() {
-                let mut nids = Vec::with_capacity(road.pts.len());
-                for (p_idx, pt) in road.pts.iter().enumerate() {
-                    let nid = node_coords.len();
-                    node_coords.push(pt.clone());
-                    nids.push(nid);
-
-                    let is_endpt = (p_idx == 0) || (p_idx == road.pts.len() - 1);
-                    if is_endpt {
-                        endpt_grid.entry(get_cell(pt)).or_default().push((r_idx, p_idx, nid));
-                    }
-                }
-                road_node_map.push(nids);
-
-                for s_idx in 0..(road.pts.len() - 1) {
-                    let c1 = get_cell(&road.pts[s_idx]);
-                    let c2 = get_cell(&road.pts[s_idx + 1]);
-                    seg_grid.entry(c1).or_default().push((r_idx, s_idx));
-                    if c2 != c1 {
-                        seg_grid.entry(c2).or_default().push((r_idx, s_idx));
-                    }
-                }
-            }
-
-            #[derive(Clone)]
-            struct Edge {
-                target: usize,
-                weight: f64,
-                road_name: String,
-                pts: Vec<LatLng>,
-            }
-
-            let mut adj: HashMap<usize, Vec<Edge>> = HashMap::new();
-
-            // 1. Internal road edges along physical curve vertices
-            for (r_idx, road) in candidate_roads.iter().enumerate() {
-                for i in 0..(road.pts.len() - 1) {
-                    let u = road_node_map[r_idx][i];
-                    let v = road_node_map[r_idx][i + 1];
-                    let d = Self::haversine_distance(&road.pts[i], &road.pts[i + 1]);
-                    adj.entry(u).or_default().push(Edge {
-                        target: v,
-                        weight: d,
-                        road_name: road.name.clone(),
-                        pts: vec![road.pts[i].clone(), road.pts[i + 1].clone()],
+                if turn_icon != "maneuver_straight" || (road_changed && acc_dist > 50.0) {
+                    maneuvers.push(TurnManeuver {
+                        instruction: format!("{} onto {}", turn_text, road_name),
+                        road_name: road_name.clone(),
+                        turn_type: turn_icon,
+                        distance_meters: total_dist - acc_dist,
+                        coordinate: polyline[i].clone(),
                     });
-                    adj.entry(v).or_default().push(Edge {
-                        target: u,
-                        weight: d,
-                        road_name: road.name.clone(),
-                        pts: vec![road.pts[i + 1].clone(), road.pts[i].clone()],
-                    });
+                    acc_dist = 0.0;
                 }
             }
 
-            // 2. Spatial Grid Junction & Seam Stitching:
-            // Rule A: Endpoints connect to intersecting segments up to 80m away
-            // Rule B: Endpoints connect to other endpoints up to 160m away (bridges tile seams seamlessly!)
-            // Rule C: Interior points ONLY connect if true crossing intersection (<= 12m)
-            for (r_idx, road) in candidate_roads.iter().enumerate() {
-                for (p_idx, pt) in road.pts.iter().enumerate() {
-                    let u = road_node_map[r_idx][p_idx];
-                    let is_endpoint = (p_idx == 0) || (p_idx == road.pts.len() - 1);
-                    let pt_cell = get_cell(pt);
-
-                    // Check neighboring cells for crossing segments
-                    let mut checked_segs = std::collections::HashSet::new();
-                    for dx in -1..=1 {
-                        for dy in -1..=1 {
-                            let n_cell = (pt_cell.0 + dx, pt_cell.1 + dy);
-                            if let Some(segs) = seg_grid.get(&n_cell) {
-                                for &(other_ridx, other_sidx) in segs {
-                                    if other_ridx == r_idx {
-                                        continue;
-                                    }
-                                    if !checked_segs.insert((other_ridx, other_sidx)) {
-                                        continue;
-                                    }
-
-                                    let other_road = &candidate_roads[other_ridx];
-                                    let p_a = &other_road.pts[other_sidx];
-                                    let p_b = &other_road.pts[other_sidx + 1];
-
-                                    let (proj, d, t) = Self::project_point_on_segment(pt, p_a, p_b);
-                                    let max_allowed_d = if is_endpoint { 80.0 } else { 12.0 };
-
-                                    if d <= max_allowed_d {
-                                        let seg_len = Self::haversine_distance(p_a, p_b);
-                                        let v1 = road_node_map[other_ridx][other_sidx];
-                                        let v2 = road_node_map[other_ridx][other_sidx + 1];
-                                        let w1 = d + t * seg_len;
-                                        let w2 = d + (1.0 - t) * seg_len;
-
-                                        adj.entry(u).or_default().push(Edge {
-                                            target: v1,
-                                            weight: w1,
-                                            road_name: other_road.name.clone(),
-                                            pts: vec![pt.clone(), proj.clone(), p_a.clone()],
-                                        });
-                                        adj.entry(v1).or_default().push(Edge {
-                                            target: u,
-                                            weight: w1,
-                                            road_name: other_road.name.clone(),
-                                            pts: vec![p_a.clone(), proj.clone(), pt.clone()],
-                                        });
-                                        adj.entry(u).or_default().push(Edge {
-                                            target: v2,
-                                            weight: w2,
-                                            road_name: other_road.name.clone(),
-                                            pts: vec![pt.clone(), proj.clone(), p_b.clone()],
-                                        });
-                                        adj.entry(v2).or_default().push(Edge {
-                                            target: u,
-                                            weight: w2,
-                                            road_name: other_road.name.clone(),
-                                            pts: vec![p_b.clone(), proj.clone(), pt.clone()],
-                                        });
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    // Seam stitching across tile boundaries (Endpoint-to-endpoint up to 160m)
-                    if is_endpoint {
-                        for dx in -1..=1 {
-                            for dy in -1..=1 {
-                                let n_cell = (pt_cell.0 + dx, pt_cell.1 + dy);
-                                if let Some(other_endpts) = endpt_grid.get(&n_cell) {
-                                    for &(other_ridx, _other_pidx, other_nid) in other_endpts {
-                                        if other_ridx == r_idx {
-                                            continue;
-                                        }
-                                        let d = Self::haversine_distance(pt, &node_coords[other_nid]);
-                                        if d <= 160.0 {
-                                            adj.entry(u).or_default().push(Edge {
-                                                target: other_nid,
-                                                weight: d,
-                                                road_name: "Connected Road".to_string(),
-                                                pts: vec![pt.clone(), node_coords[other_nid].clone()],
-                                            });
-                                            adj.entry(other_nid).or_default().push(Edge {
-                                                target: u,
-                                                weight: d,
-                                                road_name: "Connected Road".to_string(),
-                                                pts: vec![node_coords[other_nid].clone(), pt.clone()],
-                                            });
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Snap start and end via spatial grid
-            let snap_point = |q: &LatLng| -> (LatLng, usize, usize, String) {
-                let mut best_d = f64::INFINITY;
-                let mut best_proj = q.clone();
-                let mut best_u = 0;
-                let mut best_v = 0;
-                let mut best_name = "Road".to_string();
-                let q_cell = get_cell(q);
-
-                for dx in -2..=2 {
-                    for dy in -2..=2 {
-                        let cell = (q_cell.0 + dx, q_cell.1 + dy);
-                        if let Some(segs) = seg_grid.get(&cell) {
-                            for &(r_idx, s_idx) in segs {
-                                let road = &candidate_roads[r_idx];
-                                let p_a = &road.pts[s_idx];
-                                let p_b = &road.pts[s_idx + 1];
-                                let (proj, d, _) = Self::project_point_on_segment(q, p_a, p_b);
-                                if d < best_d {
-                                    best_d = d;
-                                    best_proj = proj;
-                                    best_u = road_node_map[r_idx][s_idx];
-                                    best_v = road_node_map[r_idx][s_idx + 1];
-                                    best_name = road.name.clone();
-                                }
-                            }
-                        }
-                    }
-                }
-                (best_proj, best_u, best_v, best_name)
-            };
-
-            let (s_proj, s_u, s_v, s_name) = snap_point(&start);
-            let (d_proj, d_u, d_v, d_name) = snap_point(&end);
-
-            let s_nid = node_coords.len();
-            node_coords.push(s_proj.clone());
-            let d_nid = node_coords.len();
-            node_coords.push(d_proj.clone());
-
-            let d_su = Self::haversine_distance(&s_proj, &node_coords[s_u]);
-            let d_sv = Self::haversine_distance(&s_proj, &node_coords[s_v]);
-            adj.entry(s_nid).or_default().push(Edge { target: s_u, weight: d_su, road_name: s_name.clone(), pts: vec![s_proj.clone(), node_coords[s_u].clone()] });
-            adj.entry(s_nid).or_default().push(Edge { target: s_v, weight: d_sv, road_name: s_name.clone(), pts: vec![s_proj.clone(), node_coords[s_v].clone()] });
-            adj.entry(s_u).or_default().push(Edge { target: s_nid, weight: d_su, road_name: s_name.clone(), pts: vec![node_coords[s_u].clone(), s_proj.clone()] });
-            adj.entry(s_v).or_default().push(Edge { target: s_nid, weight: d_sv, road_name: s_name, pts: vec![node_coords[s_v].clone(), s_proj.clone()] });
-
-            let d_du = Self::haversine_distance(&d_proj, &node_coords[d_u]);
-            let d_dv = Self::haversine_distance(&d_proj, &node_coords[d_v]);
-            adj.entry(d_nid).or_default().push(Edge { target: d_u, weight: d_du, road_name: d_name.clone(), pts: vec![d_proj.clone(), node_coords[d_u].clone()] });
-            adj.entry(d_nid).or_default().push(Edge { target: d_v, weight: d_dv, road_name: d_name.clone(), pts: vec![d_proj.clone(), node_coords[d_v].clone()] });
-            adj.entry(d_u).or_default().push(Edge { target: d_nid, weight: d_du, road_name: d_name.clone(), pts: vec![node_coords[d_u].clone(), d_proj.clone()] });
-            adj.entry(d_v).or_default().push(Edge { target: d_nid, weight: d_dv, road_name: d_name, pts: vec![node_coords[d_v].clone(), d_proj.clone()] });
-
-            // Dijkstra Shortest Path Search
-            let mut dist: HashMap<usize, f64> = HashMap::new();
-            let mut prev: HashMap<usize, (usize, String, Vec<LatLng>)> = HashMap::new();
-            let mut heap = BinaryHeap::new();
-
-            dist.insert(s_nid, 0.0);
-            heap.push(State { cost: 0.0, node: s_nid });
-
-            let mut reached = false;
-            while let Some(State { cost, node }) = heap.pop() {
-                if node == d_nid {
-                    reached = true;
-                    break;
-                }
-                if cost > *dist.get(&node).unwrap_or(&f64::INFINITY) {
-                    continue;
-                }
-                if let Some(edges) = adj.get(&node) {
-                    for edge in edges {
-                        let next = State { cost: cost + edge.weight, node: edge.target };
-                        if next.cost < *dist.get(&edge.target).unwrap_or(&f64::INFINITY) {
-                            dist.insert(edge.target, next.cost);
-                            prev.insert(edge.target, (node, edge.road_name.clone(), edge.pts.clone()));
-                            heap.push(next);
-                        }
-                    }
-                }
-            }
-
-            if reached {
-                let mut edges_traversed = Vec::new();
-                let mut curr = d_nid;
-                while curr != s_nid {
-                    if let Some((prev_node, rname, epts)) = prev.get(&curr) {
-                        edges_traversed.push((rname.clone(), epts.clone()));
-                        curr = *prev_node;
-                    } else {
-                        break;
-                    }
-                }
-                edges_traversed.reverse();
-
-                let mut polyline = vec![start.clone(), s_proj];
-                for (_rname, epts) in &edges_traversed {
-                    for p in epts {
-                        if polyline.is_empty() || Self::haversine_distance(polyline.last().unwrap(), p) > 0.5 {
-                            polyline.push(p.clone());
-                        }
-                    }
-                }
-                if polyline.is_empty() || Self::haversine_distance(polyline.last().unwrap(), &d_proj) > 0.5 {
-                    polyline.push(d_proj);
-                }
-                polyline.push(end.clone());
-
-                let total_dist = dist[&d_nid];
-                let duration_secs = (total_dist / avg_speed_mps) as u64;
-
-                let first_road = edges_traversed.first().map(|e| e.0.clone()).unwrap_or_else(|| "Connected Road".to_string());
-                let maneuvers = vec![
-                    TurnManeuver {
-                        instruction: format!("Depart onto {}", first_road),
-                        road_name: first_road,
-                        turn_type: "maneuver_straight".to_string(),
-                        distance_meters: total_dist,
-                        coordinate: start,
-                    },
-                    TurnManeuver {
-                        instruction: "Arrive at Destination".to_string(),
-                        road_name: "Destination".to_string(),
-                        turn_type: "destination_pin".to_string(),
-                        distance_meters: 0.0,
-                        coordinate: end,
-                    },
-                ];
-
-                let result = RouteResult {
-                    success: true,
-                    total_distance_meters: total_dist,
-                    estimated_duration_seconds: duration_secs,
-                    polyline,
-                    maneuvers,
-                    error_message: None,
-                };
-
-                // Store in LRU cache
-                if let Ok(mut cache) = self.cache.lock() {
-                    if cache.len() > 64 {
-                        cache.clear();
-                    }
-                    cache.insert(cache_key, result.clone());
-                }
-
-                return result;
+            // Arrival maneuver
+            if let Some(last_pt) = polyline.last() {
+                maneuvers.push(TurnManeuver {
+                    instruction: "You have arrived at your destination".to_string(),
+                    road_name: "Destination".to_string(),
+                    turn_type: "maneuver_arrive".to_string(),
+                    distance_meters: 0.0,
+                    coordinate: last_pt.clone(),
+                });
             }
         }
 
-        // Explicit failure when no connected road path exists
-        RouteResult {
-            success: false,
-            total_distance_meters: 0.0,
-            estimated_duration_seconds: 0,
-            polyline: Vec::new(),
-            maneuvers: Vec::new(),
-            error_message: Some("No connected road path found between locations".to_string()),
+        let result = RouteResult {
+            success: true,
+            total_distance_meters: total_dist,
+            estimated_duration_seconds: duration_secs,
+            polyline,
+            maneuvers,
+            error_message: None,
+        };
+
+        // Cache result in LRU
+        if let Ok(mut cache) = self.cache.lock() {
+            if cache.len() > 64 {
+                cache.clear();
+            }
+            cache.insert(cache_key, result.clone());
         }
+
+        result
     }
 }
