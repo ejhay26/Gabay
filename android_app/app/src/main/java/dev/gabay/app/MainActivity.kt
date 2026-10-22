@@ -87,8 +87,13 @@ import dev.gabay.app.map.FusedMapMode
 import dev.gabay.app.map.MapCanvas
 
 import dev.gabay.app.map.PmTilesServer
-
 import dev.gabay.app.ui.*
+import dev.gabay.app.commute.CommuteRouter
+import dev.gabay.app.commute.CommuteSheet
+import dev.gabay.app.commute.CommuteItinerary
+import dev.gabay.app.commute.CommuteLeg
+import dev.gabay.app.data.VaultIntegrityManager
+import dev.gabay.app.data.VaultStatus
 
 import org.maplibre.android.MapLibre
 
@@ -434,6 +439,11 @@ fun CockpitScreen(
     var activeRoute by remember { mutableStateOf<RouteResult?>(null) }
     var alternativeRoute by remember { mutableStateOf<RouteResult?>(null) }
     var activeRouteAdvisory by remember { mutableStateOf<String?>(null) }
+    var isCommuteMode by remember { mutableStateOf(false) }
+    var commuteItineraries by remember { mutableStateOf<List<dev.gabay.app.commute.CommuteItinerary>>(emptyList()) }
+    var selectedCommuteIndex by remember { mutableIntStateOf(0) }
+    var vaultStatus by remember { mutableStateOf(dev.gabay.app.data.VaultIntegrityManager.checkVault()) }
+    var showVaultDialog by remember { mutableStateOf(!vaultStatus.isReady) }
 
     var destinationPin by remember { mutableStateOf<LatLng?>(null) }
 
@@ -2411,23 +2421,109 @@ fun CockpitScreen(
                 },
 
                 onCancelRoute = {
-
+                    isCommuteMode = false
+                    commuteItineraries = emptyList()
                     cancelActiveRoute()
-
                 },
-
                 routeAdvisory = activeRouteAdvisory,
-
+                isCommuteMode = isCommuteMode,
+                onSelectCommute = {
+                    isCommuteMode = true
+                    val startCoord = activeOriginCoord ?: LatLng(userLat, userLon)
+                    val destCoord = activeDestCoord ?: destinationPin ?: return@RoutePreviewSheet
+                    coroutineScope.launch(Dispatchers.IO) {
+                        val results = dev.gabay.app.commute.CommuteRouter.planCommute(startCoord, destCoord)
+                        withContext(Dispatchers.Main) {
+                            commuteItineraries = results
+                            selectedCommuteIndex = 0
+                            audioController.speakTerseCue("Commute itineraries ready")
+                        }
+                    }
+                },
                 modifier = Modifier
-
                     .align(Alignment.BottomCenter)
-
                     .navigationBarsPadding()
-
                     .padding(bottom = 12.dp)
-
             )
+        }
 
+        // LAYER 3.5: Public Commute Itinerary Sheet (When Commute Mode is active)
+        if (isCommuteMode && commuteItineraries.isNotEmpty()) {
+            dev.gabay.app.commute.CommuteSheet(
+                itineraries = commuteItineraries,
+                selectedItineraryIndex = selectedCommuteIndex,
+                onSelectItinerary = { selectedCommuteIndex = it },
+                onStartCommute = { itin ->
+                    val poly = itin.fullPolyline
+                    val maneuvers = itin.legs.map { leg ->
+                        when (leg) {
+                            is dev.gabay.app.commute.CommuteLeg.Walk -> {
+                                uniffi.gabay_core.TurnManeuver(
+                                    instruction = leg.instruction,
+                                    roadName = leg.targetStationName ?: "Walkway",
+                                    turnType = "maneuver_straight",
+                                    distanceMeters = leg.distanceMeters,
+                                    coordinate = leg.polyline.firstOrNull() ?: poly.first()
+                                )
+                            }
+                            is dev.gabay.app.commute.CommuteLeg.TransitRide -> {
+                                uniffi.gabay_core.TurnManeuver(
+                                    instruction = "Board ${leg.lineName} at ${leg.departureStation}",
+                                    roadName = leg.lineName,
+                                    turnType = "maneuver_straight",
+                                    distanceMeters = leg.distanceMeters,
+                                    coordinate = leg.polyline.firstOrNull() ?: poly.first()
+                                )
+                            }
+                            is dev.gabay.app.commute.CommuteLeg.Transfer -> {
+                                uniffi.gabay_core.TurnManeuver(
+                                    instruction = leg.instruction,
+                                    roadName = leg.stationName,
+                                    turnType = "maneuver_straight",
+                                    distanceMeters = leg.walkDistanceMeters,
+                                    coordinate = poly.first()
+                                )
+                            }
+                        }
+                    }
+                    val routeRes = RouteResult(
+                        success = true,
+                        totalDistanceMeters = itin.totalWalkMeters + 4000.0,
+                        estimatedDurationSeconds = (itin.totalDurationMinutes * 60).toULong(),
+                        polyline = poly,
+                        maneuvers = maneuvers,
+                        errorMessage = null
+                    )
+                    activeRoute = routeRes
+                    isCommuteMode = false
+                    startActiveNavigation()
+                },
+                onClose = {
+                    isCommuteMode = false
+                },
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .padding(bottom = 12.dp)
+            )
+        }
+
+        // LAYER 5: Offline Vault Setup & Integrity Check Dialog
+        if (showVaultDialog) {
+            dev.gabay.app.ui.VaultSetupDialog(
+                vaultStatus = vaultStatus,
+                onDismiss = { showVaultDialog = false },
+                onVaultReady = {
+                    showVaultDialog = false
+                    vaultStatus = dev.gabay.app.data.VaultIntegrityManager.checkVault()
+                    try {
+                        engine = GabayEngine("/sdcard/Documents/Gabay")
+                        PmTilesServer.reloadReaders(File("/sdcard/Documents/Gabay"))
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
+            )
         }
 
 

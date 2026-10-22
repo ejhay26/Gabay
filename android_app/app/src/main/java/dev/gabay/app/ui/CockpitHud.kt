@@ -2140,6 +2140,8 @@ fun RoutePreviewSheet(
     onStartNavigation: () -> Unit,
     onCancelRoute: () -> Unit,
     routeAdvisory: String? = null,
+    isCommuteMode: Boolean = false,
+    onSelectCommute: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     Card(
@@ -2166,63 +2168,149 @@ fun RoutePreviewSheet(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // Mode Selector Tabs (Google Maps Style: Two-wheeler, Car, Walk)
-            val modes = listOf(
-                Triple(VehicleMode.SCOOTER, "Two-wheeler", ApexAlonIcons.Scooter),
-                Triple(VehicleMode.CAR, "Car", GabayIcons.ModeCar),
-                Triple(VehicleMode.WALK, "Walk", GabayIcons.ModeWalk)
-            )
-
+            // Mode Selector Tabs (Google Maps Style: Two-wheeler, Car, Commute, Walk)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                modes.forEach { (mode, title, icon) ->
-                    val isSelected = selectedMode == mode
-                    val durationMin = when (mode) {
-                        VehicleMode.SCOOTER -> (route.totalDistanceMeters / 11.67 / 60.0).toLong().toULong().coerceAtLeast(1u)
-                        VehicleMode.CAR -> (route.totalDistanceMeters / 9.72 / 60.0).toLong().toULong().coerceAtLeast(1u)
-                        VehicleMode.WALK -> (route.totalDistanceMeters / 1.33 / 60.0).toLong().toULong().coerceAtLeast(1u)
-                        VehicleMode.BICYCLE -> (route.totalDistanceMeters / 4.44 / 60.0).toLong().toULong().coerceAtLeast(1u)
-                    }
-
-                    Column(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(12.dp))
-                            .clickable { onSelectMode(mode) }
-                            .padding(horizontal = 12.dp, vertical = 6.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
+                // Two-wheeler (Scooter)
+                val isScooterSelected = selectedMode == VehicleMode.SCOOTER && !isCommuteMode
+                val scooterMins = (route.totalDistanceMeters / 11.67 / 60.0).toLong().toULong().coerceAtLeast(1u)
+                Column(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable { onSelectMode(VehicleMode.SCOOTER) }
+                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Icon(
-                                imageVector = icon,
-                                contentDescription = title,
-                                tint = if (isSelected) GabayColors.AccentPrimary else GabayColors.TextSecondary,
-                                modifier = Modifier.size(18.dp)
+                        Icon(
+                            imageVector = ApexAlonIcons.Scooter,
+                            contentDescription = "Two-wheeler",
+                            tint = if (isScooterSelected) GabayColors.AccentPrimary else GabayColors.TextSecondary,
+                            modifier = Modifier.size(17.dp)
+                        )
+                        Text(
+                            text = "$scooterMins m",
+                            style = TextStyle(
+                                fontWeight = if (isScooterSelected) FontWeight.Bold else FontWeight.Medium,
+                                fontSize = 12.sp,
+                                color = if (isScooterSelected) GabayColors.AccentPrimary else GabayColors.TextSecondary
                             )
-                            Text(
-                                text = "$durationMin min",
-                                style = TextStyle(
-                                    fontFamily = FontFamily.Default,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                    fontSize = 13.sp,
-                                    color = if (isSelected) GabayColors.AccentPrimary else GabayColors.TextSecondary
-                                )
+                        )
+                    }
+                    if (isScooterSelected) {
+                        Spacer(modifier = Modifier.height(3.dp))
+                        Box(modifier = Modifier.width(26.dp).height(2.5.dp).background(GabayColors.AccentPrimary, CircleShape))
+                    }
+                }
+
+                // Car
+                val isCarSelected = selectedMode == VehicleMode.CAR && !isCommuteMode
+                val carMins = (route.totalDistanceMeters / 9.72 / 60.0).toLong().toULong().coerceAtLeast(1u)
+                Column(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable { onSelectMode(VehicleMode.CAR) }
+                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Icon(
+                            imageVector = GabayIcons.ModeCar,
+                            contentDescription = "Car",
+                            tint = if (isCarSelected) GabayColors.AccentPrimary else GabayColors.TextSecondary,
+                            modifier = Modifier.size(17.dp)
+                        )
+                        Text(
+                            text = "$carMins m",
+                            style = TextStyle(
+                                fontWeight = if (isCarSelected) FontWeight.Bold else FontWeight.Medium,
+                                fontSize = 12.sp,
+                                color = if (isCarSelected) GabayColors.AccentPrimary else GabayColors.TextSecondary
                             )
-                        }
-                        if (isSelected) {
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Box(
-                                modifier = Modifier
-                                    .width(32.dp)
-                                    .height(2.5.dp)
-                                    .background(GabayColors.AccentPrimary, CircleShape)
+                        )
+                    }
+                    if (isCarSelected) {
+                        Spacer(modifier = Modifier.height(3.dp))
+                        Box(modifier = Modifier.width(26.dp).height(2.5.dp).background(GabayColors.AccentPrimary, CircleShape))
+                    }
+                }
+
+                // Commute (Transit Bus / Train / Ferry)
+                val isCommuteSelected = isCommuteMode
+                val commuteMins = (route.totalDistanceMeters / 6.5 / 60.0).toLong().toULong().coerceAtLeast(1u)
+                Column(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable { onSelectCommute?.invoke() }
+                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Icon(
+                            imageVector = GabayIcons.NavCursor,
+                            contentDescription = "Commute",
+                            tint = if (isCommuteSelected) GabayColors.AccentMint else GabayColors.TextSecondary,
+                            modifier = Modifier.size(17.dp)
+                        )
+                        Text(
+                            text = "$commuteMins m",
+                            style = TextStyle(
+                                fontWeight = if (isCommuteSelected) FontWeight.Bold else FontWeight.Medium,
+                                fontSize = 12.sp,
+                                color = if (isCommuteSelected) GabayColors.AccentMint else GabayColors.TextSecondary
                             )
-                        }
+                        )
+                    }
+                    if (isCommuteSelected) {
+                        Spacer(modifier = Modifier.height(3.dp))
+                        Box(modifier = Modifier.width(26.dp).height(2.5.dp).background(GabayColors.AccentMint, CircleShape))
+                    }
+                }
+
+                // Walk
+                val isWalkSelected = selectedMode == VehicleMode.WALK && !isCommuteMode
+                val walkMins = (route.totalDistanceMeters / 1.33 / 60.0).toLong().toULong().coerceAtLeast(1u)
+                Column(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable { onSelectMode(VehicleMode.WALK) }
+                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Icon(
+                            imageVector = GabayIcons.ModeWalk,
+                            contentDescription = "Walk",
+                            tint = if (isWalkSelected) GabayColors.AccentPrimary else GabayColors.TextSecondary,
+                            modifier = Modifier.size(17.dp)
+                        )
+                        Text(
+                            text = "$walkMins m",
+                            style = TextStyle(
+                                fontWeight = if (isWalkSelected) FontWeight.Bold else FontWeight.Medium,
+                                fontSize = 12.sp,
+                                color = if (isWalkSelected) GabayColors.AccentPrimary else GabayColors.TextSecondary
+                            )
+                        )
+                    }
+                    if (isWalkSelected) {
+                        Spacer(modifier = Modifier.height(3.dp))
+                        Box(modifier = Modifier.width(26.dp).height(2.5.dp).background(GabayColors.AccentPrimary, CircleShape))
                     }
                 }
             }
