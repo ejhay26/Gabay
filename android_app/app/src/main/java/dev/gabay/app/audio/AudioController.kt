@@ -260,7 +260,7 @@ class AudioController(private val context: Context) : TextToSpeech.OnInitListene
             "turn right" in lower -> "turn_right"
             "u-turn" in lower || "uturn" in lower -> "u_turn"
             "straight" in lower || "continue" in lower -> "straight"
-            "arrived" in lower || "destination" in lower -> "arrived"
+            lower == "arrived" || lower.startsWith("arrived") || "you have arrived" in lower || "arrived at" in lower -> "arrived"
             "recalculat" in lower || "off-route" in lower || "off route" in lower -> "rerouting"
             "route calculated" in lower || "route ready" in lower || "route verified" in lower -> "route_ready"
             "hazard" in lower || "caution" in lower -> "hazard_ahead"
@@ -298,14 +298,16 @@ class AudioController(private val context: Context) : TextToSpeech.OnInitListene
 
         // Check if external offline voice engine handles this cue
         if (voiceEngine == VoiceEngineType.TACTICAL_EXTERNAL) {
-            if (isCriticalAlert) {
-                playTacticalChime(880.0, 1320.0, 120)
-            }
             val voiceKey = matchVoiceKey(cue)
             if (voiceKey != null && playVoiceAsset(voiceKey)) {
                 Log.d("GabayAudio", "Played external offline voice cue: $voiceKey")
                 return
             }
+            if (isCriticalAlert) {
+                playTacticalChime(880.0, 1320.0, 120)
+            }
+            // In TACTICAL_EXTERNAL mode, never fall through to TTS speech
+            return
         }
 
         if (guidanceMode == AudioGuidanceMode.FULL_VOICE) {
@@ -313,6 +315,27 @@ class AudioController(private val context: Context) : TextToSpeech.OnInitListene
             requestAudioFocus()
             val utteranceId = "cue_${System.currentTimeMillis()}"
             tts?.speak(cue, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
+        }
+    }
+
+    /**
+     * Dedicated preview method for the settings UI: plays cleanly without dual chime or debounce suppression.
+     */
+    fun testVoiceCue(sampleText: String) {
+        lastCueText = "" // Reset debounce
+        lastCueTimeMs = 0L
+
+        if (voiceEngine == VoiceEngineType.TACTICAL_EXTERNAL) {
+            val key = matchVoiceKey(sampleText) ?: "turn_left"
+            if (!playVoiceAsset(key)) {
+                playTacticalChime(880.0, 1320.0, 150)
+            }
+        } else {
+            if (isTtsReady) {
+                requestAudioFocus()
+                val utteranceId = "test_${System.currentTimeMillis()}"
+                tts?.speak(sampleText, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
+            }
         }
     }
 

@@ -3,8 +3,11 @@ if not exist G:\ (
     echo [ERROR] Drive G: is not connected! Please connect your G: drive to ensure builds do not consume C: drive space.
     exit /b 1
 )
-set CARGO_HOME=C:\Users\Administrator\.cargo
+set CARGO_HOME=G:\sine_builds\.cargo
 set CARGO_TARGET_DIR=G:\cargo_target
+set TEMP=G:\gabay_builds\temp
+set TMP=G:\gabay_builds\temp
+if not exist G:\gabay_builds\temp mkdir G:\gabay_builds\temp
 set NDK_BIN=C:\Android\android-sdk\ndk\28.2.13676358\toolchains\llvm\prebuilt\windows-x86_64\bin
 set CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=%NDK_BIN%\aarch64-linux-android26-clang.cmd
 set CC_aarch64_linux_android=%NDK_BIN%\aarch64-linux-android26-clang.cmd

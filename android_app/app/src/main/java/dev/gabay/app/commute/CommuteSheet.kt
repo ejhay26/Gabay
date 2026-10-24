@@ -107,7 +107,7 @@ fun CommuteSheet(
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(
                         text = "COMMUTE ITINERARY",
-                        style = TextStyle(fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, fontSize = 11.sp, color = GabayColors.AccentMint)
+                        style = TextStyle(fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, fontSize = 11.sp, color = GabayColors.AccentAmber)
                     )
                     Text("•", color = GabayColors.TextMuted)
                     Text(
@@ -128,7 +128,7 @@ fun CommuteSheet(
                     } else {
                         Text(
                             text = "FREE",
-                            style = TextStyle(fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = GabayColors.AccentMint)
+                            style = TextStyle(fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = GabayColors.AccentEmerald)
                         )
                     }
                 }

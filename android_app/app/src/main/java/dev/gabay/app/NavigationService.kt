@@ -22,6 +22,7 @@ class NavigationService : LifecycleService() {
         const val NOTIFICATION_ID = 1001
         const val ACTION_START_NAV = "dev.gabay.app.action.START_NAV"
         const val ACTION_STOP_NAV = "dev.gabay.app.action.STOP_NAV"
+        const val ACTION_STOP_FROM_NOTIFICATION = "dev.gabay.app.action.STOP_FROM_NOTIFICATION"
 
         var onStopNavigationRequested: (() -> Unit)? = null
 
@@ -71,7 +72,7 @@ class NavigationService : LifecycleService() {
         super.onStartCommand(intent, flags, startId)
         when (intent?.action) {
             ACTION_START_NAV -> startForegroundServiceInternal()
-            ACTION_STOP_NAV -> {
+            ACTION_STOP_FROM_NOTIFICATION -> {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
                     stopForeground(STOP_FOREGROUND_REMOVE)
                 } else {
@@ -79,6 +80,16 @@ class NavigationService : LifecycleService() {
                     stopForeground(true)
                 }
                 onStopNavigationRequested?.invoke()
+                stopSelf()
+            }
+            ACTION_STOP_NAV -> {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                } else {
+                    @Suppress("DEPRECATION")
+                    stopForeground(true)
+                }
+                // Do not invoke onStopNavigationRequested: caller (MainActivity) already requested this stop!
                 stopSelf()
             }
         }
@@ -131,7 +142,7 @@ class NavigationService : LifecycleService() {
         )
 
         val stopIntent = Intent(this, NavigationService::class.java).apply {
-            action = ACTION_STOP_NAV
+            action = ACTION_STOP_FROM_NOTIFICATION
         }
         val stopPendingIntent = PendingIntent.getService(
             this,

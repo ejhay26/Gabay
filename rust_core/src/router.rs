@@ -45,21 +45,22 @@ pub struct OsmRoutingGraph {
 }
 
 #[derive(Copy, Clone, PartialEq)]
-struct DijkstraState {
-    cost: f32,
+struct AStarState {
+    f_cost: f32, // g_cost + heuristic
+    g_cost: f32,
     node: u32,
 }
 
-impl Eq for DijkstraState {}
+impl Eq for AStarState {}
 
-impl Ord for DijkstraState {
+impl Ord for AStarState {
     fn cmp(&self, other: &Self) -> Ordering {
-        // Reverse order for min-heap
-        other.cost.partial_cmp(&self.cost).unwrap_or(Ordering::Equal)
+        // Reverse order for min-heap by f_cost, tie-break by g_cost
+        other.f_cost.partial_cmp(&self.f_cost).unwrap_or(Ordering::Equal)
     }
 }
 
-impl PartialOrd for DijkstraState {
+impl PartialOrd for AStarState {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
@@ -160,11 +161,11 @@ impl Router {
             ("Make a U-Turn".to_string(), "maneuver_u_turn".to_string())
         } else if delta < -45.0 {
             ("Turn Left".to_string(), "maneuver_left".to_string())
-        } else if delta < -15.0 {
+        } else if delta < -28.0 {
             ("Bear Slight Left".to_string(), "maneuver_slight_left".to_string())
         } else if delta > 45.0 {
             ("Turn Right".to_string(), "maneuver_right".to_string())
-        } else if delta > 15.0 {
+        } else if delta > 28.0 {
             ("Bear Slight Right".to_string(), "maneuver_slight_right".to_string())
         } else {
             ("Continue Straight".to_string(), "maneuver_straight".to_string())
@@ -397,24 +398,35 @@ impl Router {
             None
         };
 
-        // Dijkstra Shortest Path Search
+        // A* Shortest Path Search directed towards destination
+        let dest_lat = graph_arc.nodes[dest_node as usize].lat;
+        let dest_lon = graph_arc.nodes[dest_node as usize].lon;
+        let dest_coord = LatLng { latitude: dest_lat, longitude: dest_lon };
+
+        let heuristic = |node_idx: u32| -> f32 {
+            let n = &graph_arc.nodes[node_idx as usize];
+            let pt = LatLng { latitude: n.lat, longitude: n.lon };
+            Self::haversine_distance(&pt, &dest_coord) as f32
+        };
+
         let mut dist: HashMap<u32, f32> = HashMap::new();
-        let mut parent: HashMap<u32, (u32, String, f32)> = HashMap::new(); // target -> (from, road_name, edge_dist)
+        let mut parent: HashMap<u32, (u32, u32)> = HashMap::new(); // target -> (from_node, global_edge_idx)
         let mut heap = BinaryHeap::new();
 
+        let start_h = heuristic(start_node);
         dist.insert(start_node, 0.0);
-        heap.push(DijkstraState { cost: 0.0, node: start_node });
+        heap.push(AStarState { f_cost: start_h, g_cost: 0.0, node: start_node });
 
         let mut reached_dest = false;
 
-        while let Some(DijkstraState { cost, node }) = heap.pop() {
+        while let Some(AStarState { g_cost, node, .. }) = heap.pop() {
             if node == dest_node {
                 reached_dest = true;
                 break;
             }
 
             if let Some(&current_best) = dist.get(&node) {
-                if cost > current_best {
+                if g_cost > current_best {
                     continue;
                 }
             }
@@ -422,7 +434,9 @@ impl Router {
             let start_edge = graph_arc.node_edge_offsets[node as usize] as usize;
             let end_edge = graph_arc.node_edge_offsets[node as usize + 1] as usize;
 
-            for edge in &graph_arc.edges[start_edge..end_edge] {
+            for (edge_offset, edge) in graph_arc.edges[start_edge..end_edge].iter().enumerate() {
+                let global_edge_idx = (start_edge + edge_offset) as u32;
+
                 // Vehicle Mode Restrictions & Legal Philippine Road Access
                 let allowed = match options.mode {
                     VehicleMode::Scooter => {
@@ -464,7 +478,7 @@ impl Router {
                     1.0
                 };
 
-                let next_cost = cost + edge.distance_m * penalty;
+                let next_cost = g_cost + edge.distance_m * penalty;
                 let is_cheaper = match dist.get(&edge.target_idx) {
                     Some(&old_cost) => next_cost < old_cost,
                     None => true,
@@ -472,8 +486,9 @@ impl Router {
 
                 if is_cheaper {
                     dist.insert(edge.target_idx, next_cost);
-                    parent.insert(edge.target_idx, (node, edge.road_name.clone(), edge.distance_m));
-                    heap.push(DijkstraState { cost: next_cost, node: edge.target_idx });
+                    parent.insert(edge.target_idx, (node, global_edge_idx));
+                    let h = heuristic(edge.target_idx);
+                    heap.push(AStarState { f_cost: next_cost + h, g_cost: next_cost, node: edge.target_idx });
                 }
             }
         }
@@ -495,9 +510,10 @@ impl Router {
         let mut path_nodes: Vec<u32> = vec![curr];
         let mut road_segments: Vec<(String, f32)> = Vec::new();
 
-        while let Some(&(prev, ref name, d)) = parent.get(&curr) {
+        while let Some(&(prev, global_edge_idx)) = parent.get(&curr) {
             path_nodes.push(prev);
-            road_segments.push((name.clone(), d));
+            let edge = &graph_arc.edges[global_edge_idx as usize];
+            road_segments.push((edge.road_name.clone(), edge.distance_m));
             curr = prev;
             if curr == start_node {
                 break;

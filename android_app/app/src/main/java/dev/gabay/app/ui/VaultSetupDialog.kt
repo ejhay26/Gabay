@@ -262,7 +262,7 @@ private fun VaultFileRow(item: VaultFileItem) {
             .background(GabayColors.UiInput, RoundedCornerShape(8.dp))
             .border(
                 1.dp,
-                if (item.isPresent) GabayColors.AccentMint.copy(alpha = 0.4f) else GabayColors.UiBorder,
+                if (item.isPresent) GabayColors.AccentEmerald.copy(alpha = 0.4f) else GabayColors.UiBorder,
                 RoundedCornerShape(8.dp)
             )
             .padding(10.dp),
@@ -286,12 +286,12 @@ private fun VaultFileRow(item: VaultFileItem) {
         if (item.isPresent) {
             Box(
                 modifier = Modifier
-                    .background(GabayColors.AccentMint.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
+                    .background(GabayColors.AccentEmerald.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
                     .padding(horizontal = 6.dp, vertical = 2.dp)
             ) {
                 Text(
                     text = "READY",
-                    style = TextStyle(fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, fontSize = 9.sp, color = GabayColors.AccentMint)
+                    style = TextStyle(fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, fontSize = 9.sp, color = GabayColors.AccentEmerald)
                 )
             }
         } else {

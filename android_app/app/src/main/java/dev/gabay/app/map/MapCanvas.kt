@@ -54,7 +54,7 @@ object DynamicBorderBounds {
         if (vectorPmtiles.exists() && vectorPmtiles.length() >= 127) {
             try {
                 RandomAccessFile(vectorPmtiles, "r").use { raf ->
-                    raf.seek(97)
+                    raf.seek(102)
                     val buffer = ByteArray(16)
                     raf.readFully(buffer)
                     
@@ -765,96 +765,6 @@ private fun setupTacticalMap(
     """.trimIndent()
 
     map.setStyle(Style.Builder().fromJson(styleJson)) { style ->
-        // Helper to load GeoJSON string from physical sdcard vault or embedded APK assets
-        fun loadGeoJson(sdcardPath: String, assetName: String): String {
-            try {
-                val f = File(sdcardPath)
-                if (f.exists() && f.length() > 0) {
-                    return f.readText()
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-            return try {
-                context.assets.open(assetName).bufferedReader().use { it.readText() }
-            } catch (e: Exception) {
-                "{ \"type\": \"FeatureCollection\", \"features\": [] }"
-            }
-        }
-
-        // 1. Waterways & Coastlines (#131519 Dark Slate Water)
-        try {
-            val waterJson = loadGeoJson("/sdcard/Documents/Gabay/metro_manila_water.geojson", "water.geojson")
-            val waterSource = GeoJsonSource("water_source", waterJson)
-            style.addSource(waterSource)
-
-            val waterLayer = LineLayer("water_layer", "water_source").apply {
-                setProperties(
-                    lineColor(AndroidColor.parseColor("#131519")),
-                    lineWidth(5.5f),
-                    lineCap(org.maplibre.android.style.layers.Property.LINE_CAP_ROUND),
-                    lineJoin(org.maplibre.android.style.layers.Property.LINE_JOIN_ROUND)
-                )
-            }
-            style.addLayer(waterLayer)
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-
-        // 2. Parks & Greenery (#1B231F Tone-on-tone Forest)
-        try {
-            val parksJson = loadGeoJson("/sdcard/Documents/Gabay/metro_manila_parks.geojson", "parks.geojson")
-            val parksSource = GeoJsonSource("parks_source", parksJson)
-            style.addSource(parksSource)
-
-            val parksLayer = FillLayer("parks_layer", "parks_source").apply {
-                setProperties(
-                    fillColor(AndroidColor.parseColor("#1B231F")),
-                    fillOpacity(0.9f)
-                )
-            }
-            style.addLayer(parksLayer)
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-
-        // 3. Minor Streets & Residential Corridors (#2D323C)
-        try {
-            val minorJson = loadGeoJson("/sdcard/Documents/Gabay/metro_manila_roads_minor.geojson", "roads_minor.geojson")
-            val minorSource = GeoJsonSource("roads_minor_source", minorJson)
-            style.addSource(minorSource)
-
-            val roadsMinorLayer = LineLayer("roads_minor", "roads_minor_source").apply {
-                setProperties(
-                    lineColor(AndroidColor.parseColor("#2D323C")),
-                    lineWidth(1.8f),
-                    lineCap(org.maplibre.android.style.layers.Property.LINE_CAP_ROUND),
-                    lineJoin(org.maplibre.android.style.layers.Property.LINE_JOIN_ROUND)
-                )
-            }
-            style.addLayer(roadsMinorLayer)
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-
-        // 4. Major Arterials & Highways (EDSA, Skyway, C-5, Ayala Ave) (#505869)
-        try {
-            val majorJson = loadGeoJson("/sdcard/Documents/Gabay/metro_manila_roads_major.geojson", "roads_major.geojson")
-            val majorSource = GeoJsonSource("roads_major_source", majorJson)
-            style.addSource(majorSource)
-
-            val roadsMajorLayer = LineLayer("roads_major", "roads_major_source").apply {
-                setProperties(
-                    lineColor(AndroidColor.parseColor("#505869")),
-                    lineWidth(3.6f),
-                    lineCap(org.maplibre.android.style.layers.Property.LINE_CAP_ROUND),
-                    lineJoin(org.maplibre.android.style.layers.Property.LINE_JOIN_ROUND)
-                )
-            }
-            style.addLayer(roadsMajorLayer)
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
 
         // 3.5. Alternative Detour Route Polyline (Translucent Slate underneath primary route)
         val altRouteSource = GeoJsonSource("alt_route_source", FeatureCollection.fromFeatures(emptyList()))
@@ -962,8 +872,8 @@ private fun setupTacticalMap(
                 textField("{name}"),
                 textFont(arrayOf("Noto Sans Regular")),
                 textSize(11.0f),
-                textColor(if (isSunlightLightMode) AndroidColor.parseColor("#0F172A") else AndroidColor.parseColor("#F1F5F9")),
-                textHaloColor(if (isSunlightLightMode) AndroidColor.WHITE else AndroidColor.parseColor("#0B0E14")),
+                textColor(if (dev.gabay.app.ui.GabayColors.isSunlightLightMode) AndroidColor.parseColor("#0F172A") else AndroidColor.parseColor("#F1F5F9")),
+                textHaloColor(if (dev.gabay.app.ui.GabayColors.isSunlightLightMode) AndroidColor.WHITE else AndroidColor.parseColor("#0B0E14")),
                 textHaloWidth(1.75f),
                 textAnchor(org.maplibre.android.style.layers.Property.TEXT_ANCHOR_TOP),
                 textOffset(arrayOf(0f, 0.6f)),
@@ -977,6 +887,7 @@ private fun setupTacticalMap(
 
     // Long Press Listener: Drop Destination Pin
     map.addOnMapLongClickListener { latLng ->
+        onFollowModeChanged(false)
         onPinDropped(uniffi.gabay_core.LatLng(latLng.latitude, latLng.longitude))
         true
     }

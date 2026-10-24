@@ -195,6 +195,7 @@ class MainActivity : ComponentActivity() {
         val settingsPrefs = getSharedPreferences("gabay_settings", android.content.Context.MODE_PRIVATE)
 
         GabayColors.isSunlightLightMode = settingsPrefs.getBoolean("sunlight_light_mode", false)
+        dev.gabay.app.ui.GabayHudSettings.init(this)
 
 
 
@@ -377,6 +378,7 @@ fun CockpitScreen(
     val context = LocalContext.current
 
     val coroutineScope = rememberCoroutineScope()
+    var activeEngine by remember { mutableStateOf(engine) }
 
 
 
@@ -505,6 +507,28 @@ fun CockpitScreen(
 
 
 
+    fun cancelActiveRoute() {
+        val wasNavigating = isNavigating || activeRoute != null
+        isRouteLoading = false
+        isNavigating = false
+        activeRoute = null
+        alternativeRoute = null
+        activeRouteAdvisory = null
+        isCommuteMode = false
+        commuteItineraries = emptyList()
+        try { activeEngine?.clearActiveRoute() } catch (e: Exception) {}
+        destinationPin = null
+        pinInfo = null
+        activeOriginCoord = null
+        activeDestCoord = null
+        originName = "Your location"
+        destinationName = "Dropped pin"
+        if (wasNavigating) {
+            NavigationService.stop(context)
+            audioController.speakTerseCue("ROUTE CANCELLED")
+        }
+    }
+
     DisposableEffect(Unit) {
 
         NavigationService.onStopNavigationRequested = {
@@ -629,7 +653,7 @@ fun CockpitScreen(
 
         mutableStateListOf(
 
-            ChatMessage("Gabay", "Gabay is ready. Where would you like to ride?", "10:00")
+            ChatMessage("Gabay", "Gabay is ready. Where would you like to ride?", java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault()).format(java.util.Date()))
 
         )
 
@@ -705,7 +729,7 @@ fun CockpitScreen(
 
         if (searchQuery.isNotBlank() && searchQuery.length >= 2) {
 
-            searchResults = engine?.searchPois(searchQuery.trim(), 5u) ?: emptyList()
+            searchResults = activeEngine?.searchPois(searchQuery.trim(), 5u) ?: emptyList()
 
         } else {
 
@@ -721,7 +745,7 @@ fun CockpitScreen(
 
     LaunchedEffect(userLat, userLon, userSpeed, userHeading, activeRoute) {
 
-        engine?.let { eng ->
+        activeEngine?.let { eng ->
 
             val updatedTelemetry = eng.processGpsTick(
 
@@ -769,36 +793,46 @@ fun CockpitScreen(
 
                 // Speak terse advisory ONLY if active route is pinned and debounced by 25 seconds
 
-                updatedTelemetry.coPilotAdvisory?.let { advisory ->
-
+                // Milestone-based discrete turn advisories (500m, 200m, 50m, arrival)
+                if (isNavigating && activeRoute != null) {
                     val nowMs = System.currentTimeMillis()
-
-                    val isDifferent = advisory != lastSpokenAdvisory
-
-                    val isCooledDown = (nowMs - lastSpokenAdvisoryTimeMs) > 25000L
-
                     val isStationary = userSpeed < 3.0f
-
-                    val isOffRoute = advisory.contains("OFF-ROUTE", ignoreCase = true)
-
-
-
-                    if ((isDifferent || isCooledDown) && !(isStationary && isOffRoute)) {
-
-                        lastSpokenAdvisory = advisory
-
-                        lastSpokenAdvisoryTimeMs = nowMs
-
-                        audioController.speakTerseCue(advisory)
-
+                    if (updatedTelemetry.isOffRoute) {
+                        if (!isStationary && (nowMs - lastSpokenAdvisoryTimeMs > 25000L)) {
+                            lastSpokenAdvisoryTimeMs = nowMs
+                            audioController.speakTerseCue("Off-route. Recalculating route.")
+                        }
+                    } else {
+                        val turnDist = updatedTelemetry.nextTurnDistanceM
+                        val turnRoad = updatedTelemetry.nextTurnRoad
+                        if (turnRoad != lastSpokenAdvisory) {
+                            lastSpokenAdvisory = turnRoad
+                            lastSpokenAdvisoryTimeMs = 0L
+                        }
+                        val milestone = when {
+                            turnDist in 450.0..550.0 -> 500
+                            turnDist in 180.0..220.0 -> 200
+                            turnDist in 40.0..60.0 -> 50
+                            turnDist <= 20.0 && turnDist > 0.0 -> 10
+                            else -> -1
+                        }
+                        if (milestone != -1 && (nowMs - lastSpokenAdvisoryTimeMs > 15000L)) {
+                            lastSpokenAdvisoryTimeMs = nowMs
+                            val cue = when (milestone) {
+                                500 -> "In 500 meters, prepare to turn onto $turnRoad"
+                                200 -> "In 200 meters, turn onto $turnRoad"
+                                50 -> "In 50 meters, turn onto $turnRoad"
+                                10 -> "Turn onto $turnRoad"
+                                else -> ""
+                            }
+                            if (cue.isNotBlank()) {
+                                audioController.speakTerseCue(cue)
+                            }
+                        }
                     }
-
                 }
-
             }
-
         }
-
     }
 
 
@@ -843,48 +877,37 @@ fun CockpitScreen(
 
             try {
 
-                val route = withContext(Dispatchers.IO) {
-
-                    engine?.calculateRoute(startCoord, destCoord, options) ?: RouteResult(
-
+                val (route, alt) = withContext(Dispatchers.IO) {
+                    val primary = activeEngine?.calculateRoute(startCoord, destCoord, options) ?: RouteResult(
                         success = false,
-
                         totalDistanceMeters = 0.0,
-
                         estimatedDurationSeconds = 0u,
-
                         polyline = emptyList(),
-
                         maneuvers = emptyList(),
-
                         errorMessage = "Navigation engine not available"
-
                     )
-
+                    var alternative: RouteResult? = null
+                    if (primary.success && primary.polyline.isNotEmpty()) {
+                        try { activeEngine?.setActiveRoute(primary) } catch (e: Exception) {}
+                        if (primary.totalDistanceMeters > 2500.0) {
+                            try {
+                                val altOptions = options.copy(avoidFerries = true)
+                                val a = activeEngine?.calculateRoute(startCoord, destCoord, altOptions)
+                                if (a != null && a.success && a.polyline.isNotEmpty() &&
+                                    Math.abs(a.totalDistanceMeters - primary.totalDistanceMeters) > 30.0) {
+                                    alternative = a
+                                }
+                            } catch (e: Exception) {
+                                alternative = null
+                            }
+                        }
+                    }
+                    Pair(primary, alternative)
                 }
 
                 if (route.success && route.polyline.isNotEmpty()) {
                     activeRoute = route
-                    try { engine?.setActiveRoute(route) } catch (e: Exception) {}
-
-                    // Compute translucent alternative route if route is long (> 2.5 km)
-                    if (route.totalDistanceMeters > 2500.0) {
-                        try {
-                            val altOptions = options.copy(avoidFerries = true)
-                            val alt = engine?.calculateRoute(startCoord, destCoord, altOptions)
-                            if (alt != null && alt.success && alt.polyline.isNotEmpty() &&
-                                Math.abs(alt.totalDistanceMeters - route.totalDistanceMeters) > 30.0) {
-                                alternativeRoute = alt
-                            } else {
-                                alternativeRoute = null
-                            }
-                        } catch (e: Exception) {
-                            alternativeRoute = null
-                        }
-                    } else {
-                        alternativeRoute = null
-                    }
-
+                    alternativeRoute = alt
                     val durMin = (route.estimatedDurationSeconds / 60u).coerceAtLeast(1u)
 
                     telemetry = telemetry.copy(
@@ -997,34 +1020,7 @@ fun CockpitScreen(
 
 
 
-    fun cancelActiveRoute() {
 
-        isRouteLoading = false
-
-        isNavigating = false
-        activeRoute = null
-        alternativeRoute = null
-        activeRouteAdvisory = null
-
-        try { engine?.clearActiveRoute() } catch (e: Exception) {}
-
-        destinationPin = null
-
-        pinInfo = null
-
-        activeOriginCoord = null
-
-        activeDestCoord = null
-
-        originName = "Your location"
-
-        destinationName = "Dropped pin"
-
-        NavigationService.stop(context)
-
-        audioController.speakTerseCue("ROUTE CANCELLED")
-
-    }
 
 
 
@@ -2517,7 +2513,7 @@ fun CockpitScreen(
                     showVaultDialog = false
                     vaultStatus = dev.gabay.app.data.VaultIntegrityManager.checkVault()
                     try {
-                        engine = GabayEngine("/sdcard/Documents/Gabay")
+                        activeEngine = GabayEngine("/sdcard/Documents/Gabay")
                         PmTilesServer.reloadReaders(File("/sdcard/Documents/Gabay"))
                     } catch (e: Exception) {
                         e.printStackTrace()
@@ -2632,7 +2628,7 @@ fun CockpitScreen(
 
                             isActive = isAgentSheetOpen || isListening,
 
-                            activeColor = GabayColors.AccentMint,
+                            activeColor = GabayColors.AccentAmber,
 
                             onClick = {
 
@@ -2656,7 +2652,7 @@ fun CockpitScreen(
 
                             isActive = isFollowingVehicle,
 
-                            activeColor = GabayColors.AccentMint,
+                            activeColor = GabayColors.AccentAmber,
 
                             onClick = {
 

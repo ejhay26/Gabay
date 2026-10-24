@@ -15,6 +15,12 @@
 -keep class org.maplibre.android.** { *; }
 -dontwarn org.maplibre.android.**
 
+# Gabay Data & Models
+-keep class dev.gabay.app.commute.** { *; }
+-keep class dev.gabay.app.data.** { *; }
+-keep class dev.gabay.app.model.** { *; }
+
 # Kotlin Coroutines & Serialization
 -keepattributes *Annotation*,Signature,InnerClasses,EnclosingMethod
 -dontwarn sun.misc.Unsafe
+

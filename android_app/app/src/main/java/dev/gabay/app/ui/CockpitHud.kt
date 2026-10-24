@@ -1,5 +1,6 @@
 package dev.gabay.app.ui
 
+import android.content.Context
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
@@ -9,6 +10,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -302,7 +304,7 @@ fun RouteCalculatingIndicator(
             .padding(horizontal = 16.dp, vertical = 2.dp),
         shape = RoundedCornerShape(22.dp),
         colors = CardDefaults.cardColors(containerColor = GabayColors.UiCardElevated),
-        border = CardDefaults.outlinedCardBorder().copy(brush = SolidColor(GabayColors.AccentMint.copy(alpha = 0.8f)))
+        border = CardDefaults.outlinedCardBorder().copy(brush = SolidColor(GabayColors.AccentAmber.copy(alpha = 0.8f)))
     ) {
         Row(
             modifier = Modifier
@@ -313,7 +315,7 @@ fun RouteCalculatingIndicator(
         ) {
             CircularProgressIndicator(
                 modifier = Modifier.size(22.dp),
-                color = GabayColors.AccentMint,
+                color = GabayColors.AccentAmber,
                 strokeWidth = 2.5.dp
             )
             Column(modifier = Modifier.weight(1f)) {
@@ -323,7 +325,7 @@ fun RouteCalculatingIndicator(
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold,
                         fontSize = 11.sp,
-                        color = GabayColors.AccentMint
+                        color = GabayColors.AccentAmber
                     )
                 )
                 Text(
@@ -389,24 +391,28 @@ fun TopSearchBar(
                         .clip(CircleShape)
                 ) {
                     Icon(
-                        imageVector = ApexAlonIcons.ArrowBack,
+                        imageVector = GabayIcons.ChevronLeft,
                         contentDescription = "Back",
                         tint = GabayColors.TextPrimary,
                         modifier = Modifier.size(20.dp)
                     )
                 }
             } else {
-                IconButton(
-                    onClick = onMenuClick,
+                // ── Hexagonal tactical menu button ─────────────────────────────────
+                Box(
                     modifier = Modifier
                         .size(40.dp)
-                        .clip(CircleShape)
+                        .clip(GabayShapes.Hexagon)
+                        .background(GabayColors.UiCardElevated)
+                        .border(1.dp, GabayColors.AccentAmber.copy(alpha = 0.7f), GabayShapes.Hexagon)
+                        .clickable { onMenuClick() },
+                    contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = GabayIcons.Menu,
                         contentDescription = "Menu",
-                        tint = GabayColors.TextPrimary,
-                        modifier = Modifier.size(20.dp)
+                        tint = GabayColors.AccentAmber,
+                        modifier = Modifier.size(18.dp)
                     )
                 }
             }
@@ -435,7 +441,7 @@ fun TopSearchBar(
                     },
                     singleLine = true,
                     textStyle = GabayTypography.SearchText,
-                    cursorBrush = SolidColor(GabayColors.AccentMint),
+                    cursorBrush = SolidColor(GabayColors.AccentAmber),
                     modifier = Modifier.fillMaxWidth()
                 )
             }
@@ -499,9 +505,9 @@ fun TopSearchBar(
                 categories.forEach { (catKey, label, icon) ->
                     Row(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(16.dp))
+                            .clip(RoundedCornerShape(8.dp))
                             .background(GabayColors.UiCardGlass)
-                            .border(1.dp, GabayColors.UiBorder, RoundedCornerShape(16.dp))
+                            .border(1.dp, GabayColors.AccentAmber.copy(alpha = 0.45f), RoundedCornerShape(8.dp))
                             .clickable {
                                 isSearchFocused = false
                                 keyboardController?.hide()
@@ -515,7 +521,7 @@ fun TopSearchBar(
                         Icon(
                             imageVector = icon,
                             contentDescription = label,
-                            tint = GabayColors.AccentPrimary,
+                            tint = GabayColors.AccentAmber,
                             modifier = Modifier.size(14.dp)
                         )
                         Text(
@@ -540,7 +546,7 @@ fun TopSearchBar(
                     .padding(top = 8.dp),
                 shape = RoundedCornerShape(16.dp),
                 colors = CardDefaults.cardColors(containerColor = GabayColors.UiCardElevated),
-                border = CardDefaults.outlinedCardBorder().copy(brush = SolidColor(GabayColors.AccentMint.copy(alpha = 0.6f)))
+                border = CardDefaults.outlinedCardBorder().copy(brush = SolidColor(GabayColors.AccentAmber.copy(alpha = 0.6f)))
             ) {
                 Row(
                     modifier = Modifier
@@ -557,14 +563,14 @@ fun TopSearchBar(
                     Box(
                         modifier = Modifier
                             .size(34.dp)
-                            .background(GabayColors.AccentMint.copy(alpha = 0.2f), CircleShape)
-                            .border(1.dp, GabayColors.AccentMint, CircleShape),
+                            .background(GabayColors.AccentAmber.copy(alpha = 0.2f), CircleShape)
+                            .border(1.dp, GabayColors.AccentAmber, CircleShape),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            imageVector = GabayIcons.GpsFixed,
+                            imageVector = GabayIcons.Crosshairs,
                             contentDescription = null,
-                            tint = GabayColors.AccentMint,
+                            tint = GabayColors.AccentAmber,
                             modifier = Modifier.size(18.dp)
                         )
                     }
@@ -576,7 +582,7 @@ fun TopSearchBar(
                                 fontFamily = FontFamily.Default,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 14.sp,
-                                color = GabayColors.AccentMint
+                                color = GabayColors.AccentAmber
                             )
                         )
                         Text(
@@ -834,10 +840,18 @@ fun MiddleBottomSpeedometer(
     Column(
         modifier = modifier
             .background(GabayColors.UiCardGlass, RoundedCornerShape(32.dp))
-            .border(1.dp, GabayColors.UiBorder, RoundedCornerShape(32.dp))
+            .border(1.dp, GabayColors.AccentAmber.copy(alpha = 0.5f), RoundedCornerShape(32.dp))
             .padding(horizontal = 20.dp, vertical = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
+        // Amber top accent bar
+        Box(
+            modifier = Modifier
+                .width(32.dp)
+                .height(2.dp)
+                .background(GabayColors.AccentAmber.copy(alpha = 0.6f), RoundedCornerShape(1.dp))
+        )
+        Spacer(modifier = Modifier.height(4.dp))
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Center
@@ -847,14 +861,14 @@ fun MiddleBottomSpeedometer(
                 Box(
                     modifier = Modifier
                         .size(38.dp)
-                        .background(GabayColors.AccentMint.copy(alpha = 0.2f * pulseAlpha), CircleShape)
-                        .border(1.dp, GabayColors.AccentMint.copy(alpha = pulseAlpha), CircleShape),
+                        .background(GabayColors.AccentAmber.copy(alpha = 0.2f * pulseAlpha), CircleShape)
+                        .border(1.dp, GabayColors.AccentAmber.copy(alpha = pulseAlpha), CircleShape),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = GabayIcons.TurnArrowLeft,
                         contentDescription = "Turn Left",
-                        tint = GabayColors.AccentMint,
+                        tint = GabayColors.AccentAmber,
                         modifier = Modifier.size(18.dp)
                     )
                 }
@@ -882,7 +896,7 @@ fun MiddleBottomSpeedometer(
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Bold,
                             fontSize = 11.sp,
-                            color = GabayColors.TextSecondary
+                            color = GabayColors.AccentAmber
                         )
                     )
                     Text(
@@ -898,14 +912,14 @@ fun MiddleBottomSpeedometer(
                 Box(
                     modifier = Modifier
                         .size(38.dp)
-                        .background(GabayColors.AccentMint.copy(alpha = 0.2f * pulseAlpha), CircleShape)
-                        .border(1.dp, GabayColors.AccentMint.copy(alpha = pulseAlpha), CircleShape),
+                        .background(GabayColors.AccentAmber.copy(alpha = 0.2f * pulseAlpha), CircleShape)
+                        .border(1.dp, GabayColors.AccentAmber.copy(alpha = pulseAlpha), CircleShape),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = GabayIcons.TurnArrowRight,
                         contentDescription = "Turn Right",
-                        tint = GabayColors.AccentMint,
+                        tint = GabayColors.AccentAmber,
                         modifier = Modifier.size(18.dp)
                     )
                 }
@@ -940,7 +954,7 @@ fun MiddleBottomSpeedometer(
                             .align(Alignment.Center)
                             .width(8.dp)
                             .height(3.dp)
-                            .background(GabayColors.AccentMint, CircleShape)
+                            .background(GabayColors.AccentAmber, CircleShape)
                     )
                 }
             }
@@ -955,7 +969,7 @@ fun MiddleBottomSpeedometer(
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.SemiBold,
                     fontSize = 10.sp,
-                    color = GabayColors.AccentMint.copy(alpha = 0.9f)
+                    color = GabayColors.AccentAmber.copy(alpha = 0.9f)
                 ),
                 maxLines = 1
             )
@@ -1012,12 +1026,12 @@ fun MapStyleSpeedDial(
                             modifier = Modifier
                                 .size(46.dp)
                                 .background(
-                                    if (isSelected) GabayColors.AccentMint.copy(alpha = 0.25f) else GabayColors.UiCardGlass,
+                                    if (isSelected) GabayColors.AccentAmber.copy(alpha = 0.2f) else GabayColors.UiCardGlass,
                                     CircleShape
                                 )
                                 .border(
                                     if (isSelected) 1.5.dp else 1.dp,
-                                    if (isSelected) GabayColors.AccentMint else GabayColors.UiBorder,
+                                    if (isSelected) GabayColors.AccentAmber else GabayColors.AccentAmber.copy(alpha = 0.35f),
                                     CircleShape
                                 ),
                             contentAlignment = Alignment.Center
@@ -1025,7 +1039,7 @@ fun MapStyleSpeedDial(
                             Icon(
                                 imageVector = icon,
                                 contentDescription = label,
-                                tint = if (isSelected) GabayColors.AccentMint else GabayColors.TextPrimary,
+                                tint = if (isSelected) GabayColors.AccentAmber else GabayColors.TextPrimary,
                                 modifier = Modifier.size(20.dp)
                             )
                         }
@@ -1047,7 +1061,7 @@ fun MapStyleSpeedDial(
                                     .background(GabayColors.UiCardGlass, RoundedCornerShape(16.dp))
                                     .border(
                                         1.dp,
-                                        if (isSelected) GabayColors.AccentMint else GabayColors.UiBorder,
+                                        if (isSelected) GabayColors.AccentAmber else GabayColors.UiBorder,
                                         RoundedCornerShape(16.dp)
                                     )
                                     .padding(horizontal = 14.dp, vertical = 8.dp)
@@ -1058,7 +1072,7 @@ fun MapStyleSpeedDial(
                                         fontFamily = FontFamily.Monospace,
                                         fontWeight = FontWeight.Bold,
                                         fontSize = 11.sp,
-                                        color = if (isSelected) GabayColors.AccentMint else GabayColors.TextPrimary
+                                        color = if (isSelected) GabayColors.AccentAmber else GabayColors.TextPrimary
                                     )
                                 )
                             }
@@ -1097,12 +1111,12 @@ fun PerspectiveToggleButton(
         modifier = modifier
             .size(48.dp)
             .background(
-                if (is3d) GabayColors.AccentMint.copy(alpha = 0.25f) else GabayColors.UiCardGlass,
+                if (is3d) GabayColors.AccentAmber.copy(alpha = 0.2f) else GabayColors.UiCardGlass,
                 CircleShape
             )
             .border(
                 if (is3d) 1.5.dp else 1.dp,
-                if (is3d) GabayColors.AccentMint else GabayColors.UiBorder,
+                if (is3d) GabayColors.AccentAmber else GabayColors.AccentAmber.copy(alpha = 0.35f),
                 CircleShape
             )
             .clickable { onToggle() },
@@ -1114,7 +1128,7 @@ fun PerspectiveToggleButton(
                 fontFamily = FontFamily.Monospace,
                 fontWeight = FontWeight.Black,
                 fontSize = 13.sp,
-                color = if (is3d) GabayColors.AccentMint else GabayColors.TextPrimary
+                color = if (is3d) GabayColors.AccentAmber else GabayColors.TextPrimary
             )
         )
     }
@@ -1179,11 +1193,11 @@ fun CircularFloatingButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     isActive: Boolean = false,
-    activeColor: Color = GabayColors.AccentMint,
+    activeColor: Color = GabayColors.AccentAmber,
     contentDescription: String? = null
 ) {
-    val bgColor = if (isActive) activeColor.copy(alpha = 0.25f) else GabayColors.UiCardGlass
-    val borderColor = if (isActive) activeColor else GabayColors.UiBorder
+    val bgColor = if (isActive) activeColor.copy(alpha = 0.2f) else GabayColors.UiCardGlass
+    val borderColor = if (isActive) activeColor else GabayColors.AccentAmber.copy(alpha = 0.45f)
     val iconColor = if (isActive) activeColor else GabayColors.TextPrimary
 
     Box(
@@ -1216,7 +1230,7 @@ fun FloatingTelemetryPill(
     Row(
         modifier = modifier
             .background(GabayColors.UiCardGlass, RoundedCornerShape(18.dp))
-            .border(1.dp, GabayColors.UiBorder, RoundedCornerShape(18.dp))
+            .border(1.dp, GabayColors.AccentAmber.copy(alpha = 0.4f), RoundedCornerShape(18.dp))
             .padding(horizontal = 14.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -1226,7 +1240,7 @@ fun FloatingTelemetryPill(
                 fontFamily = FontFamily.Monospace,
                 fontWeight = FontWeight.Bold,
                 fontSize = 15.sp,
-                color = GabayColors.AccentMint
+                color = GabayColors.AccentAmber
             )
         )
         Spacer(modifier = Modifier.width(4.dp))
@@ -1318,7 +1332,7 @@ fun AgentCoPilotSheet(
                     Box(
                         modifier = Modifier
                             .size(10.dp)
-                            .background(if (isListening) Color(0xFFFF3B30) else GabayColors.AccentMint, CircleShape)
+                            .background(if (isListening) Color(0xFFFF3B30) else GabayColors.AccentAmber, CircleShape)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
@@ -1353,7 +1367,7 @@ fun AgentCoPilotSheet(
                     modifier = Modifier
                         .fillMaxWidth()
                         .background(GabayColors.UiCardElevated, RoundedCornerShape(12.dp))
-                        .border(1.dp, GabayColors.AccentMint.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+                        .border(1.dp, GabayColors.AccentAmber.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
                         .padding(horizontal = 14.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -1370,7 +1384,7 @@ fun AgentCoPilotSheet(
                                 modifier = Modifier
                                     .width(4.dp)
                                     .height(h)
-                                    .background(GabayColors.AccentMint, RoundedCornerShape(2.dp))
+                                    .background(GabayColors.AccentAmber, RoundedCornerShape(2.dp))
                             )
                         }
                     }
@@ -1383,7 +1397,7 @@ fun AgentCoPilotSheet(
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.SemiBold,
                             fontSize = 11.sp,
-                            color = GabayColors.AccentMint
+                            color = GabayColors.AccentAmber
                         ),
                         maxLines = 1,
                         modifier = Modifier.weight(1f)
@@ -1428,15 +1442,23 @@ fun AgentCoPilotSheet(
 
             Spacer(modifier = Modifier.height(12.dp))
 
+            val listState = rememberLazyListState()
+            LaunchedEffect(messages.size) {
+                if (messages.isNotEmpty()) {
+                    listState.animateScrollToItem(messages.size - 1)
+                }
+            }
+
             // Conversation History Transcript List
             LazyColumn(
+                state = listState,
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 items(messages) { msg ->
-                    val isAgent = msg.sender.contains("AGENT") || msg.sender.contains("GABAY")
+                    val isAgent = msg.sender.contains("AGENT", ignoreCase = true) || msg.sender.contains("GABAY", ignoreCase = true)
                     Column(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalAlignment = if (isAgent) Alignment.Start else Alignment.End
@@ -1448,7 +1470,7 @@ fun AgentCoPilotSheet(
                                     fontFamily = FontFamily.Monospace,
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = if (isAgent) GabayColors.AccentMint else GabayColors.TextMuted
+                                    color = if (isAgent) GabayColors.AccentAmber else GabayColors.TextMuted
                                 )
                             )
                             Spacer(modifier = Modifier.width(6.dp))
@@ -1465,12 +1487,12 @@ fun AgentCoPilotSheet(
                         Box(
                             modifier = Modifier
                                 .background(
-                                    if (isAgent) GabayColors.UiInput else GabayColors.UiCardElevated,
+                                    if (isAgent) GabayColors.UiCardAmber else GabayColors.UiCardElevated,
                                     RoundedCornerShape(14.dp)
                                 )
                                 .border(
                                     1.dp,
-                                    if (isAgent) GabayColors.AccentMint.copy(alpha = 0.4f) else GabayColors.UiBorder,
+                                    if (isAgent) GabayColors.AccentAmber.copy(alpha = 0.5f) else GabayColors.UiBorder,
                                     RoundedCornerShape(14.dp)
                                 )
                                 .padding(horizontal = 14.dp, vertical = 10.dp)
@@ -1510,7 +1532,7 @@ fun AgentCoPilotSheet(
                     Icon(
                         imageVector = GabayIcons.CopilotMic,
                         contentDescription = "Voice Input",
-                        tint = if (isListening) Color(0xFFFF3B30) else GabayColors.AccentMint,
+                        tint = if (isListening) Color(0xFFFF3B30) else GabayColors.AccentAmber,
                         modifier = Modifier.size(20.dp)
                     )
                 }
@@ -1526,7 +1548,7 @@ fun AgentCoPilotSheet(
                         fontSize = 13.sp,
                         color = Color.White
                     ),
-                    cursorBrush = SolidColor(GabayColors.AccentMint),
+                    cursorBrush = SolidColor(GabayColors.AccentAmber),
                     modifier = Modifier.weight(1f),
                     decorationBox = { innerTextField ->
                         if (inputText.isEmpty()) {
@@ -1556,7 +1578,7 @@ fun AgentCoPilotSheet(
                     Icon(
                         imageVector = GabayIcons.Send,
                         contentDescription = "Send",
-                        tint = if (inputText.isNotBlank()) GabayColors.AccentMint else GabayColors.TextMuted,
+                        tint = if (inputText.isNotBlank()) GabayColors.AccentAmber else GabayColors.TextMuted,
                         modifier = Modifier.size(18.dp)
                     )
                 }
@@ -1572,6 +1594,28 @@ object GabayHudSettings {
     var showPacePill by mutableStateOf(true)
     var snapToCenterline by mutableStateOf(true)
     var avoidExpressways by mutableStateOf(true)
+
+    fun init(context: Context) {
+        val prefs = context.getSharedPreferences("gabay_hud_settings", Context.MODE_PRIVATE)
+        useMph = prefs.getBoolean("use_mph", false)
+        showTurnArrows = prefs.getBoolean("show_turn_arrows", true)
+        showGForce = prefs.getBoolean("show_g_force", true)
+        showPacePill = prefs.getBoolean("show_pace_pill", true)
+        snapToCenterline = prefs.getBoolean("snap_centerline", true)
+        avoidExpressways = prefs.getBoolean("avoid_expressways", true)
+    }
+
+    fun save(context: Context) {
+        val prefs = context.getSharedPreferences("gabay_hud_settings", Context.MODE_PRIVATE)
+        prefs.edit()
+            .putBoolean("use_mph", useMph)
+            .putBoolean("show_turn_arrows", showTurnArrows)
+            .putBoolean("show_g_force", showGForce)
+            .putBoolean("show_pace_pill", showPacePill)
+            .putBoolean("snap_centerline", snapToCenterline)
+            .putBoolean("avoid_expressways", avoidExpressways)
+            .apply()
+    }
 }
 
 /**
@@ -1593,6 +1637,7 @@ fun TopMenuSheet(
     var offsetY by remember { mutableFloatStateOf(0f) }
     var currentAudioMode by remember { mutableStateOf(audioController.guidanceMode) }
     var currentVoiceEngine by remember { mutableStateOf(audioController.voiceEngine) }
+    val context = androidx.compose.ui.platform.LocalContext.current
 
     Card(
         modifier = modifier
@@ -1692,7 +1737,7 @@ fun TopMenuSheet(
                                 fontFamily = FontFamily.Monospace,
                                 fontSize = 11.sp,
                                 fontWeight = if (isSel) FontWeight.Bold else FontWeight.Medium,
-                                color = if (isSel) GabayColors.AccentMint else GabayColors.TextMuted
+                                color = if (isSel) GabayColors.AccentAmber else GabayColors.TextMuted
                             )
                         )
                     }
@@ -1726,12 +1771,12 @@ fun TopMenuSheet(
                                         .weight(1f)
                                         .height(44.dp)
                                         .background(
-                                            if (!isSunlight) GabayColors.AccentMint.copy(alpha = 0.2f) else GabayColors.UiInput,
+                                            if (!isSunlight) GabayColors.AccentAmber.copy(alpha = 0.2f) else GabayColors.UiInput,
                                             RoundedCornerShape(12.dp)
                                         )
                                         .border(
                                             1.dp,
-                                            if (!isSunlight) GabayColors.AccentMint else GabayColors.UiBorder,
+                                            if (!isSunlight) GabayColors.AccentAmber else GabayColors.UiBorder,
                                             RoundedCornerShape(12.dp)
                                         )
                                         .clickable { onThemeToggle(false) },
@@ -1743,7 +1788,7 @@ fun TopMenuSheet(
                                             fontFamily = FontFamily.Monospace,
                                             fontSize = 11.sp,
                                             fontWeight = FontWeight.Bold,
-                                            color = if (!isSunlight) GabayColors.AccentMint else GabayColors.TextSecondary
+                                            color = if (!isSunlight) GabayColors.AccentAmber else GabayColors.TextSecondary
                                         )
                                     )
                                 }
@@ -1753,12 +1798,12 @@ fun TopMenuSheet(
                                         .weight(1f)
                                         .height(44.dp)
                                         .background(
-                                            if (isSunlight) GabayColors.AccentMint.copy(alpha = 0.2f) else GabayColors.UiInput,
+                                            if (isSunlight) GabayColors.AccentAmber.copy(alpha = 0.2f) else GabayColors.UiInput,
                                             RoundedCornerShape(12.dp)
                                         )
                                         .border(
                                             1.dp,
-                                            if (isSunlight) GabayColors.AccentMint else GabayColors.UiBorder,
+                                            if (isSunlight) GabayColors.AccentAmber else GabayColors.UiBorder,
                                             RoundedCornerShape(12.dp)
                                         )
                                         .clickable { onThemeToggle(true) },
@@ -1770,7 +1815,7 @@ fun TopMenuSheet(
                                             fontFamily = FontFamily.Monospace,
                                             fontSize = 11.sp,
                                             fontWeight = FontWeight.Bold,
-                                            color = if (isSunlight) GabayColors.AccentMint else GabayColors.TextSecondary
+                                            color = if (isSunlight) GabayColors.AccentAmber else GabayColors.TextSecondary
                                         )
                                     )
                                 }
@@ -1805,16 +1850,16 @@ fun TopMenuSheet(
                                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                         Box(
                                             modifier = Modifier
-                                                .background(if (!GabayHudSettings.useMph) GabayColors.AccentMint else Color.Transparent, RoundedCornerShape(6.dp))
-                                                .clickable { GabayHudSettings.useMph = false }
+                                                .background(if (!GabayHudSettings.useMph) GabayColors.AccentAmber else Color.Transparent, RoundedCornerShape(6.dp))
+                                                .clickable { GabayHudSettings.useMph = false; GabayHudSettings.save(context) }
                                                 .padding(horizontal = 10.dp, vertical = 4.dp)
                                         ) {
                                             Text("KM/H", style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = if (!GabayHudSettings.useMph) Color(0xFF0F172A) else GabayColors.TextMuted))
                                         }
                                         Box(
                                             modifier = Modifier
-                                                .background(if (GabayHudSettings.useMph) GabayColors.AccentMint else Color.Transparent, RoundedCornerShape(6.dp))
-                                                .clickable { GabayHudSettings.useMph = true }
+                                                .background(if (GabayHudSettings.useMph) GabayColors.AccentAmber else Color.Transparent, RoundedCornerShape(6.dp))
+                                                .clickable { GabayHudSettings.useMph = true; GabayHudSettings.save(context) }
                                                 .padding(horizontal = 10.dp, vertical = 4.dp)
                                         ) {
                                             Text("MPH", style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = if (GabayHudSettings.useMph) Color(0xFF0F172A) else GabayColors.TextMuted))
@@ -1833,8 +1878,8 @@ fun TopMenuSheet(
                                     Text("Lateral G-Force Meter", style = TextStyle(fontSize = 13.sp, color = GabayColors.TextPrimary))
                                     Switch(
                                         checked = GabayHudSettings.showGForce,
-                                        onCheckedChange = { GabayHudSettings.showGForce = it },
-                                        colors = SwitchDefaults.colors(checkedThumbColor = GabayColors.AccentMint, checkedTrackColor = GabayColors.AccentMint.copy(alpha = 0.3f))
+                                        onCheckedChange = { GabayHudSettings.showGForce = it; GabayHudSettings.save(context) },
+                                        colors = SwitchDefaults.colors(checkedThumbColor = GabayColors.AccentAmber, checkedTrackColor = GabayColors.AccentAmber.copy(alpha = 0.3f))
                                     )
                                 }
 
@@ -1849,8 +1894,8 @@ fun TopMenuSheet(
                                     Text("Trip Distance & Pace Pill", style = TextStyle(fontSize = 13.sp, color = GabayColors.TextPrimary))
                                     Switch(
                                         checked = GabayHudSettings.showPacePill,
-                                        onCheckedChange = { GabayHudSettings.showPacePill = it },
-                                        colors = SwitchDefaults.colors(checkedThumbColor = GabayColors.AccentMint, checkedTrackColor = GabayColors.AccentMint.copy(alpha = 0.3f))
+                                        onCheckedChange = { GabayHudSettings.showPacePill = it; GabayHudSettings.save(context) },
+                                        colors = SwitchDefaults.colors(checkedThumbColor = GabayColors.AccentAmber, checkedTrackColor = GabayColors.AccentAmber.copy(alpha = 0.3f))
                                     )
                                 }
 
@@ -1865,8 +1910,8 @@ fun TopMenuSheet(
                                     Text("Road Centerline Magnet", style = TextStyle(fontSize = 13.sp, color = GabayColors.TextPrimary))
                                     Switch(
                                         checked = GabayHudSettings.snapToCenterline,
-                                        onCheckedChange = { GabayHudSettings.snapToCenterline = it },
-                                        colors = SwitchDefaults.colors(checkedThumbColor = GabayColors.AccentMint, checkedTrackColor = GabayColors.AccentMint.copy(alpha = 0.3f))
+                                        onCheckedChange = { GabayHudSettings.snapToCenterline = it; GabayHudSettings.save(context) },
+                                        colors = SwitchDefaults.colors(checkedThumbColor = GabayColors.AccentAmber, checkedTrackColor = GabayColors.AccentAmber.copy(alpha = 0.3f))
                                     )
                                 }
                             }
@@ -1903,10 +1948,10 @@ fun TopMenuSheet(
                                                 .weight(1f)
                                                 .height(36.dp)
                                                 .background(
-                                                    if (isSel) GabayColors.AccentMint.copy(alpha = 0.2f) else GabayColors.UiCardElevated,
+                                                    if (isSel) GabayColors.AccentAmber.copy(alpha = 0.2f) else GabayColors.UiCardElevated,
                                                     RoundedCornerShape(8.dp)
                                                 )
-                                                .border(1.dp, if (isSel) GabayColors.AccentMint else Color.Transparent, RoundedCornerShape(8.dp))
+                                                .border(1.dp, if (isSel) GabayColors.AccentAmber else Color.Transparent, RoundedCornerShape(8.dp))
                                                 .clickable {
                                                     currentAudioMode = mode
                                                     audioController.guidanceMode = mode
@@ -1915,7 +1960,7 @@ fun TopMenuSheet(
                                         ) {
                                             Text(
                                                 text = label,
-                                                style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = if (isSel) GabayColors.AccentMint else GabayColors.TextMuted)
+                                                style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = if (isSel) GabayColors.AccentAmber else GabayColors.TextMuted)
                                             )
                                         }
                                     }
@@ -1936,10 +1981,10 @@ fun TopMenuSheet(
                                                 .weight(1f)
                                                 .height(36.dp)
                                                 .background(
-                                                    if (isSel) GabayColors.AccentMint.copy(alpha = 0.2f) else GabayColors.UiCardElevated,
+                                                    if (isSel) GabayColors.AccentAmber.copy(alpha = 0.2f) else GabayColors.UiCardElevated,
                                                     RoundedCornerShape(8.dp)
                                                 )
-                                                .border(1.dp, if (isSel) GabayColors.AccentMint else Color.Transparent, RoundedCornerShape(8.dp))
+                                                .border(1.dp, if (isSel) GabayColors.AccentAmber else Color.Transparent, RoundedCornerShape(8.dp))
                                                 .clickable {
                                                     currentVoiceEngine = engine
                                                     audioController.voiceEngine = engine
@@ -1948,7 +1993,7 @@ fun TopMenuSheet(
                                         ) {
                                             Text(
                                                 text = label,
-                                                style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = if (isSel) GabayColors.AccentMint else GabayColors.TextMuted)
+                                                style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = if (isSel) GabayColors.AccentAmber else GabayColors.TextMuted)
                                             )
                                         }
                                     }
@@ -1962,14 +2007,14 @@ fun TopMenuSheet(
                                         .background(GabayColors.UiCardElevated, RoundedCornerShape(10.dp))
                                         .border(1.dp, GabayColors.UiBorder, RoundedCornerShape(10.dp))
                                         .clickable {
-                                            audioController.speakCue("Turn left in 200 meters", isCriticalAlert = true)
+                                            val sample = if (currentVoiceEngine == dev.gabay.app.audio.VoiceEngineType.TACTICAL_EXTERNAL) "turn left" else "Turn left in 200 meters"; audioController.testVoiceCue(sample)
                                         },
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(imageVector = GabayIcons.AudioTts, contentDescription = null, tint = GabayColors.AccentMint, modifier = Modifier.size(16.dp))
+                                        Icon(imageVector = GabayIcons.AudioTts, contentDescription = null, tint = GabayColors.AccentAmber, modifier = Modifier.size(16.dp))
                                         Spacer(modifier = Modifier.width(6.dp))
-                                        Text("PLAY SAMPLE VOICE CUE", style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = GabayColors.AccentMint))
+                                        Text("PLAY SAMPLE VOICE CUE", style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = GabayColors.AccentAmber))
                                     }
                                 }
                             }
@@ -1997,12 +2042,12 @@ fun TopMenuSheet(
                                             .weight(1f)
                                             .height(44.dp)
                                             .background(
-                                                if (isSel) GabayColors.AccentMint.copy(alpha = 0.2f) else GabayColors.UiInput,
+                                                if (isSel) GabayColors.AccentAmber.copy(alpha = 0.2f) else GabayColors.UiInput,
                                                 RoundedCornerShape(12.dp)
                                             )
                                             .border(
                                                 1.dp,
-                                                if (isSel) GabayColors.AccentMint else GabayColors.UiBorder,
+                                                if (isSel) GabayColors.AccentAmber else GabayColors.UiBorder,
                                                 RoundedCornerShape(12.dp)
                                             )
                                             .clickable { onModeSelect(mode) },
@@ -2012,7 +2057,7 @@ fun TopMenuSheet(
                                             Icon(
                                                 imageVector = icon,
                                                 contentDescription = null,
-                                                tint = if (isSel) GabayColors.AccentMint else GabayColors.TextSecondary,
+                                                tint = if (isSel) GabayColors.AccentAmber else GabayColors.TextSecondary,
                                                 modifier = Modifier.size(16.dp)
                                             )
                                             Spacer(modifier = Modifier.width(4.dp))
@@ -2022,7 +2067,7 @@ fun TopMenuSheet(
                                                     fontFamily = FontFamily.Monospace,
                                                     fontSize = 10.sp,
                                                     fontWeight = FontWeight.Bold,
-                                                    color = if (isSel) GabayColors.AccentMint else GabayColors.TextSecondary
+                                                    color = if (isSel) GabayColors.AccentAmber else GabayColors.TextSecondary
                                                 )
                                             )
                                         }
@@ -2057,20 +2102,38 @@ fun TopMenuSheet(
                                         Text(text = drive.title, style = TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = GabayColors.TextPrimary))
                                         Text(text = drive.date, style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 10.sp, color = GabayColors.TextMuted))
                                     }
-                                    Text(text = "${drive.distanceKm} KM • ${drive.durationMin} MIN", style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = GabayColors.AccentMint))
+                                    Text(text = "${drive.distanceKm} KM • ${drive.durationMin} MIN", style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = GabayColors.AccentAmber))
                                 }
                             }
                         }
                     }
                 }
                 2 -> {
-                    // TAB 2: OFFLINE VAULT & SYSTEM DIAGNOSTICS
+                    // TAB 2: OFFLINE VAULT & REAL SYSTEM DIAGNOSTICS
                     LazyColumn(
                         modifier = Modifier.weight(1f).fillMaxWidth(),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         item {
-                            val dbExists = java.io.File("/sdcard/Documents/Gabay/pois_fts.sqlite").exists()
+                            val graphFile = java.io.File("/sdcard/Documents/Gabay/ph.gabay")
+                            val graphMb = if (graphFile.exists()) "${graphFile.length() / (1024 * 1024)} MB" else "MISSING"
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(GabayColors.UiInput, RoundedCornerShape(12.dp))
+                                    .border(1.dp, GabayColors.UiBorder, RoundedCornerShape(12.dp))
+                                    .padding(14.dp)
+                            ) {
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Text("OSM Graph Router (ph.gabay)", style = TextStyle(fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, fontSize = 12.sp, color = GabayColors.TextPrimary))
+                                    Text(if (graphFile.exists()) "READY ($graphMb)" else "MISSING", style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 10.sp, color = if (graphFile.exists()) GabayColors.AccentEmerald else Color(0xFFFF3B30)))
+                                }
+                                Text("A* Canonical Highway Graph (Bicycles, Scooters, Cars)", style = TextStyle(fontSize = 11.sp, color = GabayColors.TextMuted))
+                            }
+                        }
+                        item {
+                            val dbFile = java.io.File("/sdcard/Documents/Gabay/pois_fts.sqlite")
+                            val dbMb = if (dbFile.exists()) "${dbFile.length() / (1024 * 1024)} MB" else "MISSING"
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -2080,13 +2143,14 @@ fun TopMenuSheet(
                             ) {
                                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                     Text("SQLite Spatial FTS5 Router", style = TextStyle(fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, fontSize = 12.sp, color = GabayColors.TextPrimary))
-                                    Text(if (dbExists) "READY (106 MB)" else "ACTIVE", style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 10.sp, color = GabayColors.AccentMint))
+                                    Text(if (dbFile.exists()) "READY ($dbMb)" else "MISSING", style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 10.sp, color = if (dbFile.exists()) GabayColors.AccentEmerald else Color(0xFFFF3B30)))
                                 }
-                                Text("A* Bidirectional Network Graph + Street Registry", style = TextStyle(fontSize = 11.sp, color = GabayColors.TextMuted))
+                                Text("Full-text offline search over POIs, barangays, and road names", style = TextStyle(fontSize = 11.sp, color = GabayColors.TextMuted))
                             }
                         }
                         item {
-                            val pmtilesExists = java.io.File("/sdcard/Documents/Gabay/philippines_vector.pmtiles").exists()
+                            val pmtilesFile = java.io.File("/sdcard/Documents/Gabay/philippines_vector.pmtiles")
+                            val pmtilesMb = if (pmtilesFile.exists()) "${pmtilesFile.length() / (1024 * 1024)} MB" else "MISSING"
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -2096,12 +2160,14 @@ fun TopMenuSheet(
                             ) {
                                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                     Text("PMTiles Offline Vector Map", style = TextStyle(fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, fontSize = 12.sp, color = GabayColors.TextPrimary))
-                                    Text(if (pmtilesExists) "BOUND (75 MB)" else "LOCAL", style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 10.sp, color = GabayColors.AccentMint))
+                                    Text(if (pmtilesFile.exists()) "BOUND ($pmtilesMb)" else "LOCAL", style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 10.sp, color = if (pmtilesFile.exists()) GabayColors.AccentEmerald else GabayColors.TextMuted))
                                 }
                                 Text("Protomaps HTTP Localhost :8765 Zero Data Consumption", style = TextStyle(fontSize = 11.sp, color = GabayColors.TextMuted))
                             }
                         }
                         item {
+                            val modelFile = java.io.File("/sdcard/Documents/Gabay/model.gguf")
+                            val modelMb = if (modelFile.exists()) "${modelFile.length() / (1024 * 1024)} MB" else "MISSING"
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -2110,8 +2176,8 @@ fun TopMenuSheet(
                                     .padding(14.dp)
                             ) {
                                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                    Text("Qwen2.5-0.5B-Instruct LLM", style = TextStyle(fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, fontSize = 12.sp, color = GabayColors.TextPrimary))
-                                    Text("LOADED (491 MB)", style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 10.sp, color = GabayColors.AccentMint))
+                                    Text("Edge LLM Model (model.gguf)", style = TextStyle(fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, fontSize = 12.sp, color = GabayColors.TextPrimary))
+                                    Text(if (modelFile.exists()) "READY ($modelMb)" else "OPTIONAL", style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 10.sp, color = if (modelFile.exists()) GabayColors.AccentEmerald else GabayColors.TextMuted))
                                 }
                                 Text("Edge llama.cpp daemon with Live Rider Telemetry injection", style = TextStyle(fontSize = 11.sp, color = GabayColors.TextMuted))
                             }
@@ -2261,7 +2327,7 @@ fun RoutePreviewSheet(
                         Icon(
                             imageVector = GabayIcons.NavCursor,
                             contentDescription = "Commute",
-                            tint = if (isCommuteSelected) GabayColors.AccentMint else GabayColors.TextSecondary,
+                            tint = if (isCommuteSelected) GabayColors.AccentPrimary else GabayColors.TextSecondary,
                             modifier = Modifier.size(17.dp)
                         )
                         Text(
@@ -2269,13 +2335,13 @@ fun RoutePreviewSheet(
                             style = TextStyle(
                                 fontWeight = if (isCommuteSelected) FontWeight.Bold else FontWeight.Medium,
                                 fontSize = 12.sp,
-                                color = if (isCommuteSelected) GabayColors.AccentMint else GabayColors.TextSecondary
+                                color = if (isCommuteSelected) GabayColors.AccentPrimary else GabayColors.TextSecondary
                             )
                         )
                     }
                     if (isCommuteSelected) {
                         Spacer(modifier = Modifier.height(3.dp))
-                        Box(modifier = Modifier.width(26.dp).height(2.5.dp).background(GabayColors.AccentMint, CircleShape))
+                        Box(modifier = Modifier.width(26.dp).height(2.5.dp).background(GabayColors.AccentPrimary, CircleShape))
                     }
                 }
 
@@ -2454,7 +2520,7 @@ fun RoutePreviewSheet(
             ) {
                 Button(
                     onClick = onStartNavigation,
-                    colors = ButtonDefaults.buttonColors(containerColor = GabayColors.AccentEmerald),
+                    colors = ButtonDefaults.buttonColors(containerColor = GabayColors.AccentAmber),
                     shape = RoundedCornerShape(24.dp),
                     modifier = Modifier
                         .weight(1f)
