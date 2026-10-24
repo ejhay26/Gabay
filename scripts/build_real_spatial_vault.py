@@ -66,6 +66,7 @@ def build_database():
         longitude REAL NOT NULL
     );
     """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_pois_lat_lon ON pois(latitude, longitude);")
     
     cursor.execute("""
     CREATE VIRTUAL TABLE pois_fts USING fts5(

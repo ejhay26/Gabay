@@ -18,15 +18,16 @@ import androidx.lifecycle.LifecycleService
 class NavigationService : LifecycleService() {
 
     companion object {
-        const val CHANNEL_ID = "gabay_nav_channel"
+        const val CHANNEL_ID = "gabay_live_nav_v2"
         const val NOTIFICATION_ID = 1001
         const val ACTION_START_NAV = "dev.gabay.app.action.START_NAV"
         const val ACTION_STOP_NAV = "dev.gabay.app.action.STOP_NAV"
         const val ACTION_STOP_FROM_NOTIFICATION = "dev.gabay.app.action.STOP_FROM_NOTIFICATION"
+        const val ACTION_UPDATE_NOTIFICATION = "dev.gabay.app.action.UPDATE_NOTIFICATION"
 
         var onStopNavigationRequested: (() -> Unit)? = null
 
-        fun start(context: Context) {
+        fun start(context: Context, title: String = "Gabay Cockpit Active", content: String = "Monitoring road telemetry & GPS...") {
             val hasFine = androidx.core.content.ContextCompat.checkSelfPermission(
                 context,
                 android.Manifest.permission.ACCESS_FINE_LOCATION
@@ -43,6 +44,8 @@ class NavigationService : LifecycleService() {
 
             val intent = Intent(context, NavigationService::class.java).apply {
                 action = ACTION_START_NAV
+                putExtra("extra_title", title)
+                putExtra("extra_content", content)
             }
             try {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -53,6 +56,21 @@ class NavigationService : LifecycleService() {
             } catch (e: Exception) {
                 android.util.Log.e("NavigationService", "Failed to start service: ${e.message}")
             }
+        }
+
+        fun update(context: Context, title: String, content: String) {
+            val intent = Intent(context, NavigationService::class.java).apply {
+                action = ACTION_UPDATE_NOTIFICATION
+                putExtra("extra_title", title)
+                putExtra("extra_content", content)
+            }
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    context.startForegroundService(intent)
+                } else {
+                    context.startService(intent)
+                }
+            } catch (e: Exception) {}
         }
 
         fun stop(context: Context) {
@@ -71,7 +89,16 @@ class NavigationService : LifecycleService() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         super.onStartCommand(intent, flags, startId)
         when (intent?.action) {
-            ACTION_START_NAV -> startForegroundServiceInternal()
+            ACTION_START_NAV -> {
+                val title = intent.getStringExtra("extra_title") ?: "Gabay Cockpit Active"
+                val content = intent.getStringExtra("extra_content") ?: "Monitoring road telemetry & GPS..."
+                startForegroundServiceInternal(title, content)
+            }
+            ACTION_UPDATE_NOTIFICATION -> {
+                val title = intent.getStringExtra("extra_title") ?: "Gabay Navigation Active"
+                val content = intent.getStringExtra("extra_content") ?: "Monitoring road telemetry & GPS..."
+                updateStatus(title, content)
+            }
             ACTION_STOP_FROM_NOTIFICATION -> {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
                     stopForeground(STOP_FOREGROUND_REMOVE)
@@ -96,7 +123,7 @@ class NavigationService : LifecycleService() {
         return START_STICKY
     }
 
-    private fun startForegroundServiceInternal() {
+    private fun startForegroundServiceInternal(title: String, content: String) {
         try {
             val hasFine = androidx.core.content.ContextCompat.checkSelfPermission(
                 this,
@@ -113,7 +140,7 @@ class NavigationService : LifecycleService() {
                 return
             }
 
-            val notification = buildNotification("Gabay Navigation Active", "Monitoring road telemetry & GPS...")
+            val notification = buildNotification(title, content)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 startForeground(
                     NOTIFICATION_ID,
@@ -157,6 +184,7 @@ class NavigationService : LifecycleService() {
             .setSmallIcon(R.drawable.ic_nav_cursor)
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setContentIntent(pendingIntent)
             .addAction(
                 android.R.drawable.ic_menu_close_clear_cancel,
@@ -166,14 +194,21 @@ class NavigationService : LifecycleService() {
             .build()
     }
 
+    fun updateStatus(title: String, content: String) {
+        val manager = getSystemService(NotificationManager::class.java)
+        manager?.notify(NOTIFICATION_ID, buildNotification(title, content))
+    }
+
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
                 "Gabay Live Navigation",
-                NotificationManager.IMPORTANCE_LOW
+                NotificationManager.IMPORTANCE_HIGH
             ).apply {
                 description = "Live turn-by-turn cockpit telemetry channel"
+                setShowBadge(true)
+                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
             }
             val manager = getSystemService(NotificationManager::class.java)
             manager?.createNotificationChannel(channel)

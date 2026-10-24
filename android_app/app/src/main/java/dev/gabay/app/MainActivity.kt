@@ -219,7 +219,9 @@ class MainActivity : ComponentActivity() {
 
         checkAllPermissions()
 
-
+        try {
+            NavigationService.start(this, "Gabay Cockpit Standby", "GPS Telemetry Active • Co-Pilot Ready")
+        } catch (e: Exception) {}
 
         enableEdgeToEdge()
 
@@ -237,15 +239,22 @@ class MainActivity : ComponentActivity() {
 
                 ) { _ ->
 
-                    CockpitScreen(
+                    Box(modifier = Modifier.fillMaxSize()) {
 
-                        engine = engine,
+                        CockpitScreen(
 
-                        audioController = audioController,
+                            engine = engine,
 
-                        modifier = Modifier.fillMaxSize()
+                            audioController = audioController,
 
-                    )
+                            modifier = Modifier.fillMaxSize()
+
+                        )
+
+                        // Convx & Apple Design Liquid Glass Animated Splash Transition
+                        AnimatedSplashScreen()
+
+                    }
 
                 }
 
@@ -1357,99 +1366,106 @@ fun CockpitScreen(
 
 
         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
-
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
-
+            // Intelligent silence timeouts: stops listening when speaker pauses, avoids background wind hanging
+            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1200L)
+            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 800L)
+            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 1500L)
         }
 
-
-
         recognizer.setRecognitionListener(object : RecognitionListener {
-
             override fun onReadyForSpeech(params: Bundle?) {
-
                 isListening = true
-
                 android.util.Log.d("GabayVoice", "Ready for speech")
-
             }
 
             override fun onBeginningOfSpeech() {
-
                 isListening = true
-
                 android.util.Log.d("GabayVoice", "Beginning of speech")
-
             }
 
             override fun onRmsChanged(rmsdB: Float) {
-
                 audioRmsDb = rmsdB
-
             }
 
             override fun onBufferReceived(buffer: ByteArray?) {}
 
             override fun onEndOfSpeech() {
-
                 audioRmsDb = 0f
-
                 android.util.Log.d("GabayVoice", "End of speech")
-
             }
 
             override fun onError(error: Int) {
-
                 isListening = false
-
                 audioRmsDb = 0f
-
                 partialSpeechText = ""
-
                 android.util.Log.w("GabayVoice", "SpeechRecognizer error code: $error")
-
             }
 
             override fun onResults(results: Bundle?) {
-
                 isListening = false
-
                 audioRmsDb = 0f
-
                 val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-
                 val voiceQuery = matches?.firstOrNull() ?: partialSpeechText
-
                 partialSpeechText = ""
-
                 android.util.Log.d("GabayVoice", "Speech recognition result: $voiceQuery")
-
                 if (!voiceQuery.isNullOrBlank()) {
-
                     processAgentPrompt(voiceQuery)
-
                 }
-
             }
 
             override fun onPartialResults(partialResults: Bundle?) {
-
                 val matches = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-
                 val partial = matches?.firstOrNull()
-
                 if (!partial.isNullOrBlank()) {
-
                     partialSpeechText = partial
 
-                }
+                    // Live Streaming Instant Intent Execution:
+                    // Instantly execute command while rider is still speaking (e.g. "Switch to satellite", "Recenter", "3D mode")
+                    val lower = partial.lowercase()
+                    var executed = false
+                    if (("satellite" in lower || "sat mode" in lower) && fusedMapMode != FusedMapMode.SATELLITE) {
+                        fusedMapMode = FusedMapMode.SATELLITE
+                        audioController.speakCue("Switched to satellite view")
+                        executed = true
+                    } else if (("topo" in lower || "contour" in lower) && fusedMapMode != FusedMapMode.TOPO) {
+                        fusedMapMode = FusedMapMode.TOPO
+                        audioController.speakCue("Switched to topo view")
+                        executed = true
+                    } else if (("street" in lower || "dark map" in lower || "vector" in lower) && fusedMapMode != FusedMapMode.STREET) {
+                        fusedMapMode = FusedMapMode.STREET
+                        audioController.speakCue("Switched to vector street view")
+                        executed = true
+                    } else if (("3d" in lower || "tilt" in lower || "perspective" in lower) && !is3dMode) {
+                        is3dMode = true
+                        audioController.speakCue("3D perspective engaged")
+                        executed = true
+                    } else if (("2d" in lower || "flat" in lower || "overhead" in lower) && is3dMode) {
+                        is3dMode = false
+                        audioController.speakCue("2D overhead view")
+                        executed = true
+                    } else if ("recenter" in lower || "center map" in lower || "follow" in lower) {
+                        isFollowingVehicle = true
+                        cameraTarget = MapLibreLatLng(userLat, userLon)
+                        audioController.speakCue("Recentered and locked to vehicle")
+                        executed = true
+                    } else if ("cancel route" in lower || "stop navigation" in lower) {
+                        if (activeRoute != null || isNavigating) {
+                            cancelActiveRoute()
+                            executed = true
+                        }
+                    }
 
+                    if (executed) {
+                        try { speechRecognizer?.stopListening() } catch (e: Exception) {}
+                        isListening = false
+                        audioRmsDb = 0f
+                        partialSpeechText = ""
+                    }
+                }
             }
 
             override fun onEvent(eventType: Int, params: Bundle?) {}

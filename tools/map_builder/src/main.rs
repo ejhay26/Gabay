@@ -90,6 +90,7 @@ fn init_sqlite_pois(conn: &Connection) -> anyhow::Result<()> {
             latitude REAL NOT NULL,
             longitude REAL NOT NULL
         );
+        CREATE INDEX IF NOT EXISTS idx_pois_lat_lon ON pois(latitude, longitude);
         CREATE VIRTUAL TABLE IF NOT EXISTS pois_fts USING fts5(
             name,
             category,

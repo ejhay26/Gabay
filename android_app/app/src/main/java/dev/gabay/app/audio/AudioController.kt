@@ -306,7 +306,14 @@ class AudioController(private val context: Context) : TextToSpeech.OnInitListene
             if (isCriticalAlert) {
                 playTacticalChime(880.0, 1320.0, 120)
             }
-            // In TACTICAL_EXTERNAL mode, never fall through to TTS speech
+            // For AI Agent conversational answers or non-asset cues: speak via tuned tactical TTS voice
+            if (guidanceMode == AudioGuidanceMode.FULL_VOICE && isTtsReady) {
+                requestAudioFocus()
+                tts?.setPitch(0.95f)
+                tts?.setSpeechRate(1.06f)
+                val utteranceId = "cue_tactical_${System.currentTimeMillis()}"
+                tts?.speak(cue, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
+            }
             return
         }
 
