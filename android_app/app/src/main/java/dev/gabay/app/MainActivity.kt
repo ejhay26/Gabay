@@ -54,6 +54,7 @@ import androidx.compose.ui.Alignment
 
 import androidx.compose.ui.Modifier
 
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 
 import androidx.compose.ui.platform.LocalContext
@@ -739,6 +740,29 @@ fun CockpitScreen(
     var lastSpokenAdvisoryTimeMs by remember { mutableLongStateOf(0L) }
     var lastRerouteTimeMs by remember { mutableLongStateOf(0L) }
     var lastArrivalAnnouncedTimeMs by remember { mutableLongStateOf(0L) }
+
+    // Adversarial /break-ui stress testing toggle ("demo", "worst", "empty")
+    var breakUiMode by remember { mutableStateOf("demo") }
+    val effectiveOrigin = when (breakUiMode) {
+        "worst" -> "MacArthur Highway, Brgy. Santo Cristo, Gapan City, Nueva Ecija, 3105"
+        "empty" -> ""
+        else -> originName
+    }
+    val effectiveDestination = when (breakUiMode) {
+        "worst" -> "NEUST - San Isidro Campus, Brgy. Malapit, San Isidro, Nueva Ecija, 3106, Central Luzon, Philippines"
+        "empty" -> ""
+        else -> destinationName
+    }
+    val effectiveSpeed = when (breakUiMode) {
+        "worst" -> 148.0f
+        "empty" -> 0.0f
+        else -> userSpeed
+    }
+    val effectiveRoad = when (breakUiMode) {
+        "worst" -> "PRESIDENT DIOSDADO MACAPAGAL REGIONAL GOVERNMENT CENTER ACCESS BYPASS ROAD NORTHBOUND"
+        "empty" -> ""
+        else -> if (activeRoute != null) telemetry.nextTurnRoad else ""
+    }
 
 
 
@@ -1722,16 +1746,11 @@ fun CockpitScreen(
 
         ) {
 
-            if ((activeRoute != null || isRouteLoading) && !isPickingOrigin && !isPickingDestination) {
-
+            if ((activeRoute != null || isRouteLoading || breakUiMode == "worst") && !isPickingOrigin && !isPickingDestination) {
                 TwoWayRouteHeader(
-
-                    originName = originName,
-
-                    destinationName = destinationName,
-
+                    originName = effectiveOrigin,
+                    destinationName = effectiveDestination,
                     isLoading = isRouteLoading,
-
                     isNavigating = isNavigating,
 
                     onSwap = { swapRoute() },
@@ -2586,130 +2605,72 @@ fun CockpitScreen(
 
             ) {
 
-                // Floating Action Buttons Row: Fused Map Layer Speed-Dial, 2D/3D Toggle, Agent Talk, Compass, Recenter GPS
-
-                Row(
-
+                // Floating Action Buttons Layer: Fused Map Layer Speed-Dial, 2D/3D Toggle, Agent Talk, Compass, Recenter GPS
+                Box(
                     modifier = Modifier
-
                         .fillMaxWidth()
-
-                        .padding(horizontal = 20.dp, vertical = 8.dp),
-
-                    horizontalArrangement = Arrangement.SpaceBetween,
-
-                    verticalAlignment = Alignment.Bottom
-
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
                 ) {
-
                     // Left Controls: Speed Dial + 2D/3D Toggle
-
                     Row(
-
+                        modifier = Modifier.align(Alignment.BottomStart),
                         verticalAlignment = Alignment.Bottom,
-
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
-
                     ) {
-
                         MapStyleSpeedDial(
-
                             currentMode = fusedMapMode,
-
                             onSelectMode = { fusedMapMode = it }
-
                         )
 
                         PerspectiveToggleButton(
-
                             is3d = is3dMode,
-
                             onToggle = { is3dMode = !is3dMode }
-
                         )
-
                     }
 
-
-
-                    // Middle Speedometer Readout (Center Bottom)
-
+                    // Middle Speedometer Readout (Mathematically Anchored to True Screen Center)
                     MiddleBottomSpeedometer(
-
-                        speedKmh = userSpeed,
-
+                        speedKmh = effectiveSpeed,
                         nextTurnIcon = if (activeRoute != null) telemetry.nextTurnIcon else "straight",
-
-                        bottomLabel = if (activeRoute != null) telemetry.nextTurnRoad else ""
-
+                        bottomLabel = effectiveRoad,
+                        modifier = Modifier.align(Alignment.BottomCenter)
                     )
 
-
-
                     // Right Controls: Reset North Compass + Talk Mic + Recenter GPS
-
                     Row(
-
+                        modifier = Modifier.align(Alignment.BottomEnd),
                         verticalAlignment = Alignment.Bottom,
-
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
-
                     ) {
-
                         CompassResetButton(
-
                             cameraBearing = cameraBearing,
-
                             onReset = { resetRotationCount++ }
-
                         )
 
                         CircularFloatingButton(
-
                             icon = GabayIcons.CopilotMic,
-
                             isActive = isAgentSheetOpen || isListening,
-
                             activeColor = GabayColors.AccentAmber,
-
                             onClick = {
-
                                 isAgentSheetOpen = !isAgentSheetOpen
-
                                 if (isAgentSheetOpen) {
-
                                     audioController.speakTerseCue("GABAY CO-PILOT READY")
-
                                 }
-
                             },
-
                             contentDescription = "Talk to Gabay Agent"
-
                         )
 
                         CircularFloatingButton(
-
                             icon = GabayIcons.RecenterGps,
-
                             isActive = isFollowingVehicle,
-
                             activeColor = GabayColors.AccentAmber,
-
                             onClick = {
-
                                 isFollowingVehicle = true
-
                                 cameraTarget = MapLibreLatLng(userLat, userLon)
-
                             },
-
                             contentDescription = "Recenter GPS & Magnetic Lock"
-
                         )
-
                     }
-
                 }
 
             }
@@ -2856,7 +2817,54 @@ fun CockpitScreen(
 
         }
 
+        // LAYER 8: Dev-Only /break-ui Toggle (Neutral, Plain Chrome, Instant Switching)
+        BreakUiDevToggle(
+            currentMode = breakUiMode,
+            onSelectMode = { breakUiMode = it },
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 120.dp)
+        )
+
     }
 
+}
+
+@Composable
+fun BreakUiDevToggle(
+    currentMode: String,
+    onSelectMode: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier
+            .background(Color(0xEE1E293B), RoundedCornerShape(20.dp))
+            .border(1.dp, Color(0xFF475569), RoundedCornerShape(20.dp))
+            .padding(3.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        listOf("demo" to "Demo data", "worst" to "Worst case", "empty" to "Empty").forEach { (key, label) ->
+            val isSelected = (currentMode == key)
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(if (isSelected) Color(0xFFF8FAFC) else Color.Transparent)
+                    .clickable { onSelectMode(key) }
+                    .padding(horizontal = 10.dp, vertical = 4.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = label,
+                    style = TextStyle(
+                        fontFamily = FontFamily.SansSerif,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                        fontSize = 10.5.sp,
+                        color = if (isSelected) Color(0xFF0F172A) else Color(0xFF94A3B8)
+                    )
+                )
+            }
+        }
+    }
 }
 

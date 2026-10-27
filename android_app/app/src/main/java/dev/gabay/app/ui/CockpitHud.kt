@@ -33,6 +33,7 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.gabay.app.audio.AudioController
@@ -153,6 +154,7 @@ fun TwoWayRouteHeader(
                                 color = GabayColors.TextPrimary
                             ),
                             maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f)
                         )
                         if (onPickOrigin != null && !isNavigating) {
@@ -193,6 +195,7 @@ fun TwoWayRouteHeader(
                                 color = GabayColors.AccentPrimary
                             ),
                             maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f)
                         )
                         if (onPickDestination != null && !isNavigating) {
@@ -971,7 +974,8 @@ fun MiddleBottomSpeedometer(
                     fontSize = 10.sp,
                     color = GabayColors.AccentAmber.copy(alpha = 0.9f)
                 ),
-                maxLines = 1
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
     }
@@ -979,8 +983,8 @@ fun MiddleBottomSpeedometer(
 
 /**
  * Animated Map Style Speed-Dial
- * Extends icons upwards on tap, then delayed text labels slide sidewards to the right.
- * Highlights the active/selected map style.
+ * Extends upward in a floating overlay without displacing adjacent cockpit UI controls.
+ * Highlights the active/selected map style with unified glass capsule design.
  */
 @Composable
 fun MapStyleSpeedDial(
@@ -996,42 +1000,53 @@ fun MapStyleSpeedDial(
         Triple(FusedMapMode.STREET, GabayIcons.LayerVector, "STREET (VECTOR)")
     )
 
-    Column(
-        modifier = modifier,
-        horizontalAlignment = Alignment.Start,
-        verticalArrangement = Arrangement.Bottom
+    Box(
+        modifier = modifier.size(48.dp),
+        contentAlignment = Alignment.BottomStart
     ) {
-        // Extended items upwards
+        // Floating options popup above the anchor button (Zero horizontal layout impact)
         AnimatedVisibility(
             visible = isExpanded,
-            enter = fadeIn() + expandVertically(expandFrom = Alignment.Bottom),
-            exit = fadeOut() + shrinkVertically(shrinkTowards = Alignment.Bottom)
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(bottom = 58.dp)
+                .wrapContentSize(Alignment.BottomStart, unbounded = true),
+            enter = fadeIn(tween(180)) + slideInVertically(
+                initialOffsetY = { it / 3 },
+                animationSpec = tween(220)
+            ),
+            exit = fadeOut(tween(140)) + slideOutVertically(
+                targetOffsetY = { it / 3 },
+                animationSpec = tween(180)
+            )
         ) {
             Column(
-                modifier = Modifier.padding(bottom = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                options.forEachIndexed { index, (mode, icon, label) ->
+                options.forEach { (mode, icon, label) ->
                     val isSelected = (mode == currentMode)
 
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.clickable {
-                            onSelectMode(mode)
-                            isExpanded = false
-                        }
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(24.dp))
+                            .background(GabayColors.UiCardGlass, RoundedCornerShape(24.dp))
+                            .border(
+                                1.2.dp,
+                                if (isSelected) GabayColors.AccentAmber else GabayColors.UiBorder,
+                                RoundedCornerShape(24.dp)
+                            )
+                            .clickable {
+                                onSelectMode(mode)
+                                isExpanded = false
+                            }
+                            .padding(end = 14.dp)
                     ) {
-                        // Circular Icon Button
                         Box(
                             modifier = Modifier
-                                .size(46.dp)
+                                .size(44.dp)
                                 .background(
-                                    if (isSelected) GabayColors.AccentAmber.copy(alpha = 0.2f) else GabayColors.UiCardGlass,
-                                    CircleShape
-                                )
-                                .border(
-                                    if (isSelected) 1.5.dp else 1.dp,
-                                    if (isSelected) GabayColors.AccentAmber else GabayColors.AccentAmber.copy(alpha = 0.35f),
+                                    if (isSelected) GabayColors.AccentAmber.copy(alpha = 0.25f) else Color.Transparent,
                                     CircleShape
                                 ),
                             contentAlignment = Alignment.Center
@@ -1044,39 +1059,17 @@ fun MapStyleSpeedDial(
                             )
                         }
 
-                        Spacer(modifier = Modifier.width(10.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
 
-                        // Delayed text label extending sidewards to the right
-                        AnimatedVisibility(
-                            visible = isExpanded,
-                            enter = fadeIn(animationSpec = tween(200, delayMillis = (index + 1) * 80)) +
-                                    slideInHorizontally(
-                                        initialOffsetX = { -30 },
-                                        animationSpec = tween(250, delayMillis = (index + 1) * 80)
-                                    ),
-                            exit = fadeOut() + slideOutHorizontally()
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .background(GabayColors.UiCardGlass, RoundedCornerShape(16.dp))
-                                    .border(
-                                        1.dp,
-                                        if (isSelected) GabayColors.AccentAmber else GabayColors.UiBorder,
-                                        RoundedCornerShape(16.dp)
-                                    )
-                                    .padding(horizontal = 14.dp, vertical = 8.dp)
-                            ) {
-                                Text(
-                                    text = label,
-                                    style = TextStyle(
-                                        fontFamily = FontFamily.Monospace,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 11.sp,
-                                        color = if (isSelected) GabayColors.AccentAmber else GabayColors.TextPrimary
-                                    )
-                                )
-                            }
-                        }
+                        Text(
+                            text = label,
+                            style = TextStyle(
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 10.5.sp,
+                                color = if (isSelected) GabayColors.AccentAmber else GabayColors.TextPrimary
+                            )
+                        )
                     }
                 }
             }
@@ -1092,7 +1085,8 @@ fun MapStyleSpeedDial(
             icon = mainIcon,
             onClick = { isExpanded = !isExpanded },
             isActive = isExpanded,
-            contentDescription = "Map Style Options"
+            contentDescription = "Map Style Options",
+            modifier = Modifier.align(Alignment.BottomStart)
         )
     }
 }

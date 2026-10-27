@@ -164,15 +164,30 @@ object LlamaDaemon {
                 "- Navigation Status: $navStatus\n\n" +
                 "INSTRUCTIONS:\n" +
                 "1. If the rider commands an action or navigation task, respond with a JSON object ONLY: {\"action\": \"...\", \"target\": \"...\"}.\n" +
-                "   Supported actions: \"where_am_i\", \"navigate\", \"search\", \"3d\", \"2d\", \"cancel\", \"follow\", \"north\".\n" +
+                "   Supported actions:\n" +
+                "   - \"navigate\": Target is the destination name (e.g. \"Neust San Isidro\", \"Gapan City\", \"SM Cabanatuan\").\n" +
+                "   - \"search\": Target is the POI category or search term (e.g. \"Gas\", \"Hospital\", \"Food\", \"School\").\n" +
+                "   - \"where_am_i\": Checks current road, location, or heading.\n" +
+                "   - \"street\": Switches map layer to vector dark street view.\n" +
+                "   - \"satellite\": Switches map layer to satellite imagery.\n" +
+                "   - \"topo\": Switches map layer to contour topography.\n" +
+                "   - \"3d\": Enables 3D perspective / driver view.\n" +
+                "   - \"2d\": Enables 2D flat overhead map.\n" +
+                "   - \"follow\": Recenters camera and locks magnetic orientation to the vehicle/phone.\n" +
+                "   - \"north\": Resets map rotation facing True North.\n" +
+                "   - \"cancel\": Cancels active navigation or clears destination route.\n\n" +
                 "   Examples:\n" +
-                "   - \"Where am I?\" / \"What road is this?\" -> {\"action\": \"where_am_i\"}\n" +
-                "   - \"Take me to Gapan City\" -> {\"action\": \"navigate\", \"target\": \"Gapan City\"}\n" +
-                "   - \"Find gas station\" -> {\"action\": \"search\", \"target\": \"Gas\"}\n" +
-                "   - \"Switch to 3D\" -> {\"action\": \"3d\"}\n" +
-                "   - \"Cancel route\" -> {\"action\": \"cancel\"}\n" +
-                "2. For ANY other question, conversation, motorcycle advice, tire pressure, or road rules, reply in 1 to 2 clear, natural sentences.\n" +
-                "3. NEVER output JSON for conversational questions."
+                "   - \"can you switch to street view right now\" -> {\"action\": \"street\"}\n" +
+                "   - \"switch to satellite mode\" / \"ipakita ang satellite\" -> {\"action\": \"satellite\"}\n" +
+                "   - \"show me topography\" -> {\"action\": \"topo\"}\n" +
+                "   - \"can you navigate to neust san isidro campus\" -> {\"action\": \"navigate\", \"target\": \"Neust San Isidro Campus\"}\n" +
+                "   - \"take me to the nearest gas station\" -> {\"action\": \"search\", \"target\": \"Gas\"}\n" +
+                "   - \"emergency hospital nearby\" -> {\"action\": \"search\", \"target\": \"Hospital\"}\n" +
+                "   - \"where am I right now?\" / \"nasaan ako?\" -> {\"action\": \"where_am_i\"}\n" +
+                "   - \"lock camera / magnet view / recenter\" -> {\"action\": \"follow\"}\n" +
+                "   - \"stop route / end navigation / cancel\" -> {\"action\": \"cancel\"}\n\n" +
+                "2. For ANY general motorcycle advice, tire pressure, road rules, greeting, or chit-chat, reply directly in 1 to 2 clear, natural sentences.\n" +
+                "3. NEVER output markdown code blocks or commentary around the JSON."
 
             val messagesArray = org.json.JSONArray().apply {
                 put(JSONObject().apply {
