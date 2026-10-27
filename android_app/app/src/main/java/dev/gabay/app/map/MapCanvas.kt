@@ -104,6 +104,7 @@ fun MapCanvas(
     fusedMapMode: FusedMapMode,
     is3dPerspective: Boolean = false,
     isFollowingVehicle: Boolean = true,
+    isNavigating: Boolean = false,
     isSunlightLightMode: Boolean = dev.gabay.app.ui.GabayColors.isSunlightLightMode,
     resetRotationTrigger: Int = 0,
     cameraTarget: LatLng?,
@@ -127,11 +128,21 @@ fun MapCanvas(
     LaunchedEffect(cameraTarget, mapInstance) {
         val map = mapInstance ?: return@LaunchedEffect
         val target = cameraTarget ?: return@LaunchedEffect
-        val newPos = CameraPosition.Builder()
+        val currentPos = map.cameraPosition
+        val targetTilt = if (is3dPerspective || isNavigating) 48.0 else currentPos.tilt
+        val targetBearing = if (isNavigating || is3dPerspective) {
+            if (userHeading != 0f) userHeading.toDouble() else currentPos.bearing
+        } else {
+            currentPos.bearing
+        }
+        val targetZoom = if (isNavigating) 16.5 else 15.5
+        val newPos = CameraPosition.Builder(currentPos)
             .target(target)
-            .zoom(15.0)
+            .zoom(targetZoom)
+            .tilt(targetTilt)
+            .bearing(targetBearing)
             .build()
-        map.easeCamera(CameraUpdateFactory.newCameraPosition(newPos), 600)
+        map.easeCamera(CameraUpdateFactory.newCameraPosition(newPos), 450)
     }
 
     // React to 2D / 3D Perspective changes (Tilt camera between 0° overhead and 55° perspective)
@@ -279,36 +290,87 @@ fun MapCanvas(
         }
     }
 
-    // React to active route updates
-    LaunchedEffect(activeRoute, mapInstance) {
+    // React to active route updates & dynamic progress slicing along user's travel
+    LaunchedEffect(activeRoute, userLat, userLon, isNavigating, mapInstance) {
         val map = mapInstance ?: return@LaunchedEffect
         val style = map.style ?: return@LaunchedEffect
 
         val routeSource = style.getSourceAs<GeoJsonSource>("route_source")
         if (activeRoute != null && activeRoute.success && activeRoute.polyline.isNotEmpty()) {
-            val points = activeRoute.polyline.map { Point.fromLngLat(it.longitude, it.latitude) }
-            val lineString = LineString.fromLngLats(points)
-            routeSource?.setGeoJson(FeatureCollection.fromFeature(Feature.fromGeometry(lineString)))
+            val fullPoly = activeRoute.polyline
+            val renderedPoints: List<Point> = if (isNavigating && fullPoly.size >= 2) {
+                // Find closest road segment along the polyline using perpendicular projection
+                val cosLat = Math.cos(Math.toRadians(userLat))
+                var bestSegmentIdx = 0
+                var minDistanceSq = Double.MAX_VALUE
 
-            // Smoothly ease camera to fit the active route
-            try {
-                var minLat = 90.0
-                var maxLat = -90.0
-                var minLon = 180.0
-                var maxLon = -180.0
-                for (p in activeRoute.polyline) {
-                    if (p.latitude < minLat) minLat = p.latitude
-                    if (p.latitude > maxLat) maxLat = p.latitude
-                    if (p.longitude < minLon) minLon = p.longitude
-                    if (p.longitude > maxLon) maxLon = p.longitude
+                for (i in 0 until fullPoly.size - 1) {
+                    val p1 = fullPoly[i]
+                    val p2 = fullPoly[i + 1]
+
+                    val dx = (p2.longitude - p1.longitude) * cosLat * 111320.0
+                    val dy = (p2.latitude - p1.latitude) * 111320.0
+                    val segLenSq = dx * dx + dy * dy
+
+                    val udx = (userLon - p1.longitude) * cosLat * 111320.0
+                    val udy = (userLat - p1.latitude) * 111320.0
+
+                    val dSq = if (segLenSq < 1e-4) {
+                        udx * udx + udy * udy
+                    } else {
+                        val t = ((udx * dx + udy * dy) / segLenSq).coerceIn(0.0, 1.0)
+                        val projX = dx * t
+                        val projY = dy * t
+                        val ex = udx - projX
+                        val ey = udy - projY
+                        ex * ex + ey * ey
+                    }
+
+                    if (dSq < minDistanceSq) {
+                        minDistanceSq = dSq
+                        bestSegmentIdx = i
+                    }
                 }
-                val bounds = LatLngBounds.Builder()
-                    .include(LatLng(minLat, minLon))
-                    .include(LatLng(maxLat, maxLon))
-                    .build()
-                map.easeCamera(CameraUpdateFactory.newLatLngBounds(bounds, 140), 750)
-            } catch (e: Exception) {
-                // Ignore transient geometry bounds calculation
+
+                // Slice off all passed segments behind rider; render from user position forward to destination
+                val ahead = fullPoly.subList(bestSegmentIdx + 1, fullPoly.size)
+                if (ahead.isNotEmpty()) {
+                    listOf(Point.fromLngLat(userLon, userLat)) + ahead.map { Point.fromLngLat(it.longitude, it.latitude) }
+                } else {
+                    listOf(Point.fromLngLat(userLon, userLat), Point.fromLngLat(fullPoly.last().longitude, fullPoly.last().latitude))
+                }
+            } else {
+                fullPoly.map { Point.fromLngLat(it.longitude, it.latitude) }
+            }
+
+            if (renderedPoints.size >= 2) {
+                val lineString = LineString.fromLngLats(renderedPoints)
+                routeSource?.setGeoJson(FeatureCollection.fromFeature(Feature.fromGeometry(lineString)))
+            } else {
+                routeSource?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
+            }
+
+            // Smoothly ease camera to fit the active route ONLY on initial calculation (when not actively driving)
+            if (!isNavigating) {
+                try {
+                    var minLat = 90.0
+                    var maxLat = -90.0
+                    var minLon = 180.0
+                    var maxLon = -180.0
+                    for (p in fullPoly) {
+                        if (p.latitude < minLat) minLat = p.latitude
+                        if (p.latitude > maxLat) maxLat = p.latitude
+                        if (p.longitude < minLon) minLon = p.longitude
+                        if (p.longitude > maxLon) maxLon = p.longitude
+                    }
+                    val bounds = LatLngBounds.Builder()
+                        .include(LatLng(minLat, minLon))
+                        .include(LatLng(maxLat, maxLon))
+                        .build()
+                    map.easeCamera(CameraUpdateFactory.newLatLngBounds(bounds, 140), 750)
+                } catch (e: Exception) {
+                    // Ignore transient geometry bounds calculation
+                }
             }
         } else {
             routeSource?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
@@ -343,8 +405,8 @@ fun MapCanvas(
         }
     }
 
-    // React to user GPS position & continuous magnetic follow / auto-rotation updates
-    LaunchedEffect(userLat, userLon, userHeading, userSpeed, isFollowingVehicle, is3dPerspective, mapInstance) {
+    // React to user GPS position & continuous magnetic follow / phone heading orientation
+    LaunchedEffect(userLat, userLon, userHeading, userSpeed, isFollowingVehicle, is3dPerspective, isNavigating, mapInstance) {
         val map = mapInstance ?: return@LaunchedEffect
         val style = map.style ?: return@LaunchedEffect
 
@@ -353,17 +415,21 @@ fun MapCanvas(
         userSource?.setGeoJson(FeatureCollection.fromFeature(Feature.fromGeometry(point)))
 
         if (isFollowingVehicle) {
-            val targetTilt = if (is3dPerspective) 55.0 else 0.0
-            val targetBearing = if (is3dPerspective) {
-                // In 3D driving perspective, only update bearing when moving (> 5 km/h) to prevent compass noise jitter
-                if (userSpeed > 5.0f) userHeading.toDouble() else map.cameraPosition.bearing
+            val targetTilt = if (is3dPerspective || isNavigating) 48.0 else 0.0
+            val targetBearing = if (isNavigating || is3dPerspective) {
+                // In navigation or 3D mode, continuously orient the map in the direction of the phone/vehicle
+                if (userSpeed > 1.5f || userHeading != 0f) userHeading.toDouble() else map.cameraPosition.bearing
             } else {
-                0.0 // 2D tactical map is strictly locked to True North (0.0°) — zero canvas rotation
+                0.0 // 2D tactical map free-explore is strictly locked to True North (0.0°)
             }
             val currentPos = map.cameraPosition
-            val navZoom = if (currentPos.zoom < 13.5) 15.5 else currentPos.zoom
+            val navZoom = if (isNavigating) {
+                if (currentPos.zoom < 15.0) 16.5 else currentPos.zoom
+            } else {
+                if (currentPos.zoom < 13.5) 15.5 else currentPos.zoom
+            }
 
-            // When stationary (speed < 2 km/h), apply a 15m deadband so GPS drift doesn't shake the canvas
+            // Magnetic response: smoothly track position & bearing changes
             val curTarget = currentPos.target
             val distToCam = if (curTarget != null) {
                 val res = FloatArray(1)
@@ -371,17 +437,20 @@ fun MapCanvas(
                 res[0]
             } else 999f
 
-            val shouldMoveCam = (userSpeed >= 2.0f) || (distToCam > 15.0f) || (Math.abs(currentPos.bearing - targetBearing) > 2.0)
+            var bearingDiff = Math.abs(currentPos.bearing - targetBearing)
+            bearingDiff = Math.min(bearingDiff, 360.0 - bearingDiff)
+
+            val shouldMoveCam = isNavigating || (userSpeed >= 1.5f) || (distToCam > 5.0f) || (bearingDiff > 1.2)
 
             if (shouldMoveCam) {
-                val newPos = CameraPosition.Builder()
+                val newPos = CameraPosition.Builder(currentPos)
                     .target(LatLng(userLat, userLon))
                     .zoom(navZoom)
                     .bearing(targetBearing)
                     .tilt(targetTilt)
                     .build()
 
-                map.easeCamera(CameraUpdateFactory.newCameraPosition(newPos), 350)
+                map.easeCamera(CameraUpdateFactory.newCameraPosition(newPos), 240)
             }
         }
     }

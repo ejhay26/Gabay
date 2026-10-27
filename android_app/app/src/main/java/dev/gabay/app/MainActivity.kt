@@ -6,10 +6,12 @@ import android.content.Context
 
 import android.database.sqlite.SQLiteDatabase
 
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
 import android.location.Location
-
 import android.location.LocationListener
-
 import android.location.LocationManager
 
 import android.media.AudioFormat
@@ -562,92 +564,99 @@ fun CockpitScreen(
 
 
 
-    // Live Hardware GPS Updates (Activates Android OS Location Privacy Indicator)
-
+    // Live Hardware GPS & Phone Magnetic Compass Orientation Updates
     DisposableEffect(Unit) {
-
         val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
+        val sensorManager = context.getSystemService(Context.SENSOR_SERVICE) as? SensorManager
+        var lastGpsBearingTimeMs = 0L
 
         val locationListener = object : LocationListener {
-
             override fun onLocationChanged(loc: Location) {
-
                 userLat = loc.latitude
-
                 userLon = loc.longitude
-
                 userSpeed = if (loc.speed < 0.5f) 0.0f else (loc.speed * 3.6f)
-
-                if (loc.hasBearing()) {
-
+                if (loc.hasBearing() && loc.speed >= 3.0f) { // Over 10 km/h on road
                     userHeading = loc.bearing
+                    lastGpsBearingTimeMs = System.currentTimeMillis()
+                }
+            }
+            override fun onProviderEnabled(provider: String) {}
+            override fun onProviderDisabled(provider: String) {}
+            @Deprecated("Deprecated in Java")
+            override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
+        }
 
+        // Hardware Magnetic / Rotation Vector Listener:
+        // Allows camera to dynamically magnet to the phone's physical pointing direction
+        val rotationMatrix = FloatArray(9)
+        val orientationAngles = FloatArray(3)
+        var lastCompassHeading = 0f
+
+        val sensorListener = object : SensorEventListener {
+            override fun onSensorChanged(event: SensorEvent) {
+                val now = System.currentTimeMillis()
+                // If moving at high speed (> 12 km/h) with fresh GPS bearing within 2.5s, let GPS track forward movement
+                if (userSpeed >= 12.0f && (now - lastGpsBearingTimeMs < 2500L)) {
+                    return
                 }
 
+                var deg = -1f
+                if (event.sensor.type == Sensor.TYPE_ROTATION_VECTOR) {
+                    SensorManager.getRotationMatrixFromVector(rotationMatrix, event.values)
+                    SensorManager.getOrientation(rotationMatrix, orientationAngles)
+                    val azimuth = Math.toDegrees(orientationAngles[0].toDouble()).toFloat()
+                    deg = (azimuth + 360f) % 360f
+                } else if (event.sensor.type == Sensor.TYPE_ORIENTATION) {
+                    deg = (event.values[0] + 360f) % 360f
+                }
+
+                if (deg >= 0f) {
+                    var diff = Math.abs(deg - lastCompassHeading)
+                    diff = Math.min(diff, 360f - diff)
+                    if (diff > 1.2f) {
+                        lastCompassHeading = deg
+                        userHeading = deg
+                    }
+                }
             }
-
-            override fun onProviderEnabled(provider: String) {}
-
-            override fun onProviderDisabled(provider: String) {}
-
-            @Deprecated("Deprecated in Java")
-
-            override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
-
+            override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
         }
 
+        val rotSensor = sensorManager?.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
+            ?: sensorManager?.getDefaultSensor(Sensor.TYPE_ORIENTATION)
 
+        if (rotSensor != null) {
+            sensorManager?.registerListener(sensorListener, rotSensor, SensorManager.SENSOR_DELAY_UI)
+        }
 
         try {
-
             val lastGps = locationManager?.getLastKnownLocation(LocationManager.GPS_PROVIDER)
-
                 ?: locationManager?.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
-
                 ?: locationManager?.getLastKnownLocation(LocationManager.PASSIVE_PROVIDER)
-
             if (lastGps != null) {
-
                 userLat = lastGps.latitude
-
                 userLon = lastGps.longitude
-
                 userSpeed = if (lastGps.speed < 0.5f) 0.0f else (lastGps.speed * 3.6f)
-
                 if (lastGps.hasBearing()) userHeading = lastGps.bearing
-
             }
-
             locationManager?.requestLocationUpdates(
-
                 LocationManager.GPS_PROVIDER,
-
                 1000L,
-
                 0.5f,
-
                 locationListener
-
             )
-
         } catch (e: SecurityException) {
-
             // Permission fallback
-
         }
-
-
 
         onDispose {
-
             try {
-
                 locationManager?.removeUpdates(locationListener)
-
+                if (rotSensor != null) {
+                    sensorManager?.unregisterListener(sensorListener)
+                }
             } catch (e: Exception) {}
-
         }
-
     }
 
 
@@ -727,8 +736,9 @@ fun CockpitScreen(
 
 
     var lastSpokenAdvisory by remember { mutableStateOf<String?>(null) }
-
     var lastSpokenAdvisoryTimeMs by remember { mutableLongStateOf(0L) }
+    var lastRerouteTimeMs by remember { mutableLongStateOf(0L) }
+    var lastArrivalAnnouncedTimeMs by remember { mutableLongStateOf(0L) }
 
 
 
@@ -745,13 +755,96 @@ fun CockpitScreen(
             searchResults = emptyList()
 
         }
-
     }
 
+    // Asynchronous non-blocking route computation with Dispatchers.IO and HUD loading state
+    fun requestRouteCalculation(
+        startCoord: LatLng,
+        destCoord: LatLng,
+        options: RouteOptions,
+        targetName: String,
+        preserveNavigating: Boolean = false,
+        onComplete: (() -> Unit)? = null
+    ) {
+        if (isRouteLoading) return
+        isRouteLoading = true
+        if (!preserveNavigating) {
+            isNavigating = false
+        }
+        activeOriginCoord = startCoord
+        activeDestCoord = destCoord
+        destinationName = targetName
+        destinationPin = destCoord
+        isFollowingVehicle = true
 
+        coroutineScope.launch {
+            kotlinx.coroutines.yield()
+            try {
+                val (route, alt) = withContext(Dispatchers.IO) {
+                    val primary = activeEngine?.calculateRoute(startCoord, destCoord, options) ?: RouteResult(
+                        success = false,
+                        totalDistanceMeters = 0.0,
+                        estimatedDurationSeconds = 0u,
+                        polyline = emptyList(),
+                        maneuvers = emptyList(),
+                        errorMessage = "Navigation engine not available"
+                    )
+                    var alternative: RouteResult? = null
+                    if (primary.success && primary.polyline.isNotEmpty()) {
+                        try { activeEngine?.setActiveRoute(primary) } catch (e: Exception) {}
+                        if (primary.totalDistanceMeters > 2500.0) {
+                            try {
+                                val altOptions = options.copy(avoidFerries = true)
+                                val a = activeEngine?.calculateRoute(startCoord, destCoord, altOptions)
+                                if (a != null && a.success && a.polyline.isNotEmpty() &&
+                                    Math.abs(a.totalDistanceMeters - primary.totalDistanceMeters) > 30.0) {
+                                    alternative = a
+                                }
+                            } catch (e: Exception) {
+                                alternative = null
+                            }
+                        }
+                    }
+                    Pair(primary, alternative)
+                }
+
+                if (route.success && route.polyline.isNotEmpty()) {
+                    activeRoute = route
+                    alternativeRoute = alt
+                    val durMin = (route.estimatedDurationSeconds / 60u).coerceAtLeast(1u)
+                    telemetry = telemetry.copy(
+                        remainingDistanceKm = (route.totalDistanceMeters / 1000.0).toFloat(),
+                        paceWindowMin = "$durMin MIN"
+                    )
+                    audioController.speakTerseCue("Route ready")
+                    dev.gabay.app.data.RecentDestinationsManager.addRecent(
+                        context = context,
+                        name = targetName,
+                        subtitle = "${String.format(Locale.US, "%.1f", route.totalDistanceMeters / 1000.0)} km • Road Network",
+                        category = "place",
+                        latitude = destCoord.latitude,
+                        longitude = destCoord.longitude
+                    )
+                    recentDestinations = dev.gabay.app.data.RecentDestinationsManager.getRecents(context)
+                    onComplete?.invoke()
+                } else {
+                    activeRoute = null
+                    alternativeRoute = null
+                    audioController.speakTerseCue("No road route found")
+                    android.widget.Toast.makeText(context, "No connected road route found", android.widget.Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("GabayRoute", "Route calculation failure: ${e.message}")
+                activeRoute = null
+                alternativeRoute = null
+                audioController.speakTerseCue("Route calculation failed")
+            } finally {
+                isRouteLoading = false
+            }
+        }
+    }
 
     // Process GPS tick through Rust Engine
-
     LaunchedEffect(userLat, userLon, userSpeed, userHeading, activeRoute) {
 
         activeEngine?.let { eng ->
@@ -802,14 +895,50 @@ fun CockpitScreen(
 
                 // Speak terse advisory ONLY if active route is pinned and debounced by 25 seconds
 
-                // Milestone-based discrete turn advisories (500m, 200m, 50m, arrival)
-                if (isNavigating && activeRoute != null) {
+                val currentRoute = activeRoute
+                if (isNavigating && currentRoute != null) {
                     val nowMs = System.currentTimeMillis()
-                    val isStationary = userSpeed < 3.0f
-                    if (updatedTelemetry.isOffRoute) {
-                        if (!isStationary && (nowMs - lastSpokenAdvisoryTimeMs > 25000L)) {
-                            lastSpokenAdvisoryTimeMs = nowMs
+                    val isStationary = userSpeed < 2.5f
+
+                    // 1. Destination Arrival Detection (< 30 meters or remaining <= 30m)
+                    val destPoint = destinationPin ?: currentRoute.polyline.lastOrNull()
+                    val distToDestM = if (destPoint != null) {
+                        val r = FloatArray(1)
+                        android.location.Location.distanceBetween(userLat, userLon, destPoint.latitude, destPoint.longitude, r)
+                        r[0]
+                    } else 9999f
+
+                    if (distToDestM < 30.0f || updatedTelemetry.remainingDistanceKm <= 0.03f) {
+                        if (nowMs - lastArrivalAnnouncedTimeMs > 60000L) {
+                            lastArrivalAnnouncedTimeMs = nowMs
+                            audioController.speakTerseCue("You have arrived at your destination.")
+                            telemetry = updatedTelemetry.copy(
+                                remainingDistanceKm = 0.0f,
+                                paceWindowMin = "ARRIVED",
+                                coPilotAdvisory = "ARRIVED AT DESTINATION"
+                            )
+                        }
+                    } else if (updatedTelemetry.isOffRoute) {
+                        // 2. Real Dynamic Off-Route Recalculation
+                        if ((nowMs - lastRerouteTimeMs > 7000L) && !isRouteLoading) {
+                            lastRerouteTimeMs = nowMs
                             audioController.speakTerseCue("Off-route. Recalculating route.")
+                            val dest = destinationPin ?: currentRoute.polyline.lastOrNull()
+                            if (dest != null) {
+                                val options = RouteOptions(
+                                    mode = selectedMode,
+                                    avoidTolls = (selectedMode == VehicleMode.SCOOTER),
+                                    avoidExpressways = (selectedMode == VehicleMode.SCOOTER),
+                                    avoidFerries = false
+                                )
+                                requestRouteCalculation(
+                                    startCoord = LatLng(userLat, userLon),
+                                    destCoord = dest,
+                                    options = options,
+                                    targetName = destinationName,
+                                    preserveNavigating = true
+                                )
+                            }
                         }
                     } else {
                         val turnDist = updatedTelemetry.nextTurnDistanceM
@@ -844,147 +973,15 @@ fun CockpitScreen(
         }
     }
 
-
-
-    // Asynchronous non-blocking route computation with Dispatchers.IO and HUD loading state
-
-    fun requestRouteCalculation(
-
-        startCoord: LatLng,
-
-        destCoord: LatLng,
-
-        options: RouteOptions,
-
-        targetName: String,
-
-        onComplete: (() -> Unit)? = null
-
-    ) {
-
-        if (isRouteLoading) return
-
-        isRouteLoading = true
-
-        isNavigating = false
-
-        activeOriginCoord = startCoord
-
-        activeDestCoord = destCoord
-
-        destinationName = targetName
-
-        destinationPin = destCoord
-
-        isFollowingVehicle = true
-
-
-
-        coroutineScope.launch {
-
-            kotlinx.coroutines.yield()
-
-            try {
-
-                val (route, alt) = withContext(Dispatchers.IO) {
-                    val primary = activeEngine?.calculateRoute(startCoord, destCoord, options) ?: RouteResult(
-                        success = false,
-                        totalDistanceMeters = 0.0,
-                        estimatedDurationSeconds = 0u,
-                        polyline = emptyList(),
-                        maneuvers = emptyList(),
-                        errorMessage = "Navigation engine not available"
-                    )
-                    var alternative: RouteResult? = null
-                    if (primary.success && primary.polyline.isNotEmpty()) {
-                        try { activeEngine?.setActiveRoute(primary) } catch (e: Exception) {}
-                        if (primary.totalDistanceMeters > 2500.0) {
-                            try {
-                                val altOptions = options.copy(avoidFerries = true)
-                                val a = activeEngine?.calculateRoute(startCoord, destCoord, altOptions)
-                                if (a != null && a.success && a.polyline.isNotEmpty() &&
-                                    Math.abs(a.totalDistanceMeters - primary.totalDistanceMeters) > 30.0) {
-                                    alternative = a
-                                }
-                            } catch (e: Exception) {
-                                alternative = null
-                            }
-                        }
-                    }
-                    Pair(primary, alternative)
-                }
-
-                if (route.success && route.polyline.isNotEmpty()) {
-                    activeRoute = route
-                    alternativeRoute = alt
-                    val durMin = (route.estimatedDurationSeconds / 60u).coerceAtLeast(1u)
-
-                    telemetry = telemetry.copy(
-
-                        remainingDistanceKm = (route.totalDistanceMeters / 1000.0).toFloat(),
-
-                        paceWindowMin = "$durMin MIN"
-
-                    )
-
-                    audioController.speakTerseCue("Route ready")
-
-                    dev.gabay.app.data.RecentDestinationsManager.addRecent(
-
-                        context = context,
-
-                        name = targetName,
-
-                        subtitle = "${String.format(Locale.US, "%.1f", route.totalDistanceMeters / 1000.0)} km • Road Network",
-
-                        category = "place",
-
-                        latitude = destCoord.latitude,
-
-                        longitude = destCoord.longitude
-
-                    )
-
-                    recentDestinations = dev.gabay.app.data.RecentDestinationsManager.getRecents(context)
-
-                    onComplete?.invoke()
-
-                } else {
-                    activeRoute = null
-                    alternativeRoute = null
-                    audioController.speakTerseCue("No road route found")
-                    android.widget.Toast.makeText(context, "No connected road route found", android.widget.Toast.LENGTH_SHORT).show()
-                }
-            } catch (e: Exception) {
-                android.util.Log.e("GabayRoute", "Route calculation failure: ${e.message}")
-                activeRoute = null
-                alternativeRoute = null
-                audioController.speakTerseCue("Route calculation failed")
-
-            } finally {
-
-                isRouteLoading = false
-
-            }
-
-        }
-
-    }
-
-
-
     fun startActiveNavigation() {
-
         val route = activeRoute ?: return
-
         isNavigating = true
-
+        isFollowingVehicle = true
+        is3dMode = true
+        cameraTarget = MapLibreLatLng(userLat, userLon)
         NavigationService.start(context)
-
         val road = route.maneuvers.firstOrNull()?.roadName ?: destinationName
-
         audioController.speakTerseCue("ROUTE ACTIVE TO ${destinationName.uppercase()}. PROCEED VIA $road.")
-
     }
 
 
@@ -1161,108 +1158,133 @@ fun CockpitScreen(
 
                         }
 
-                        "3d" -> {
-
-                            is3dMode = true
-
-                            val msg = "3D perspective enabled."
-
+                        "street" -> {
+                            fusedMapMode = FusedMapMode.STREET
+                            val msg = "Switched to street vector view."
                             chatMessages.add(ChatMessage("Gabay", msg, replyTime))
-
                             audioController.speakTerseCue(msg)
+                        }
 
+                        "satellite" -> {
+                            fusedMapMode = FusedMapMode.SATELLITE
+                            val msg = "Switched to satellite view."
+                            chatMessages.add(ChatMessage("Gabay", msg, replyTime))
+                            audioController.speakTerseCue(msg)
+                        }
+
+                        "topo" -> {
+                            fusedMapMode = FusedMapMode.TOPO
+                            val msg = "Switched to topographic terrain view."
+                            chatMessages.add(ChatMessage("Gabay", msg, replyTime))
+                            audioController.speakTerseCue(msg)
+                        }
+
+                        "3d" -> {
+                            is3dMode = true
+                            val msg = "3D perspective enabled."
+                            chatMessages.add(ChatMessage("Gabay", msg, replyTime))
+                            audioController.speakTerseCue(msg)
                         }
 
                         "2d" -> {
-
                             is3dMode = false
-
                             val msg = "2D overhead view enabled."
-
                             chatMessages.add(ChatMessage("Gabay", msg, replyTime))
-
                             audioController.speakTerseCue(msg)
-
                         }
 
                         "north" -> {
-
                             resetRotationCount++
-
                             val msg = "Compass aligned to True North."
-
                             chatMessages.add(ChatMessage("Gabay", msg, replyTime))
-
                             audioController.speakTerseCue(msg)
-
                         }
 
                         "follow", "recenter" -> {
-
                             isFollowingVehicle = true
-
                             cameraTarget = MapLibreLatLng(userLat, userLon)
-
                             val msg = "Re-centered on your location."
-
                             chatMessages.add(ChatMessage("Gabay", msg, replyTime))
-
                             audioController.speakTerseCue(msg)
-
                         }
 
                         "cancel", "stop" -> {
-
                             cancelActiveRoute()
-
                             val msg = "Route cancelled."
-
                             chatMessages.add(ChatMessage("Gabay", msg, replyTime))
-
                         }
 
                         "navigate" -> {
+                            var targetQuery = if (result.target.isNotBlank()) result.target else prompt
+                            targetQuery = targetQuery.lowercase(Locale.ROOT)
+                                .replace("can you ", "").replace("please ", "")
+                                .replace("navigate to ", "").replace("go to ", "").replace("take me to ", "")
+                                .replace("right now", "").replace("now", "").replace("for me", "")
+                                .replace("nust", "neust")
+                                .trim()
 
-                            val targetQuery = if (result.target.isNotBlank()) result.target else prompt
+                            var pois = engine?.searchPois(targetQuery, 5u) ?: emptyList()
+                            var target = pois.firstOrNull()
 
-                            val pois = engine?.searchPois(targetQuery, 1u) ?: emptyList()
-
-                            val target = pois.firstOrNull()
-
-                            if (target != null) {
-
-                                val options = RouteOptions(
-
-                                    mode = selectedMode,
-
-                                    avoidTolls = (selectedMode == VehicleMode.SCOOTER),
-
-                                    avoidExpressways = (selectedMode == VehicleMode.SCOOTER),
-
-                                    avoidFerries = false
-
-                                )
-
-                                val startCoord = LatLng(userLat, userLon)
-
-                                originName = "Your location"
-
-                                requestRouteCalculation(startCoord, target.coordinate, options, target.name)
-
-                                val msg = "Navigating to ${target.name}."
-
-                                chatMessages.add(ChatMessage("Gabay", msg, replyTime))
-
-                            } else {
-
-                                val msg = "Destination \"$targetQuery\" not found in offline vault."
-
-                                chatMessages.add(ChatMessage("Gabay", msg, replyTime))
-
-                                audioController.speakTerseCue(msg)
-
+                            // Robust direct SQLite fallback if engine returns empty
+                            if (target == null) {
+                                try {
+                                    val dbFile = File("/sdcard/Documents/Gabay/pois_fts.sqlite")
+                                    if (dbFile.exists()) {
+                                        val db = android.database.sqlite.SQLiteDatabase.openDatabase(
+                                            dbFile.absolutePath, null, android.database.sqlite.SQLiteDatabase.OPEN_READONLY
+                                        )
+                                        val words = targetQuery.split(" ").filter { it.length >= 2 }
+                                        if (words.isNotEmpty()) {
+                                            val whereClauses = words.map { "(name LIKE ? OR category LIKE ?)" }.joinToString(" AND ")
+                                            val args = ArrayList<String>()
+                                            for (w in words) {
+                                                args.add("%$w%")
+                                                args.add("%$w%")
+                                            }
+                                            val cur = db.rawQuery(
+                                                "SELECT name, category, latitude, longitude FROM pois WHERE $whereClauses LIMIT 1",
+                                                args.toTypedArray()
+                                            )
+                                            if (cur.moveToFirst()) {
+                                                val name = cur.getString(0)
+                                                val cat = cur.getString(1)
+                                                val lat = cur.getDouble(2)
+                                                val lon = cur.getDouble(3)
+                                                target = uniffi.gabay_core.PoiSearchResult(
+                                                    id = 0L,
+                                                    name = name,
+                                                    category = cat,
+                                                    coordinate = LatLng(lat, lon),
+                                                    distanceMeters = 0.0
+                                                )
+                                            }
+                                            cur.close()
+                                        }
+                                        db.close()
+                                    }
+                                } catch (e: Exception) {
+                                    android.util.Log.e("GabayNav", "Fallback SQLite search error: ${e.message}")
+                                }
                             }
 
+                            if (target != null) {
+                                val options = RouteOptions(
+                                    mode = selectedMode,
+                                    avoidTolls = (selectedMode == VehicleMode.SCOOTER),
+                                    avoidExpressways = (selectedMode == VehicleMode.SCOOTER),
+                                    avoidFerries = false
+                                )
+                                val startCoord = LatLng(userLat, userLon)
+                                originName = "Your location"
+                                requestRouteCalculation(startCoord, target.coordinate, options, target.name)
+                                val msg = "Navigating to ${target.name}."
+                                chatMessages.add(ChatMessage("Gabay", msg, replyTime))
+                            } else {
+                                val msg = "Destination \"$targetQuery\" not found in offline vault."
+                                chatMessages.add(ChatMessage("Gabay", msg, replyTime))
+                                audioController.speakTerseCue(msg)
+                            }
                         }
 
                         "search" -> {
@@ -1526,6 +1548,8 @@ fun CockpitScreen(
 
             userHeading = userHeading,
 
+            userSpeed = userSpeed,
+
             activeRoute = activeRoute,
             alternativeRoute = alternativeRoute,
             destinationPin = destinationPin,
@@ -1535,6 +1559,8 @@ fun CockpitScreen(
             is3dPerspective = is3dMode,
 
             isFollowingVehicle = isFollowingVehicle,
+
+            isNavigating = isNavigating,
 
             resetRotationTrigger = resetRotationCount,
 

@@ -96,8 +96,23 @@ impl PoiSearch {
                 }
             }
         } else {
-            // General query: Try FTS5 match
-            let formatted_query = format!("\"{}\"*", q_clean.replace('"', ""));
+            // Normalize query with common abbreviations/aliases (e.g. nust -> neust)
+            let q_normalized = q_lower
+                .replace("nust", "neust")
+                .replace("elem ", "elementary ")
+                .replace("natl ", "national ");
+
+            let words: Vec<&str> = q_normalized
+                .split(|c: char| !c.is_alphanumeric())
+                .filter(|w| !w.is_empty())
+                .collect();
+
+            let formatted_query = if words.is_empty() {
+                format!("\"{}\"*", q_clean.replace('"', ""))
+            } else {
+                words.iter().map(|w| format!("{}*", w)).collect::<Vec<_>>().join(" ")
+            };
+
             let candidate_limit = (limit.max(5) * 10) as i64;
             if let Ok(mut stmt) = conn.prepare(
                 "SELECT p.id, p.name, p.category, p.latitude, p.longitude 
@@ -132,16 +147,23 @@ impl PoiSearch {
                 }
             }
 
-            // Resilient Fallback: If FTS5 yields 0 results, query table pois directly with LIKE
-            if results.is_empty() {
-                let like_query = format!("%{}%", q_clean);
-                if let Ok(mut fallback_stmt) = conn.prepare(
-                    "SELECT id, name, category, latitude, longitude 
-                     FROM pois 
-                     WHERE name LIKE ?1 OR category LIKE ?1 
-                     LIMIT ?2",
-                ) {
-                    if let Ok(fallback_rows) = fallback_stmt.query_map(params![like_query, candidate_limit], |row| {
+            // Resilient Fallback: If FTS5 yields 0 results, query table pois with multi-word LIKE
+            if results.is_empty() && !words.is_empty() {
+                let mut where_clauses = Vec::new();
+                let mut params_vec: Vec<String> = Vec::new();
+                for w in &words {
+                    where_clauses.push("(name LIKE ? OR category LIKE ?)");
+                    params_vec.push(format!("%{}%", w));
+                    params_vec.push(format!("%{}%", w));
+                }
+                let sql = format!(
+                    "SELECT id, name, category, latitude, longitude FROM pois WHERE {} LIMIT {}",
+                    where_clauses.join(" AND "),
+                    candidate_limit
+                );
+                if let Ok(mut fallback_stmt) = conn.prepare(&sql) {
+                    let params_refs: Vec<&dyn rusqlite::ToSql> = params_vec.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
+                    if let Ok(fallback_rows) = fallback_stmt.query_map(params_refs.as_slice(), |row| {
                         Ok((
                             row.get::<_, i64>(0)?,
                             row.get::<_, String>(1)?,

@@ -263,31 +263,76 @@ object LlamaDaemon {
     }
 
     private fun fastHeuristic(prompt: String, riderContext: RiderContext = RiderContext()): IntentResult {
-        val lower = prompt.lowercase(Locale.ROOT)
+        var cleaned = prompt.lowercase(Locale.ROOT).trim()
+
+        // Strip conversational prefixes and polite wrappers
+        val prefixes = listOf(
+            "can you please ", "could you please ", "can you kindly ", "can you ", "could you ",
+            "please ", "kindly ", "paki ", "pakisuyo ", "hey gabay ", "gabay "
+        )
+        for (prefix in prefixes) {
+            if (cleaned.startsWith(prefix)) {
+                cleaned = cleaned.removePrefix(prefix).trim()
+            }
+        }
+
+        // Strip conversational suffixes
+        val suffixes = listOf(" right now", " now", " please", " for me", " asap", " po")
+        for (suffix in suffixes) {
+            if (cleaned.endsWith(suffix)) {
+                cleaned = cleaned.removeSuffix(suffix).trim()
+            }
+        }
+
+        // Autocorrect common abbreviations/typos
+        cleaned = cleaned.replace("nust", "neust")
+
         return when {
-            lower.contains("where am i") || lower.contains("what road") ||
-                lower.contains("where are we") || lower.contains("current location") ||
-                lower.contains("saan ako") || lower.contains("nasaan tayo") || lower.contains("anong kalsada") -> {
+            cleaned.contains("where am i") || cleaned.contains("what road") ||
+                cleaned.contains("where are we") || cleaned.contains("current location") ||
+                cleaned.contains("saan ako") || cleaned.contains("nasaan tayo") || cleaned.contains("anong kalsada") -> {
                 IntentResult.Action("where_am_i")
             }
-            lower.contains("disengage") || lower.contains("cancel") || lower.contains("stop") ||
-                lower.contains("end route") || lower.contains("clear route") || lower.contains("turn off navigation") -> IntentResult.Action("cancel")
-            lower.contains("3d") || lower.contains("tilt") -> IntentResult.Action("3d")
-            lower.contains("2d") || lower.contains("flat") || lower.contains("overhead") -> IntentResult.Action("2d")
-            lower.contains("north") -> IntentResult.Action("north")
-            lower.contains("follow") || lower.contains("recenter") || lower.contains("magnet") -> IntentResult.Action("follow")
-            lower.startsWith("go to ") || lower.startsWith("navigate to ") || lower.startsWith("take me to ") || lower.startsWith("head to ") -> {
-                val target = lower.removePrefix("go to ")
-                    .removePrefix("navigate to ")
-                    .removePrefix("take me to ")
-                    .removePrefix("head to ")
-                    .trim()
-                IntentResult.Action("navigate", target)
+            cleaned.contains("disengage") || cleaned.contains("cancel") || cleaned.contains("stop") ||
+                cleaned.contains("end route") || cleaned.contains("clear route") || cleaned.contains("turn off navigation") -> IntentResult.Action("cancel")
+            cleaned.contains("satellite") || cleaned.contains("sat view") || cleaned.contains("sat mode") -> IntentResult.Action("satellite")
+            cleaned.contains("street view") || cleaned.contains("street mode") || cleaned.contains("street") || cleaned.contains("vector") -> IntentResult.Action("street")
+            cleaned.contains("topo") || cleaned.contains("terrain") || cleaned.contains("contour") -> IntentResult.Action("topo")
+            cleaned.contains("3d") || cleaned.contains("tilt") || cleaned.contains("perspective") || cleaned.contains("driving view") -> IntentResult.Action("3d")
+            cleaned.contains("2d") || cleaned.contains("flat") || cleaned.contains("overhead") || cleaned.contains("top down") -> IntentResult.Action("2d")
+            cleaned.contains("north") -> IntentResult.Action("north")
+            cleaned.contains("follow") || cleaned.contains("recenter") || cleaned.contains("magnet") || cleaned.contains("track me") -> IntentResult.Action("follow")
+
+            // Navigation commands with dynamic destination extraction
+            cleaned.contains("navigate to ") || cleaned.contains("go to ") || cleaned.contains("take me to ") ||
+                cleaned.contains("head to ") || cleaned.contains("drive to ") || cleaned.contains("route to ") ||
+                cleaned.contains("bring me to ") || cleaned.contains("pumunta sa ") -> {
+                val verbs = listOf("navigate to ", "go to ", "take me to ", "head to ", "drive to ", "route to ", "bring me to ", "pumunta sa ")
+                var dest = cleaned
+                for (v in verbs) {
+                    val idx = dest.indexOf(v)
+                    if (idx != -1) {
+                        dest = dest.substring(idx + v.length).trim()
+                        break
+                    }
+                }
+                dest = dest.removeSuffix(" right now").removeSuffix(" now").removeSuffix(" please").trim()
+                IntentResult.Action("navigate", dest)
             }
-            lower.contains("gas") || lower.contains("fuel") || lower.contains("petron") || lower.contains("shell") || lower.contains("caltex") -> IntentResult.Action("search", "Gas")
-            lower.contains("restaurant") || lower.contains("food") || lower.contains("jollibee") || lower.contains("kain") || lower.contains("eat") -> IntentResult.Action("search", "Restaurant")
-            lower.contains("hospital") || lower.contains("emergency") || lower.contains("clinic") || lower.contains("pharmacy") -> IntentResult.Action("search", "Hospital")
-            else -> IntentResult.Conversational("I'm ready. Tell me where you'd like to go or search a place.")
+
+            cleaned.contains("gas") || cleaned.contains("fuel") || cleaned.contains("petron") || cleaned.contains("shell") || cleaned.contains("caltex") -> IntentResult.Action("search", "Gas")
+            cleaned.contains("restaurant") || cleaned.contains("food") || cleaned.contains("jollibee") || cleaned.contains("kain") || cleaned.contains("eat") -> IntentResult.Action("search", "Restaurant")
+            cleaned.contains("hospital") || cleaned.contains("emergency") || cleaned.contains("clinic") || cleaned.contains("pharmacy") -> IntentResult.Action("search", "Hospital")
+            cleaned.contains("school") || cleaned.contains("university") || cleaned.contains("college") || cleaned.contains("campus") -> IntentResult.Action("search", cleaned)
+
+            else -> {
+                // If it looks like a place query (e.g. "neust san isidro"), route to it directly
+                if (cleaned.length >= 3 && !cleaned.contains("hello") && !cleaned.contains("hi") && !cleaned.contains("how")) {
+                    IntentResult.Action("navigate", cleaned)
+                } else {
+                    IntentResult.Conversational("Co-pilot ready. Speak a destination, map command (e.g. street view, 3D), or search.")
+                }
+            }
         }
     }
 }
