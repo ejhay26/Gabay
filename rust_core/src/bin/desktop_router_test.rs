@@ -30,6 +30,8 @@ fn main() -> anyhow::Result<()> {
     let router = Router::new(Some(graph_path.to_string()));
     println!("[OK] Router initialized in {:.2}s", t_load.elapsed().as_secs_f32());
 
+    println!("=== GABAY ROUTING ENGINE READY ===");
+
     // Curated benchmark routes in Nueva Ecija & Metro Manila
     let test_cases = vec![
         TestCase {
@@ -98,6 +100,61 @@ fn main() -> anyhow::Result<()> {
             end_lon: 120.9787,
             expected_km: 6.2,
         },
+        TestCase {
+            id: 7,
+            name: "Manila (Luneta) -> Baguio City Hall (Far Away North)",
+            start_label: "Luneta Manila",
+            start_lat: 14.5826,
+            start_lon: 120.9787,
+            end_label: "Baguio City Hall",
+            end_lat: 16.4135,
+            end_lon: 120.5960,
+            expected_km: 245.0,
+        },
+        TestCase {
+            id: 8,
+            name: "Manila (Luneta) -> Alabang Muntinlupa",
+            start_label: "Luneta Manila",
+            start_lat: 14.5826,
+            start_lon: 120.9787,
+            end_label: "Alabang Town Center",
+            end_lat: 14.4235,
+            end_lon: 121.0285,
+            expected_km: 22.0,
+        },
+        TestCase {
+            id: 9,
+            name: "Alabang -> Calamba Laguna (Old National Road)",
+            start_label: "Alabang",
+            start_lat: 14.4235,
+            start_lon: 121.0285,
+            end_label: "Calamba Laguna Crossing",
+            end_lat: 14.2050,
+            end_lon: 121.1550,
+            expected_km: 32.0,
+        },
+        TestCase {
+            id: 10,
+            name: "Calamba Laguna -> Lipa City Batangas",
+            start_label: "Calamba",
+            start_lat: 14.2050,
+            start_lon: 121.1550,
+            end_label: "Lipa City Hall",
+            end_lat: 13.9410,
+            end_lon: 121.1630,
+            expected_km: 35.0,
+        },
+        TestCase {
+            id: 11,
+            name: "Lipa City -> Batangas Port",
+            start_label: "Lipa City",
+            start_lat: 13.9410,
+            start_lon: 121.1630,
+            end_label: "Batangas Port",
+            end_lat: 13.7565,
+            end_lon: 121.0450,
+            expected_km: 30.0,
+        },
     ];
 
     println!("\n[2/3] Executing routing benchmark tests...");
@@ -135,7 +192,17 @@ fn main() -> anyhow::Result<()> {
         print!("Test #{}: {} ... ", tc.id, tc.name);
 
         if !res.success {
-            println!("FAILED! Error: {:?}", res.error_message);
+            println!("FAILED (Scooter)! Error: {:?}", res.error_message);
+            // Try with Car mode to see if expressway/toll restriction caused failure
+            let mut car_opts = options.clone();
+            car_opts.mode = VehicleMode::Car;
+            car_opts.avoid_expressways = false;
+            car_opts.avoid_tolls = false;
+            let car_res = router.calculate_route(start.clone(), end.clone(), car_opts);
+            if car_res.success {
+                println!("   -> BUT Car mode (with expressways/tolls) SUCCEEDED! Dist: {:.2} km. (Issue: Scooter is blocked on expressways/tolls or missing non-expressway bridge!)", car_res.total_distance_meters / 1000.0);
+                println!("   -> Diagnostic: checking start ({:.4}, {:.4}) and dest ({:.4}, {:.4}) in graph...", start.latitude, start.longitude, end.latitude, end.longitude);
+            }
             continue;
         }
 

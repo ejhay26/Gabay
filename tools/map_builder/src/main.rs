@@ -16,6 +16,7 @@ pub const FLAG_BICYCLE: u8 = 1 << 2;
 pub const FLAG_WALK: u8 = 1 << 3;
 pub const FLAG_TOLL: u8 = 1 << 4;
 pub const FLAG_EXPRESSWAY: u8 = 1 << 5;
+pub const FLAG_FERRY: u8 = 1 << 6;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct OsmNode {
@@ -132,8 +133,12 @@ fn process_pbf(input: &Path, out_graph: &Path, out_pois: &Path, bbox_filter: Opt
             let mut is_toll = false;
             let mut is_roundabout = false;
 
+            let mut is_ferry = false;
+
             for (k, v) in way.tags() {
-                if k == "highway" {
+                if (k == "route" && v == "ferry") || (k == "highway" && v == "ferry") {
+                    is_ferry = true;
+                } else if k == "highway" {
                     highway_type = Some(v.to_string());
                 } else if k == "name" {
                     road_name = v.to_string();
@@ -156,9 +161,36 @@ fn process_pbf(input: &Path, out_graph: &Path, out_pois: &Path, bbox_filter: Opt
                 oneway = 1;
             }
 
+            if is_ferry {
+                let flags = FLAG_CAR | FLAG_SCOOTER | FLAG_BICYCLE | FLAG_WALK | FLAG_FERRY;
+                let speed_limit = 25;
+                if road_name == "Road" {
+                    road_name = "Ferry Route".to_string();
+                }
+                let refs: Vec<i64> = way.refs().collect();
+                if refs.len() >= 2 {
+                    for &nid in &refs {
+                        highway_node_ids.insert(nid);
+                    }
+                    extracted_ways.push(ParsedWay {
+                        name: road_name,
+                        oneway: 0,
+                        flags,
+                        speed_limit,
+                        refs,
+                    });
+                }
+                return;
+            }
+
             if let Some(hw) = highway_type {
-                // Filter out non-vehicular paths
-                if matches!(hw.as_str(), "footway" | "steps" | "pedestrian" | "path" | "cycleway" | "corridor" | "bridleway" | "rail" | "ferry" | "proposed" | "construction" | "platform" | "abandoned") {
+                // Filter out non-vehicular paths, agricultural tracks, and trails
+                if matches!(hw.as_str(), "footway" | "steps" | "pedestrian" | "path" | "cycleway" | "corridor" | "bridleway" | "rail" | "track" | "proposed" | "construction" | "platform" | "abandoned") {
+                    return;
+                }
+
+                // For service roads, only include named thoroughfares/connectors, skipping private driveways & parking aisles
+                if hw == "service" && road_name == "Road" {
                     return;
                 }
 
@@ -311,8 +343,43 @@ fn process_pbf(input: &Path, out_graph: &Path, out_pois: &Path, bbox_filter: Opt
 
     println!("Indexed {} nodes within target boundary.", final_nodes.len());
 
-    // Build raw directed edge list: (from_idx, OsmEdge)
-    let mut raw_edges: Vec<(u32, OsmEdge)> = Vec::new();
+    let num_nodes = final_nodes.len();
+    let mut degrees = vec![0u32; num_nodes];
+
+    // Pass 3A: Count degree of each node to compute exact CSR offsets
+    for way in &extracted_ways {
+        for window in way.refs.windows(2) {
+            let from_id = window[0];
+            let to_id = window[1];
+
+            if let (Some(&u), Some(&v)) = (node_id_to_idx.get(&from_id), node_id_to_idx.get(&to_id)) {
+                if way.oneway >= 0 { degrees[u as usize] += 1; }
+                if way.oneway <= 0 { degrees[v as usize] += 1; }
+            }
+        }
+    }
+
+    // Prefix sum to compute node_edge_offsets
+    let mut node_edge_offsets = vec![0u32; num_nodes + 1];
+    let mut total_edges = 0u64;
+    for i in 0..num_nodes {
+        node_edge_offsets[i] = total_edges as u32;
+        total_edges += degrees[i] as u64;
+    }
+    node_edge_offsets[num_nodes] = total_edges as u32;
+
+    println!("Constructed CSR topology: {} nodes, {} directed road edges.", num_nodes, total_edges);
+
+    // Pass 3B: Directly write edges into place using offset cursor
+    let mut cursor = node_edge_offsets[0..num_nodes].to_vec();
+    let default_edge = OsmEdge {
+        target_idx: 0,
+        distance_m: 0.0,
+        speed_limit_kmh: 0,
+        flags: 0,
+        road_name: String::new(),
+    };
+    let mut final_edges: Vec<OsmEdge> = vec![default_edge; total_edges as usize];
 
     for way in extracted_ways {
         for window in way.refs.windows(2) {
@@ -325,50 +392,29 @@ fn process_pbf(input: &Path, out_graph: &Path, out_pois: &Path, bbox_filter: Opt
                 let dist = haversine_distance(n1.lat, n1.lon, n2.lat, n2.lon);
 
                 if way.oneway >= 0 {
-                    raw_edges.push((
-                        u,
-                        OsmEdge {
-                            target_idx: v,
-                            distance_m: dist,
-                            speed_limit_kmh: way.speed_limit,
-                            flags: way.flags,
-                            road_name: way.name.clone(),
-                        },
-                    ));
+                    let pos = cursor[u as usize] as usize;
+                    cursor[u as usize] += 1;
+                    final_edges[pos] = OsmEdge {
+                        target_idx: v,
+                        distance_m: dist,
+                        speed_limit_kmh: way.speed_limit,
+                        flags: way.flags,
+                        road_name: way.name.clone(),
+                    };
                 }
                 if way.oneway <= 0 {
-                    raw_edges.push((
-                        v,
-                        OsmEdge {
-                            target_idx: u,
-                            distance_m: dist,
-                            speed_limit_kmh: way.speed_limit,
-                            flags: way.flags,
-                            road_name: way.name.clone(),
-                        },
-                    ));
+                    let pos = cursor[v as usize] as usize;
+                    cursor[v as usize] += 1;
+                    final_edges[pos] = OsmEdge {
+                        target_idx: u,
+                        distance_m: dist,
+                        speed_limit_kmh: way.speed_limit,
+                        flags: way.flags,
+                        road_name: way.name.clone(),
+                    };
                 }
             }
         }
-    }
-
-    println!("Constructed {} directed road edges.", raw_edges.len());
-
-    // Sort edges by source node index for Compressed Sparse Row representation
-    raw_edges.sort_by_key(|e| e.0);
-
-    let num_nodes = final_nodes.len();
-    let mut node_edge_offsets = vec![0u32; num_nodes + 1];
-    let mut final_edges: Vec<OsmEdge> = Vec::with_capacity(raw_edges.len());
-
-    for (from_idx, edge) in raw_edges {
-        final_edges.push(edge);
-        node_edge_offsets[from_idx as usize + 1] += 1;
-    }
-
-    // Prefix sum to compute offsets
-    for i in 1..=num_nodes {
-        node_edge_offsets[i] += node_edge_offsets[i - 1];
     }
 
     let graph = OsmRoutingGraph {

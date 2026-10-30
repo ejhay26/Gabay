@@ -17,6 +17,7 @@ pub const FLAG_BICYCLE: u8 = 1 << 2;
 pub const FLAG_WALK: u8 = 1 << 3;
 pub const FLAG_TOLL: u8 = 1 << 4;
 pub const FLAG_EXPRESSWAY: u8 = 1 << 5;
+pub const FLAG_FERRY: u8 = 1 << 6;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct OsmNode {
@@ -214,8 +215,58 @@ impl Router {
         Ok(())
     }
 
-    /// Snaps a GPS coordinate to the closest graph node
-    fn snap_to_node(&self, coord: &LatLng, graph: &OsmRoutingGraph, grid: &HashMap<(i32, i32), Vec<u32>>) -> Option<u32> {
+    /// Checks if a directed edge is accessible for the requested vehicle mode and restrictions
+    pub fn is_edge_allowed(flags: u8, options: &RouteOptions) -> bool {
+        // Ro-Ro Ferries transport cars, scooters, bikes, and pedestrians
+        if (flags & FLAG_FERRY) != 0 {
+            return !options.avoid_ferries;
+        }
+
+        match options.mode {
+            VehicleMode::Scooter => {
+                // Philippine legal restriction: <400cc motorcycles strictly prohibited on expressways and tolls
+                (flags & FLAG_EXPRESSWAY) == 0
+                    && (flags & FLAG_TOLL) == 0
+                    && (flags & FLAG_SCOOTER) != 0
+            }
+            VehicleMode::Car => {
+                let mut ok = (flags & FLAG_CAR) != 0;
+                if options.avoid_expressways && (flags & FLAG_EXPRESSWAY) != 0 {
+                    ok = false;
+                }
+                if options.avoid_tolls && (flags & FLAG_TOLL) != 0 {
+                    ok = false;
+                }
+                ok
+            }
+            VehicleMode::Bicycle => {
+                (flags & FLAG_EXPRESSWAY) == 0
+                    && (flags & FLAG_TOLL) == 0
+                    && (flags & FLAG_BICYCLE) != 0
+            }
+            VehicleMode::Walk => {
+                (flags & FLAG_EXPRESSWAY) == 0
+                    && (flags & FLAG_TOLL) == 0
+                    && (flags & FLAG_WALK) != 0
+            }
+        }
+    }
+
+    /// Verifies whether a candidate node contains active outgoing edges traversable for the given mode
+    fn node_has_traversable_edge(node_idx: u32, graph: &OsmRoutingGraph, options: &RouteOptions) -> bool {
+        let start_edge = graph.node_edge_offsets[node_idx as usize] as usize;
+        let end_edge = graph.node_edge_offsets[node_idx as usize + 1] as usize;
+        (start_edge..end_edge).any(|e_idx| Self::is_edge_allowed(graph.edges[e_idx].flags, options))
+    }
+
+    /// Snaps a GPS coordinate to the closest valid, traversable graph node
+    fn snap_to_node(
+        &self,
+        coord: &LatLng,
+        graph: &OsmRoutingGraph,
+        grid: &HashMap<(i32, i32), Vec<u32>>,
+        options: &RouteOptions,
+    ) -> Option<u32> {
         const CELL_SIZE: f64 = 0.005;
         let cx = (coord.latitude / CELL_SIZE).floor() as i32;
         let cy = (coord.longitude / CELL_SIZE).floor() as i32;
@@ -223,23 +274,52 @@ impl Router {
         let mut best_idx = None;
         let mut min_dist = f64::INFINITY;
 
-        // Search surrounding 5x5 cells (~2.5km radius)
-        for dx in -2..=2 {
-            for dy in -2..=2 {
-                if let Some(nodes) = grid.get(&(cx + dx, cy + dy)) {
-                    for &n_idx in nodes {
-                        let node = &graph.nodes[n_idx as usize];
-                        let d = Self::haversine_distance(coord, &LatLng { latitude: node.lat, longitude: node.lon });
-                        if d < min_dist {
-                            min_dist = d;
-                            best_idx = Some(n_idx);
+        // Step 1: Concentric ring search (up to 4 rings = 9x9 cells, ~5 km radius)
+        // Strictly filters for nodes that have valid traversable outgoing edges for this vehicle mode
+        for r in 0i32..=4i32 {
+            for dx in -r..=r {
+                for dy in -r..=r {
+                    if r > 0 && dx.abs() != r && dy.abs() != r {
+                        continue;
+                    }
+                    if let Some(nodes) = grid.get(&(cx + dx, cy + dy)) {
+                        for &n_idx in nodes {
+                            if Self::node_has_traversable_edge(n_idx, graph, options) {
+                                let node = &graph.nodes[n_idx as usize];
+                                let d = Self::haversine_distance(coord, &LatLng { latitude: node.lat, longitude: node.lon });
+                                if d < min_dist {
+                                    min_dist = d;
+                                    best_idx = Some(n_idx);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if best_idx.is_some() {
+                break;
+            }
+        }
+
+        // Step 2: Expanded grid search up to 10 cells (~5.5km) if in rural / unpaved terrain
+        if best_idx.is_none() {
+            for dx in -10..=10 {
+                for dy in -10..=10 {
+                    if let Some(nodes) = grid.get(&(cx + dx, cy + dy)) {
+                        for &n_idx in nodes {
+                            let node = &graph.nodes[n_idx as usize];
+                            let d = Self::haversine_distance(coord, &LatLng { latitude: node.lat, longitude: node.lon });
+                            if d < min_dist {
+                                min_dist = d;
+                                best_idx = Some(n_idx);
+                            }
                         }
                     }
                 }
             }
         }
 
-        // Fallback: If point is outside the grid bounds, scan globally
+        // Step 3: Global fallback (e.g. coordinates outside current regional grid bounds)
         if best_idx.is_none() {
             for (idx, node) in graph.nodes.iter().enumerate() {
                 let d = Self::haversine_distance(coord, &LatLng { latitude: node.lat, longitude: node.lon });
@@ -327,7 +407,7 @@ impl Router {
             }
         };
 
-        let start_node = match self.snap_to_node(&start, &graph_arc, &grid_arc) {
+        let start_node = match self.snap_to_node(&start, &graph_arc, &grid_arc, &options) {
             Some(idx) => idx,
             None => {
                 return RouteResult {
@@ -341,7 +421,7 @@ impl Router {
             }
         };
 
-        let dest_node = match self.snap_to_node(&end, &graph_arc, &grid_arc) {
+        let dest_node = match self.snap_to_node(&end, &graph_arc, &grid_arc, &options) {
             Some(idx) => idx,
             None => {
                 return RouteResult {
@@ -386,7 +466,7 @@ impl Router {
             if primary.success && primary.polyline.len() >= 3 {
                 let mut p_set = HashSet::new();
                 for pt in &primary.polyline[1..primary.polyline.len().saturating_sub(1)] {
-                    if let Some(n_idx) = self.snap_to_node(pt, &graph_arc, &grid_arc) {
+                    if let Some(n_idx) = self.snap_to_node(pt, &graph_arc, &grid_arc, &options) {
                         p_set.insert(n_idx);
                     }
                 }
@@ -438,36 +518,7 @@ impl Router {
                 let global_edge_idx = (start_edge + edge_offset) as u32;
 
                 // Vehicle Mode Restrictions & Legal Philippine Road Access
-                let allowed = match options.mode {
-                    VehicleMode::Scooter => {
-                        // Standard scooters (<400cc) legally prohibited on expressways and tollways in the Philippines
-                        (edge.flags & FLAG_EXPRESSWAY) == 0
-                            && (edge.flags & FLAG_TOLL) == 0
-                            && (edge.flags & FLAG_SCOOTER) != 0
-                    }
-                    VehicleMode::Car => {
-                        let mut ok = (edge.flags & FLAG_CAR) != 0;
-                        if options.avoid_expressways && (edge.flags & FLAG_EXPRESSWAY) != 0 {
-                            ok = false;
-                        }
-                        if options.avoid_tolls && (edge.flags & FLAG_TOLL) != 0 {
-                            ok = false;
-                        }
-                        ok
-                    }
-                    VehicleMode::Bicycle => {
-                        (edge.flags & FLAG_EXPRESSWAY) == 0
-                            && (edge.flags & FLAG_TOLL) == 0
-                            && (edge.flags & FLAG_BICYCLE) != 0
-                    }
-                    VehicleMode::Walk => {
-                        (edge.flags & FLAG_EXPRESSWAY) == 0
-                            && (edge.flags & FLAG_TOLL) == 0
-                            && (edge.flags & FLAG_WALK) != 0
-                    }
-                };
-
-                if !allowed {
+                if !Self::is_edge_allowed(edge.flags, &options) {
                     continue;
                 }
 
@@ -478,7 +529,11 @@ impl Router {
                     1.0
                 };
 
-                let next_cost = g_cost + edge.distance_m * penalty;
+                // Ro-Ro Ferries: maritime transit takes longer than highway driving,
+                // so we apply a 1.3x cost weighting so bridges/highways are naturally preferred,
+                // while water crossings are seamlessly used when island hopping.
+                let ferry_factor = if (edge.flags & FLAG_FERRY) != 0 { 1.3 } else { 1.0 };
+                let next_cost = g_cost + edge.distance_m * penalty * ferry_factor;
                 let is_cheaper = match dist.get(&edge.target_idx) {
                     Some(&old_cost) => next_cost < old_cost,
                     None => true,
@@ -493,7 +548,7 @@ impl Router {
             }
         }
 
-        // Explicit Failure: If destination is unreachable (e.g. across water or disconnected graph)
+        // Explicit Failure: If destination is unreachable (e.g. disconnected graph component)
         if !reached_dest {
             return RouteResult {
                 success: false,
@@ -508,12 +563,13 @@ impl Router {
         // Backtrack path to reconstruct polyline & road names
         let mut curr = dest_node;
         let mut path_nodes: Vec<u32> = vec![curr];
-        let mut road_segments: Vec<(String, f32)> = Vec::new();
+        let mut road_segments: Vec<(String, f32, bool)> = Vec::new(); // (road_name, distance_m, is_ferry)
 
         while let Some(&(prev, global_edge_idx)) = parent.get(&curr) {
             path_nodes.push(prev);
             let edge = &graph_arc.edges[global_edge_idx as usize];
-            road_segments.push((edge.road_name.clone(), edge.distance_m));
+            let is_ferry = (edge.flags & FLAG_FERRY) != 0;
+            road_segments.push((edge.road_name.clone(), edge.distance_m, is_ferry));
             curr = prev;
             if curr == start_node {
                 break;
@@ -539,13 +595,40 @@ impl Router {
             }
         }
 
-        let polyline: Vec<LatLng> = path_nodes
+        let mut polyline: Vec<LatLng> = path_nodes
             .iter()
             .map(|&idx| {
                 let n = &graph_arc.nodes[idx as usize];
                 LatLng { latitude: n.lat, longitude: n.lon }
             })
             .collect();
+
+        // Continuous Road Connection: Project start and destination coordinates onto the nearest road segment
+        // to completely eliminate straight-line "jumping" across buildings, parking lots, or dead-ends.
+        if polyline.len() >= 2 {
+            let (proj_start, d_to_seg, t_start) = Self::project_point_on_segment(&start, &polyline[0], &polyline[1]);
+            if d_to_seg < 1500.0 {
+                if t_start > 0.05 && t_start < 0.95 {
+                    polyline[0] = proj_start;
+                }
+                let d_user_to_road = Self::haversine_distance(&start, &polyline[0]);
+                if d_user_to_road > 12.0 && d_user_to_road < 1000.0 {
+                    polyline.insert(0, start.clone());
+                }
+            }
+
+            let last = polyline.len() - 1;
+            let (proj_end, d_to_end_seg, t_end) = Self::project_point_on_segment(&end, &polyline[last - 1], &polyline[last]);
+            if d_to_end_seg < 1500.0 {
+                if t_end > 0.05 && t_end < 0.95 {
+                    polyline[last] = proj_end;
+                }
+                let d_road_to_dest = Self::haversine_distance(&polyline[last], &end);
+                if d_road_to_dest > 12.0 && d_road_to_dest < 1000.0 {
+                    polyline.push(end.clone());
+                }
+            }
+        }
 
         // Exact physical road distance (unpenalized sum of segment distances)
         let total_dist: f64 = road_segments.iter().map(|s| s.1 as f64).sum();
@@ -556,15 +639,28 @@ impl Router {
             VehicleMode::Bicycle => 4.16,  // ~15 km/h
             VehicleMode::Walk => 1.38,     // ~5 km/h
         };
-        let duration_secs = (total_dist / avg_speed_mps) as u64;
+
+        // Accurately compute duration: standard road uses vehicle speed, ferry uses 25 km/h (6.94 m/s)
+        let mut duration_secs: u64 = 0;
+        for seg in &road_segments {
+            let seg_speed = if seg.2 { 6.94 } else { avg_speed_mps };
+            duration_secs += (seg.1 as f64 / seg_speed) as u64;
+        }
 
         // Generate Turn-by-Turn Maneuvers
         let mut maneuvers: Vec<TurnManeuver> = Vec::new();
 
         if !polyline.is_empty() {
             let first_road = road_segments.first().map(|s| s.0.clone()).unwrap_or_else(|| "Road".to_string());
+            let first_is_ferry = road_segments.first().map(|s| s.2).unwrap_or(false);
+            let first_instr = if first_is_ferry {
+                format!("Board Ferry: {}", first_road)
+            } else {
+                format!("Depart onto {}", first_road)
+            };
+
             maneuvers.push(TurnManeuver {
-                instruction: format!("Depart onto {}", first_road),
+                instruction: first_instr,
                 road_name: first_road,
                 turn_type: "maneuver_straight".to_string(),
                 distance_meters: total_dist,
@@ -586,14 +682,24 @@ impl Router {
                 let next_seg_idx = i.min(road_segments.len() - 1);
 
                 let road_name = &road_segments[next_seg_idx].0;
+                let is_ferry = road_segments[next_seg_idx].2;
                 let road_changed = road_segments[seg_idx].0 != road_segments[next_seg_idx].0;
 
-                if turn_icon != "maneuver_straight" || (road_changed && acc_dist > 50.0) {
+                if is_ferry && (!road_segments[seg_idx].2 || road_changed) {
+                    maneuvers.push(TurnManeuver {
+                        instruction: format!("Board Ferry: {}", road_name),
+                        road_name: road_name.clone(),
+                        turn_type: "maneuver_straight".to_string(),
+                        distance_meters: (total_dist - acc_dist).max(0.0),
+                        coordinate: polyline[i].clone(),
+                    });
+                    acc_dist = 0.0;
+                } else if turn_icon != "maneuver_straight" || (road_changed && acc_dist > 50.0) {
                     maneuvers.push(TurnManeuver {
                         instruction: format!("{} onto {}", turn_text, road_name),
                         road_name: road_name.clone(),
                         turn_type: turn_icon,
-                        distance_meters: total_dist - acc_dist,
+                        distance_meters: (total_dist - acc_dist).max(0.0),
                         coordinate: polyline[i].clone(),
                     });
                     acc_dist = 0.0;

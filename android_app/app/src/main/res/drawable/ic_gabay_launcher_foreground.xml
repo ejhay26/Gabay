@@ -1,0 +1,39 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    
+    <!-- Outer Cybernetic Solar Halo -->
+    <path
+        android:strokeColor="#FFB300"
+        android:strokeAlpha="0.25"
+        android:strokeWidth="1.5"
+        android:pathData="M54,26 A28,28 0 1,0 54,82 A28,28 0 1,0 54,26 Z" />
+
+    <!-- Master Gabay 'G' Navigator Monogram (Solar Amber) -->
+    <path
+        android:fillColor="#FFB300"
+        android:pathData="M54,29
+                         C40.2,29 29,40.2 29,54
+                         C29,67.8 40.2,79 54,79
+                         C67.8,79 79,67.8 79,54
+                         L70,54
+                         C70,62.8 62.8,70 54,70
+                         C45.2,70 38,62.8 38,54
+                         C38,45.2 45.2,38 54,38
+                         C59.3,38 64.1,40.6 67.2,44.7
+                         L74.4,37.5
+                         C69.5,32.2 62.1,29 54,29 Z" />
+
+    <!-- Tactical Directional Heading Chevron (Crisp Signal White) -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,43
+                         L67,54
+                         L54,65
+                         L57,57
+                         L45,57
+                         L45,51
+                         L57,51 Z" />
+</vector>

@@ -125,6 +125,7 @@ import java.text.SimpleDateFormat
 import java.util.*
 
 import kotlin.concurrent.thread
+import androidx.lifecycle.lifecycleScope
 
 
 
@@ -211,6 +212,13 @@ class MainActivity : ComponentActivity() {
             engine = GabayEngine("/sdcard/Documents/Gabay")
 
             android.util.Log.d("GabayEngine", "GabayEngine loaded successfully: $engine")
+
+            // Intelligent throttled background route prewarming across key arterial corridors
+            engine?.let { eng ->
+                lifecycleScope.launch(Dispatchers.Default) {
+                    dev.gabay.app.data.CorridorRoutePrewarmEngine.startPrewarmIfPending(applicationContext, eng)
+                }
+            }
 
         } catch (t: Throwable) {
 
@@ -2588,93 +2596,73 @@ fun CockpitScreen(
         // LAYER 4: Bottom Floating Controls & Speedometer (Visible When Idle or Actively Navigating)
 
         if (activeRoute == null || isNavigating) {
-
+            // Floating Right Side Tool Rail (Compass, 2D/3D Toggle, Map Layers)
             Column(
-
                 modifier = Modifier
-
-                    .align(Alignment.BottomCenter)
-
-                    .navigationBarsPadding()
-
-                    .padding(bottom = 12.dp)
-
-                    .fillMaxWidth(),
-
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 16.dp, bottom = 96.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
-
             ) {
+                CompassResetButton(
+                    cameraBearing = cameraBearing,
+                    onReset = { resetRotationCount++ }
+                )
 
-                // Floating Action Buttons Layer: Fused Map Layer Speed-Dial, 2D/3D Toggle, Agent Talk, Compass, Recenter GPS
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp)
-                ) {
-                    // Left Controls: Speed Dial + 2D/3D Toggle
-                    Row(
-                        modifier = Modifier.align(Alignment.BottomStart),
-                        verticalAlignment = Alignment.Bottom,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        MapStyleSpeedDial(
-                            currentMode = fusedMapMode,
-                            onSelectMode = { fusedMapMode = it }
-                        )
+                PerspectiveToggleButton(
+                    is3d = is3dMode,
+                    onToggle = { is3dMode = !is3dMode }
+                )
 
-                        PerspectiveToggleButton(
-                            is3d = is3dMode,
-                            onToggle = { is3dMode = !is3dMode }
-                        )
-                    }
-
-                    // Middle Speedometer Readout (Mathematically Anchored to True Screen Center)
-                    MiddleBottomSpeedometer(
-                        speedKmh = effectiveSpeed,
-                        nextTurnIcon = if (activeRoute != null) telemetry.nextTurnIcon else "straight",
-                        bottomLabel = effectiveRoad,
-                        modifier = Modifier.align(Alignment.BottomCenter)
-                    )
-
-                    // Right Controls: Reset North Compass + Talk Mic + Recenter GPS
-                    Row(
-                        modifier = Modifier.align(Alignment.BottomEnd),
-                        verticalAlignment = Alignment.Bottom,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        CompassResetButton(
-                            cameraBearing = cameraBearing,
-                            onReset = { resetRotationCount++ }
-                        )
-
-                        CircularFloatingButton(
-                            icon = GabayIcons.CopilotMic,
-                            isActive = isAgentSheetOpen || isListening,
-                            activeColor = GabayColors.AccentAmber,
-                            onClick = {
-                                isAgentSheetOpen = !isAgentSheetOpen
-                                if (isAgentSheetOpen) {
-                                    audioController.speakTerseCue("GABAY CO-PILOT READY")
-                                }
-                            },
-                            contentDescription = "Talk to Gabay Agent"
-                        )
-
-                        CircularFloatingButton(
-                            icon = GabayIcons.RecenterGps,
-                            isActive = isFollowingVehicle,
-                            activeColor = GabayColors.AccentAmber,
-                            onClick = {
-                                isFollowingVehicle = true
-                                cameraTarget = MapLibreLatLng(userLat, userLon)
-                            },
-                            contentDescription = "Recenter GPS & Magnetic Lock"
-                        )
-                    }
-                }
-
+                MapStyleSpeedDial(
+                    currentMode = fusedMapMode,
+                    onSelectMode = { fusedMapMode = it }
+                )
             }
 
+            // Bottom Primary Telemetry & Control Deck (Spacious, Zero Collision, Fixed Geometry)
+            Row(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .padding(start = 16.dp, end = 16.dp, bottom = 12.dp)
+                    .fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Left Primary: Copilot Voice Agent Mic
+                CircularFloatingButton(
+                    icon = GabayIcons.CopilotMic,
+                    isActive = isAgentSheetOpen || isListening,
+                    activeColor = GabayColors.AccentAmber,
+                    onClick = {
+                        isAgentSheetOpen = !isAgentSheetOpen
+                        if (isAgentSheetOpen) {
+                            audioController.speakTerseCue("GABAY CO-PILOT READY")
+                        }
+                    },
+                    contentDescription = "Talk to Gabay Agent"
+                )
+
+                // Center Primary: Speedometer & Maneuver Telemetry Pod
+                MiddleBottomSpeedometer(
+                    speedKmh = effectiveSpeed,
+                    nextTurnIcon = if (activeRoute != null) telemetry.nextTurnIcon else "straight",
+                    bottomLabel = effectiveRoad
+                )
+
+                // Right Primary: Recenter GPS & Magnetic Lock
+                CircularFloatingButton(
+                    icon = GabayIcons.RecenterGps,
+                    isActive = isFollowingVehicle,
+                    activeColor = GabayColors.AccentAmber,
+                    onClick = {
+                        isFollowingVehicle = true
+                        cameraTarget = MapLibreLatLng(userLat, userLon)
+                    },
+                    contentDescription = "Recenter GPS & Magnetic Lock"
+                )
+            }
         }
 
 

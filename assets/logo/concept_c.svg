@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <rect width="256" height="256" rx="56" fill="#0A0D10"/>
+
+  <!-- Iconic Monogram G Navigation Track -->
+  <path d="M 176 80
+           L 148 108
+           C 142 102 135 98 126 98
+           C 108.3 98 94 112.3 94 130
+           C 94 147.7 108.3 162 126 162
+           C 140 162 152 152.8 156.4 140
+           L 124 140
+           L 124 116
+           L 186 116
+           C 187.3 120.5 188 125.2 188 130
+           C 188 164.2 160.2 192 126 192
+           C 91.8 192 64 164.2 64 130
+           C 64 95.8 91.8 68 126 68
+           C 145.2 68 162.3 76.8 173.6 90.6 Z"
+        fill="#FFB300"/>
+
+  <!-- Forward-Thrust Flight Chevron -->
+  <polygon points="196,44 224,72 176,120 160,104" fill="#FFFFFF"/>
+</svg>

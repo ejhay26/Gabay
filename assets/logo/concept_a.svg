@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <rect width="256" height="256" rx="56" fill="#0A0D10"/>
+  <!-- Cybernetic Glow Ring -->
+  <circle cx="128" cy="128" r="92" fill="none" stroke="#FFB300" stroke-opacity="0.15" stroke-width="8"/>
+  
+  <!-- Main G-Chevron Mark -->
+  <path d="M 128 36
+           C 77.19 36 36 77.19 36 128
+           C 36 178.81 77.19 220 128 220
+           C 178.81 220 220 178.81 220 128
+           L 188 128
+           C 188 161.14 161.14 188 128 188
+           C 94.86 188 68 161.14 68 128
+           C 68 94.86 94.86 68 128 68
+           C 146.4 68 162.7 76.3 173.6 89.4
+           L 197.8 65.2
+           C 180.2 47.1 155.5 36 128 36 Z"
+        fill="#FFB300"/>
+
+  <!-- Dynamic Center Navigation Arrowhead / Spear -->
+  <path d="M 128 92
+           L 174 128
+           L 128 164
+           L 138 138
+           L 96 138
+           L 96 118
+           L 138 118 Z"
+        fill="#FFFFFF"/>
+</svg>

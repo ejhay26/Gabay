@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <rect width="256" height="256" rx="56" fill="#0A0D10"/>
+  
+  <!-- Outer Radial Solar Compass Ring -->
+  <circle cx="128" cy="128" r="88" fill="none" stroke="#FFB300" stroke-width="4" stroke-opacity="0.25"/>
+  <circle cx="128" cy="128" r="76" fill="none" stroke="#FFB300" stroke-width="1.5" stroke-dasharray="4 8" stroke-opacity="0.4"/>
+
+  <!-- North-pointing Spearhead / Chevron -->
+  <path d="M 128 32
+           L 186 168
+           L 128 142
+           L 70 168 Z"
+        fill="#FFB300"/>
+
+  <!-- Dynamic Negative Space Facet / Right Shadow -->
+  <path d="M 128 32
+           L 186 168
+           L 128 142 Z"
+        fill="#FFA000"/>
+
+  <!-- South Compass Spur -->
+  <path d="M 128 156
+           L 152 208
+           L 128 196
+           L 104 208 Z"
+        fill="#64748B" fill-opacity="0.6"/>
+
+  <!-- Central Optical Core Dot -->
+  <circle cx="128" cy="128" r="7" fill="#0A0D10"/>
+  <circle cx="128" cy="128" r="4" fill="#FFFFFF"/>
+</svg>

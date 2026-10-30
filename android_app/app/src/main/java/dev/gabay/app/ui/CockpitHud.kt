@@ -809,7 +809,10 @@ fun TopSearchBar(
 
 /**
  * Redesigned Middle Bottom Speedometer (Number Only + MPH + Turn Arrows)
- * Matches the user requirement: "Live speed (no text) is in the middle bottom in km/h and a very little one on the bottom right to also show miles/h then it will show or blink arrows on either sides whenever we need to turn"
+ * Matches the user requirement with rock-solid fixed geometry:
+ * - Fixed 140dp width with zero horizontal layout shift or expansion.
+ * - Flanking turn arrows reside in fixed 22dp bays so container size NEVER changes.
+ * - Live speed number centered with high-contrast amber/white styling.
  */
 @Composable
 fun MiddleBottomSpeedometer(
@@ -831,10 +834,10 @@ fun MiddleBottomSpeedometer(
     // Infinite transition for turn arrow pulse
     val infiniteTransition = rememberInfiniteTransition(label = "TurnArrowPulse")
     val pulseAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.35f,
+        initialValue = 0.25f,
         targetValue = 1.0f,
         animationSpec = infiniteRepeatable(
-            animation = tween(400, easing = LinearEasing),
+            animation = tween(380, easing = LinearEasing),
             repeatMode = RepeatMode.Reverse
         ),
         label = "Alpha"
@@ -842,55 +845,60 @@ fun MiddleBottomSpeedometer(
 
     Column(
         modifier = modifier
-            .background(GabayColors.UiCardGlass, RoundedCornerShape(32.dp))
-            .border(1.dp, GabayColors.AccentAmber.copy(alpha = 0.5f), RoundedCornerShape(32.dp))
-            .padding(horizontal = 20.dp, vertical = 8.dp),
+            .requiredWidth(140.dp)
+            .clip(RoundedCornerShape(28.dp))
+            .background(GabayColors.UiCardGlass, RoundedCornerShape(28.dp))
+            .border(1.2.dp, GabayColors.AccentAmber.copy(alpha = 0.55f), RoundedCornerShape(28.dp))
+            .padding(horizontal = 8.dp, vertical = 6.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // Amber top accent bar
+        // Amber top accent pill
         Box(
             modifier = Modifier
-                .width(32.dp)
-                .height(2.dp)
-                .background(GabayColors.AccentAmber.copy(alpha = 0.6f), RoundedCornerShape(1.dp))
+                .width(28.dp)
+                .height(2.5.dp)
+                .background(GabayColors.AccentAmber.copy(alpha = 0.7f), RoundedCornerShape(1.5.dp))
         )
-        Spacer(modifier = Modifier.height(4.dp))
+        Spacer(modifier = Modifier.height(2.dp))
+
         Row(
+            modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.Center
+            horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            // Left Flanking Turn Arrow - ONLY VISIBLE WHEN TURNING LEFT
-            if (isTurnLeft) {
-                Box(
-                    modifier = Modifier
-                        .size(38.dp)
-                        .background(GabayColors.AccentAmber.copy(alpha = 0.2f * pulseAlpha), CircleShape)
-                        .border(1.dp, GabayColors.AccentAmber.copy(alpha = pulseAlpha), CircleShape),
-                    contentAlignment = Alignment.Center
-                ) {
+            // Left Turn Bay (Fixed 20dp width, zero layout displacement)
+            Box(
+                modifier = Modifier.requiredSize(20.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                if (isTurnLeft) {
                     Icon(
                         imageVector = GabayIcons.TurnArrowLeft,
                         contentDescription = "Turn Left",
-                        tint = GabayColors.AccentAmber,
-                        modifier = Modifier.size(18.dp)
+                        tint = GabayColors.AccentAmber.copy(alpha = pulseAlpha),
+                        modifier = Modifier.requiredSize(18.dp)
                     )
                 }
-                Spacer(modifier = Modifier.width(14.dp))
             }
 
-            // Large Speed Readout (NUMBER ONLY, NO "LIVE SPEED" LABEL)
+            // Central Speed Readout
             Row(
                 verticalAlignment = Alignment.Bottom,
                 horizontalArrangement = Arrangement.Center
             ) {
                 Text(
                     text = displayPrimary,
-                    style = GabayTypography.SpeedHuge,
-                    color = GabayColors.TextPrimary
+                    style = TextStyle(
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Black,
+                        fontSize = 32.sp,
+                        letterSpacing = (-1.5).sp,
+                        color = GabayColors.TextPrimary
+                    )
                 )
-                Spacer(modifier = Modifier.width(4.dp))
+                Spacer(modifier = Modifier.width(3.dp))
                 Column(
-                    modifier = Modifier.padding(bottom = 6.dp),
+                    modifier = Modifier.padding(bottom = 4.dp),
                     horizontalAlignment = Alignment.Start
                 ) {
                     Text(
@@ -898,80 +906,47 @@ fun MiddleBottomSpeedometer(
                         style = TextStyle(
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Bold,
-                            fontSize = 11.sp,
+                            fontSize = 9.sp,
                             color = GabayColors.AccentAmber
                         )
                     )
                     Text(
                         text = displaySecondary,
-                        style = GabayTypography.SpeedMph
+                        style = TextStyle(
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Normal,
+                            fontSize = 7.5.sp,
+                            color = GabayColors.TextMuted
+                        )
                     )
                 }
             }
 
-            // Right Flanking Turn Arrow - ONLY VISIBLE WHEN TURNING RIGHT
-            if (isTurnRight) {
-                Spacer(modifier = Modifier.width(14.dp))
-                Box(
-                    modifier = Modifier
-                        .size(38.dp)
-                        .background(GabayColors.AccentAmber.copy(alpha = 0.2f * pulseAlpha), CircleShape)
-                        .border(1.dp, GabayColors.AccentAmber.copy(alpha = pulseAlpha), CircleShape),
-                    contentAlignment = Alignment.Center
-                ) {
+            // Right Turn Bay (Fixed 20dp width, zero layout displacement)
+            Box(
+                modifier = Modifier.requiredSize(20.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                if (isTurnRight) {
                     Icon(
                         imageVector = GabayIcons.TurnArrowRight,
                         contentDescription = "Turn Right",
-                        tint = GabayColors.AccentAmber,
-                        modifier = Modifier.size(18.dp)
+                        tint = GabayColors.AccentAmber.copy(alpha = pulseAlpha),
+                        modifier = Modifier.requiredSize(18.dp)
                     )
                 }
             }
         }
 
-        // Optional Lateral G-Force Lean Bar
-        if (GabayHudSettings.showGForce) {
-            Spacer(modifier = Modifier.height(3.dp))
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center
-            ) {
-                Text(
-                    text = "G-METER",
-                    style = TextStyle(
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 8.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = GabayColors.TextMuted
-                    )
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Box(
-                    modifier = Modifier
-                        .width(44.dp)
-                        .height(3.dp)
-                        .background(GabayColors.UiBorder, CircleShape)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.Center)
-                            .width(8.dp)
-                            .height(3.dp)
-                            .background(GabayColors.AccentAmber, CircleShape)
-                    )
-                }
-            }
-        }
-
-        // Bottom label (Street name or Maneuver instruction)
+        // Bottom Street Label
         if (bottomLabel.isNotBlank()) {
-            Spacer(modifier = Modifier.height(2.dp))
+            Spacer(modifier = Modifier.height(1.dp))
             Text(
                 text = bottomLabel.uppercase(),
                 style = TextStyle(
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.SemiBold,
-                    fontSize = 10.sp,
+                    fontSize = 9.sp,
                     color = GabayColors.AccentAmber.copy(alpha = 0.9f)
                 ),
                 maxLines = 1,
@@ -1103,7 +1078,7 @@ fun PerspectiveToggleButton(
 ) {
     Box(
         modifier = modifier
-            .size(48.dp)
+            .requiredSize(48.dp)
             .background(
                 if (is3d) GabayColors.AccentAmber.copy(alpha = 0.2f) else GabayColors.UiCardGlass,
                 CircleShape
@@ -1147,7 +1122,7 @@ fun CompassResetButton(
     ) {
         Box(
             modifier = modifier
-                .size(48.dp)
+                .requiredSize(48.dp)
                 .background(GabayColors.UiCardGlass, CircleShape)
                 .border(1.dp, GabayColors.UiBorder, CircleShape)
                 .clickable { onReset() },
@@ -1196,9 +1171,9 @@ fun CircularFloatingButton(
 
     Box(
         modifier = modifier
-            .size(48.dp)
+            .requiredSize(48.dp)
             .background(bgColor, CircleShape)
-            .border(1.dp, borderColor, CircleShape)
+            .border(1.2.dp, borderColor, CircleShape)
             .clip(CircleShape)
             .clickable { onClick() },
         contentAlignment = Alignment.Center
@@ -1207,7 +1182,7 @@ fun CircularFloatingButton(
             imageVector = icon,
             contentDescription = contentDescription,
             tint = iconColor,
-            modifier = Modifier.size(22.dp)
+            modifier = Modifier.requiredSize(22.dp)
         )
     }
 }
