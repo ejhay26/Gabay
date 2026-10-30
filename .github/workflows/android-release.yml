@@ -1,0 +1,167 @@
+name: Android Release Build
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      create_release:
+        description: 'Publish a GitHub Release with the APK artifact'
+        required: false
+        type: boolean
+        default: true
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-release:
+    name: Build Signed Release APK
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout Repository with Full History
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Needed for accurate commit counting (git rev-list --count HEAD)
+
+      - name: Calculate App Version from Commits
+        id: versioning
+        run: |
+          COMMIT_COUNT=$(git rev-list --count HEAD)
+          VERSION_NAME="1.0.${COMMIT_COUNT}"
+          echo "COMMIT_COUNT=${COMMIT_COUNT}" >> $GITHUB_ENV
+          echo "APP_VERSION_NAME=${VERSION_NAME}" >> $GITHUB_ENV
+          echo "commit_count=${COMMIT_COUNT}" >> $GITHUB_OUTPUT
+          echo "version_name=${VERSION_NAME}" >> $GITHUB_OUTPUT
+          echo "--------------------------------------------------"
+          echo "Building Gabay App Version: ${VERSION_NAME}"
+          echo "Version Code (Commits): ${COMMIT_COUNT}"
+          echo "--------------------------------------------------"
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Configure Android SDK & NDK
+        id: setup-ndk
+        run: |
+          if [ -d "$ANDROID_HOME/ndk" ]; then
+            NDK_LATEST=$(ls -1d $ANDROID_HOME/ndk/* | sort -V | tail -n 1)
+            echo "ANDROID_NDK_HOME=$NDK_LATEST" >> $GITHUB_ENV
+            echo "Found installed Android NDK at: $NDK_LATEST"
+          else
+            echo "::warning::Android NDK directory not found at $ANDROID_HOME/ndk"
+          fi
+
+      - name: Setup Rust Toolchain (arm64-v8a)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust_core
+
+      - name: Install cargo-ndk
+        run: |
+          if ! command -v cargo-ndk &> /dev/null; then
+            echo "Installing cargo-ndk tool..."
+            cargo install cargo-ndk --locked
+          fi
+
+      - name: Build Native Rust Core (libgabay_core.so)
+        run: |
+          echo "Compiling Gabay Rust Core for aarch64-linux-android..."
+          cd rust_core
+          cargo ndk -t arm64-v8a -o ../android_app/app/src/main/jniLibs build --release
+          cd ..
+          if [ -f "android_app/app/src/main/jniLibs/arm64-v8a/libgabay_core.so" ]; then
+            echo "Successfully generated libgabay_core.so:"
+            ls -lh android_app/app/src/main/jniLibs/arm64-v8a/libgabay_core.so
+          else
+            echo "::error::libgabay_core.so was not created!"
+            exit 1
+          fi
+
+      - name: Decode Release Keystore from Secrets
+        env:
+          KEYSTORE_SECRET: ${{ secrets.KEYSTORE_BASE64 || secrets.RELEASE_KEYSTORE || secrets.SIGNING_KEY || secrets.KEYSTORE || secrets.ANDROID_KEYSTORE || secrets.RELEASE_KEY }}
+        run: |
+          if [ -n "$KEYSTORE_SECRET" ]; then
+            echo "Keystore secret detected. Decoding into release.keystore..."
+            mkdir -p android_app/app/keystore
+            # Attempt base64 decode, fall back to plain if already binary
+            echo "$KEYSTORE_SECRET" | base64 -d > android_app/app/keystore/release.keystore 2>/dev/null || echo "$KEYSTORE_SECRET" > android_app/app/keystore/release.keystore
+            echo "KEYSTORE_FILE=$(pwd)/android_app/app/keystore/release.keystore" >> $GITHUB_ENV
+            echo "Keystore installed successfully."
+          else
+            echo "::warning::No keystore secret detected. Release build will proceed with fallback signing configuration."
+          fi
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Ensure gradlew is executable
+        run: chmod +x android_app/gradlew
+
+      - name: Build Release APK
+        working-directory: android_app
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD || secrets.KEY_STORE_PASSWORD || secrets.STORE_PASSWORD || '12345678' }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS || secrets.ALIAS || 'key1' }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD || secrets.KEY_PASS || '12345678' }}
+          COMMIT_COUNT: ${{ env.COMMIT_COUNT }}
+          APP_VERSION_NAME: ${{ env.APP_VERSION_NAME }}
+        run: |
+          ./gradlew assembleRelease --no-daemon --stacktrace
+
+      - name: Package Release APK
+        run: |
+          mkdir -p release_artifacts
+          APK_FILE=$(find android_app/app/build/outputs/apk/release -name "*.apk" | head -n 1)
+          if [ -f "$APK_FILE" ]; then
+            TARGET_APK="release_artifacts/Gabay-v${APP_VERSION_NAME}-release.apk"
+            cp "$APK_FILE" "$TARGET_APK"
+            echo "Packaged APK: $TARGET_APK"
+            ls -lh "$TARGET_APK"
+          else
+            echo "::error::No release APK found in build outputs!"
+            exit 1
+          fi
+
+      - name: Upload Release APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Gabay-v${{ env.APP_VERSION_NAME }}-release
+          path: release_artifacts/Gabay-v${{ env.APP_VERSION_NAME }}-release.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.create_release == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release_artifacts/Gabay-v${{ env.APP_VERSION_NAME }}-release.apk
+          name: Gabay v${{ env.APP_VERSION_NAME }}
+          tag_name: v${{ env.APP_VERSION_NAME }}
+          body: |
+            ## Gabay Navigation v${{ env.APP_VERSION_NAME }} (Build #${{ env.COMMIT_COUNT }})
+            
+            ### Automated Android Release Build
+            - **Version Code**: `${{ env.COMMIT_COUNT }}`
+            - **Version Name**: `${{ env.APP_VERSION_NAME }}`
+            - **Target Architecture**: `arm64-v8a`
+            - **Commit**: `${{ github.sha }}`
+          draft: false
+          prerelease: false
+          generate_release_notes: true

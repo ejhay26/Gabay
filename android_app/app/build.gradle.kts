@@ -1,13 +1,48 @@
+import java.io.ByteArrayOutputStream
+import java.io.File
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
-// Redirect all app build outputs to G: drive to protect C: drive space if mounted
+// Redirect all app build outputs to G: drive to protect C: drive space if mounted (disabled on CI)
+val isCI = System.getenv("CI") == "true" || System.getenv("GITHUB_ACTIONS") == "true"
 val gBuildDir = file("G:/gabay_builds/android_builds/app")
-if (gBuildDir.parentFile?.exists() == true) {
+if (!isCI && gBuildDir.parentFile?.exists() == true) {
     layout.buildDirectory.set(gBuildDir)
+}
+
+fun getGitCommitCount(): Int {
+    val propCount = (project.findProperty("versionCode") as? String)?.toIntOrNull()
+    if (propCount != null && propCount > 0) return propCount
+
+    val envCount = System.getenv("COMMIT_COUNT")?.toIntOrNull()
+    if (envCount != null && envCount > 0) return envCount
+
+    return try {
+        val stdout = ByteArrayOutputStream()
+        project.exec {
+            commandLine("git", "rev-list", "--count", "HEAD")
+            standardOutput = stdout
+            isIgnoreExitValue = true
+        }
+        val count = stdout.toString().trim().toIntOrNull() ?: 1
+        if (count > 0) count else 1
+    } catch (e: Exception) {
+        1
+    }
+}
+
+fun getGitVersionName(commitCount: Int): String {
+    val propName = project.findProperty("versionName") as? String
+    if (!propName.isNullOrBlank()) return propName
+
+    val envName = System.getenv("APP_VERSION_NAME")
+    if (!envName.isNullOrBlank()) return envName
+
+    return "1.0.$commitCount"
 }
 
 android {
@@ -18,8 +53,10 @@ android {
         applicationId = "dev.gabay.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+
+        val commitCount = getGitCommitCount()
+        versionCode = commitCount
+        versionName = getGitVersionName(commitCount)
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -28,12 +65,22 @@ android {
         }
     }
 
+    val releaseKeystoreFile: File? = when {
+        !System.getenv("KEYSTORE_FILE").isNullOrBlank() && file(System.getenv("KEYSTORE_FILE")!!).exists() -> file(System.getenv("KEYSTORE_FILE")!!)
+        file("${rootDir}/release.keystore").exists() -> file("${rootDir}/release.keystore")
+        file("${projectDir}/release.keystore").exists() -> file("${projectDir}/release.keystore")
+        file("C:/Users/Administrator/Documents/newkey").exists() -> file("C:/Users/Administrator/Documents/newkey")
+        else -> null
+    }
+
     signingConfigs {
         create("release") {
-            storeFile = file("C:/Users/Administrator/Documents/newkey")
-            storePassword = "12345678"
-            keyAlias = "key1"
-            keyPassword = "12345678"
+            if (releaseKeystoreFile != null) {
+                storeFile = releaseKeystoreFile
+                storePassword = System.getenv("KEYSTORE_PASSWORD") ?: "12345678"
+                keyAlias = System.getenv("KEY_ALIAS") ?: "key1"
+                keyPassword = System.getenv("KEY_PASSWORD") ?: "12345678"
+            }
         }
     }
 
@@ -41,7 +88,9 @@ android {
         release {
             isMinifyEnabled = false
             isShrinkResources = false
-            signingConfig = signingConfigs.getByName("release")
+            if (releaseKeystoreFile != null) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
         debug {
             isMinifyEnabled = false
@@ -107,4 +156,11 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")
+}
+
+tasks.register("printAppVersion") {
+    doLast {
+        println("GABAY_APP_VERSION_NAME=${android.defaultConfig.versionName}")
+        println("GABAY_APP_VERSION_CODE=${android.defaultConfig.versionCode}")
+    }
 }
