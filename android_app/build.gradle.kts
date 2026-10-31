@@ -5,8 +5,11 @@ plugins {
 }
 
 val isCI = System.getenv("CI") == "true" || System.getenv("GITHUB_ACTIONS") == "true"
-val gRootBuildDir = file("G:/gabay_builds/android_builds/root")
-if (!isCI && gRootBuildDir.parentFile?.exists() == true) {
-    layout.buildDirectory.set(gRootBuildDir)
+val isWindows = System.getProperty("os.name")?.lowercase()?.contains("win") == true
+if (!isCI && isWindows) {
+    val gRootBuildDir = java.io.File("G:/gabay_builds/android_builds/root")
+    if (gRootBuildDir.parentFile?.exists() == true) {
+        layout.buildDirectory.set(gRootBuildDir)
+    }
 }
 

@@ -99,10 +99,10 @@ jobs:
         run: |
           if [ -n "$KEYSTORE_SECRET" ]; then
             echo "Keystore secret detected. Decoding into release.keystore..."
-            mkdir -p android_app/app/keystore
+            mkdir -p android_app/app
             # Attempt base64 decode, fall back to plain if already binary
-            echo "$KEYSTORE_SECRET" | base64 -d > android_app/app/keystore/release.keystore 2>/dev/null || echo "$KEYSTORE_SECRET" > android_app/app/keystore/release.keystore
-            echo "KEYSTORE_FILE=$(pwd)/android_app/app/keystore/release.keystore" >> $GITHUB_ENV
+            echo "$KEYSTORE_SECRET" | base64 -d > android_app/app/release.keystore 2>/dev/null || echo "$KEYSTORE_SECRET" > android_app/app/release.keystore
+            echo "KEYSTORE_FILE=$(pwd)/android_app/app/release.keystore" >> $GITHUB_ENV
             echo "Keystore installed successfully."
           else
             echo "::warning::No keystore secret detected. Release build will proceed with fallback signing configuration."

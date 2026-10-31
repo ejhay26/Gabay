@@ -7,11 +7,14 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
-// Redirect all app build outputs to G: drive to protect C: drive space if mounted (disabled on CI)
+// Redirect all app build outputs to G: drive to protect C: drive space if mounted (disabled on CI or non-Windows)
 val isCI = System.getenv("CI") == "true" || System.getenv("GITHUB_ACTIONS") == "true"
-val gBuildDir = file("G:/gabay_builds/android_builds/app")
-if (!isCI && gBuildDir.parentFile?.exists() == true) {
-    layout.buildDirectory.set(gBuildDir)
+val isWindows = System.getProperty("os.name")?.lowercase()?.contains("win") == true
+if (!isCI && isWindows) {
+    val gBuildDir = File("G:/gabay_builds/android_builds/app")
+    if (gBuildDir.parentFile?.exists() == true) {
+        layout.buildDirectory.set(gBuildDir)
+    }
 }
 
 fun getGitCommitCount(): Int {
@@ -66,10 +69,10 @@ android {
     }
 
     val releaseKeystoreFile: File? = when {
-        !System.getenv("KEYSTORE_FILE").isNullOrBlank() && file(System.getenv("KEYSTORE_FILE")!!).exists() -> file(System.getenv("KEYSTORE_FILE")!!)
-        file("${rootDir}/release.keystore").exists() -> file("${rootDir}/release.keystore")
-        file("${projectDir}/release.keystore").exists() -> file("${projectDir}/release.keystore")
-        file("C:/Users/Administrator/Documents/newkey").exists() -> file("C:/Users/Administrator/Documents/newkey")
+        !System.getenv("KEYSTORE_FILE").isNullOrBlank() && File(System.getenv("KEYSTORE_FILE")!!).exists() -> File(System.getenv("KEYSTORE_FILE")!!)
+        File(rootDir, "release.keystore").exists() -> File(rootDir, "release.keystore")
+        File(projectDir, "release.keystore").exists() -> File(projectDir, "release.keystore")
+        isWindows && File("C:/Users/Administrator/Documents/newkey").exists() -> File("C:/Users/Administrator/Documents/newkey")
         else -> null
     }
 
