@@ -72,7 +72,8 @@ android {
         !System.getenv("KEYSTORE_FILE").isNullOrBlank() && File(System.getenv("KEYSTORE_FILE")!!).exists() -> File(System.getenv("KEYSTORE_FILE")!!)
         File(rootDir, "release.keystore").exists() -> File(rootDir, "release.keystore")
         File(projectDir, "release.keystore").exists() -> File(projectDir, "release.keystore")
-        isWindows && File("C:/Users/Administrator/Documents/newkey").exists() -> File("C:/Users/Administrator/Documents/newkey")
+        // newkey is the keystore file itself (PKCS12), not a directory
+        isWindows && File("C:/Users/Administrator/Documents/newkey").isFile -> File("C:/Users/Administrator/Documents/newkey")
         else -> null
     }
 
