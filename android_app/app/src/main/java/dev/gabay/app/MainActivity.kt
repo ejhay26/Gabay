@@ -135,7 +135,9 @@ class MainActivity : ComponentActivity() {
 
     private lateinit var audioController: AudioController
 
-    private var engine: GabayEngine? = null
+    private var engine: GabayEngine? by mutableStateOf(null)
+
+    private var hasCompletedSetup by mutableStateOf(false)
 
 
 
@@ -201,6 +203,9 @@ class MainActivity : ComponentActivity() {
         GabayColors.isSunlightLightMode = settingsPrefs.getBoolean("sunlight_light_mode", false)
         dev.gabay.app.ui.GabayHudSettings.init(this)
 
+        val isSetupDone = settingsPrefs.getBoolean("has_completed_setup", false)
+        hasCompletedSetup = isSetupDone
+
 
 
         // Initialize Rust Core Engine with device vault path
@@ -251,20 +256,32 @@ class MainActivity : ComponentActivity() {
                 ) { _ ->
 
                     Box(modifier = Modifier.fillMaxSize()) {
-
-                        CockpitScreen(
-
-                            engine = engine,
-
-                            audioController = audioController,
-
-                            modifier = Modifier.fillMaxSize()
-
-                        )
+                        if (!hasCompletedSetup) {
+                            dev.gabay.app.ui.SetupPermissionsScreen(
+                                onContinue = {
+                                    val prefs = getSharedPreferences("gabay_settings", android.content.Context.MODE_PRIVATE)
+                                    prefs.edit().putBoolean("has_completed_setup", true).apply()
+                                    hasCompletedSetup = true
+                                    val vaultDir = File("/sdcard/Documents/Gabay")
+                                    PmTilesServer.start(this@MainActivity, vaultDir)
+                                    PmTilesServer.reloadReaders(vaultDir)
+                                    if (engine == null) {
+                                        try {
+                                            engine = GabayEngine("/sdcard/Documents/Gabay")
+                                        } catch (e: Exception) {}
+                                    }
+                                }
+                            )
+                        } else {
+                            CockpitScreen(
+                                engine = engine,
+                                audioController = audioController,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
 
                         // Convx & Apple Design Liquid Glass Animated Splash Transition
                         AnimatedSplashScreen()
-
                     }
 
                 }
@@ -278,15 +295,58 @@ class MainActivity : ComponentActivity() {
 
 
     private val requestPermissionLauncher = registerForActivityResult(
-
         androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions()
-
     ) { permissions ->
-
         val fineLocationGranted = permissions[android.Manifest.permission.ACCESS_FINE_LOCATION] == true
-
         android.util.Log.i("GabayPerms", "Permissions updated: fineLocation=$fineLocationGranted")
+    }
 
+    private fun checkEssentialPermissionsGranted(): Boolean {
+        val fineLocation = androidx.core.content.ContextCompat.checkSelfPermission(
+            this,
+            android.Manifest.permission.ACCESS_FINE_LOCATION
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+
+        val storage = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+            android.os.Environment.isExternalStorageManager()
+        } else {
+            androidx.core.content.ContextCompat.checkSelfPermission(
+                this,
+                android.Manifest.permission.READ_EXTERNAL_STORAGE
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        }
+        return fineLocation && storage
+    }
+
+    override fun onResume() {
+        super.onResume()
+        val vaultDir = File("/sdcard/Documents/Gabay")
+        val hasStorage = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+            android.os.Environment.isExternalStorageManager()
+        } else {
+            androidx.core.content.ContextCompat.checkSelfPermission(
+                this,
+                android.Manifest.permission.READ_EXTERNAL_STORAGE
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        }
+
+        if (hasStorage) {
+            // Hot reload local tile server readers now that storage access is active
+            PmTilesServer.start(this, vaultDir)
+            PmTilesServer.reloadReaders(vaultDir)
+            if (engine == null) {
+                try {
+                    engine = GabayEngine("/sdcard/Documents/Gabay")
+                    engine?.let { eng ->
+                        lifecycleScope.launch(Dispatchers.Default) {
+                            dev.gabay.app.data.CorridorRoutePrewarmEngine.startPrewarmIfPending(applicationContext, eng)
+                        }
+                    }
+                } catch (t: Throwable) {
+                    android.util.Log.e("GabayEngine", "Engine reload on resume error", t)
+                }
+            }
+        }
     }
 
 
@@ -356,17 +416,6 @@ class MainActivity : ComponentActivity() {
         }
 
     }
-
-
-
-    override fun onResume() {
-
-        super.onResume()
-
-        PmTilesServer.reloadReaders(File("/sdcard/Documents/Gabay"))
-
-    }
-
 
 
     override fun onDestroy() {
