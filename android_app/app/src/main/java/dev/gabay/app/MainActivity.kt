@@ -606,25 +606,16 @@ fun CockpitScreen(
     }
 
     DisposableEffect(Unit) {
-
         NavigationService.onStopNavigationRequested = {
-
             cancelActiveRoute()
-
         }
 
         onDispose {
-
             NavigationService.onStopNavigationRequested = null
-
             try {
-
                 speechRecognizer?.destroy()
-
             } catch (e: Exception) {}
-
         }
-
     }
 
 
@@ -930,6 +921,40 @@ fun CockpitScreen(
             } finally {
                 isRouteLoading = false
             }
+        }
+    }
+
+    // Android Auto Bridge: Synchronize live navigation telemetry and handle head unit events
+    LaunchedEffect(isNavigating, destinationName, telemetry, activeRoute) {
+        dev.gabay.app.car.GabayCarStateBridge.isNavigating = isNavigating
+        dev.gabay.app.car.GabayCarStateBridge.destinationName = destinationName
+        dev.gabay.app.car.GabayCarStateBridge.distanceRemainingKm = telemetry.remainingDistanceKm
+        dev.gabay.app.car.GabayCarStateBridge.currentManeuverText = if (telemetry.nextTurnRoad.isNotBlank()) "Turn onto ${telemetry.nextTurnRoad}" else "Continue straight"
+        dev.gabay.app.car.GabayCarStateBridge.distanceToNextManeuverMeters = telemetry.nextTurnDistanceM.toDouble()
+        dev.gabay.app.car.GabayCarStateBridge.currentRoadName = telemetry.nextTurnRoad
+    }
+
+    DisposableEffect(Unit) {
+        dev.gabay.app.car.GabayCarStateBridge.onStopNavigationRequested = {
+            cancelActiveRoute()
+        }
+        dev.gabay.app.car.GabayCarStateBridge.onRecentSelected = { name, lat, lon ->
+            val opts = RouteOptions(
+                mode = selectedMode,
+                avoidTolls = avoidTolls,
+                avoidExpressways = avoidExpressways,
+                avoidFerries = false
+            )
+            requestRouteCalculation(
+                startCoord = LatLng(userLat, userLon),
+                destCoord = LatLng(lat, lon),
+                options = opts,
+                targetName = name
+            )
+        }
+        onDispose {
+            dev.gabay.app.car.GabayCarStateBridge.onStopNavigationRequested = null
+            dev.gabay.app.car.GabayCarStateBridge.onRecentSelected = null
         }
     }
 

@@ -182,6 +182,7 @@ fun MapCanvas(
         val waterwayLayer = style.getLayer("pmtiles_waterway")
         val landuseLayer = style.getLayer("pmtiles_landuse")
         val buildingsLayer = style.getLayer("pmtiles_buildings")
+        val buildings3dLayer = style.getLayer("pmtiles_buildings_3d")
         val roadsLayer = style.getLayer("pmtiles_roads")
         val parksLayer = style.getLayer("parks_layer")
         val roadsMajorLayer = style.getLayer("roads_major")
@@ -197,6 +198,7 @@ fun MapCanvas(
                 waterwayLayer?.setProperties(visibility(org.maplibre.android.style.layers.Property.NONE))
                 landuseLayer?.setProperties(visibility(org.maplibre.android.style.layers.Property.NONE))
                 buildingsLayer?.setProperties(visibility(org.maplibre.android.style.layers.Property.NONE))
+                buildings3dLayer?.setProperties(visibility(org.maplibre.android.style.layers.Property.NONE))
                 parksLayer?.setProperties(visibility(org.maplibre.android.style.layers.Property.NONE))
                 // Crisp high-contrast road overlays for satellite
                 roadsLayer?.setProperties(lineColor(AndroidColor.parseColor("#FFFFFF")))
@@ -212,6 +214,7 @@ fun MapCanvas(
                 waterwayLayer?.setProperties(visibility(org.maplibre.android.style.layers.Property.VISIBLE))
                 landuseLayer?.setProperties(visibility(org.maplibre.android.style.layers.Property.NONE))
                 buildingsLayer?.setProperties(visibility(org.maplibre.android.style.layers.Property.NONE))
+                buildings3dLayer?.setProperties(visibility(org.maplibre.android.style.layers.Property.NONE))
                 parksLayer?.setProperties(visibility(org.maplibre.android.style.layers.Property.NONE))
                 roadsLayer?.setProperties(lineColor(AndroidColor.parseColor("#CBD5E1")))
                 roadsMajorLayer?.setProperties(lineColor(AndroidColor.parseColor("#CBD5E1")))
@@ -226,6 +229,7 @@ fun MapCanvas(
                 waterwayLayer?.setProperties(visibility(org.maplibre.android.style.layers.Property.VISIBLE))
                 landuseLayer?.setProperties(visibility(org.maplibre.android.style.layers.Property.VISIBLE))
                 buildingsLayer?.setProperties(visibility(org.maplibre.android.style.layers.Property.VISIBLE))
+                buildings3dLayer?.setProperties(visibility(org.maplibre.android.style.layers.Property.VISIBLE))
                 parksLayer?.setProperties(visibility(org.maplibre.android.style.layers.Property.VISIBLE))
                 roadsLayer?.setProperties(lineColor(AndroidColor.parseColor("#5C657A")))
                 roadsMajorLayer?.setProperties(lineColor(AndroidColor.parseColor("#505869")))
@@ -656,9 +660,37 @@ private fun setupTacticalMap(
           "source": "protomaps_vector",
           "source-layer": "buildings",
           "filter": ["==", "${'$'}type", "Polygon"],
+          "maxzoom": 15,
           "paint": {
             "fill-color": "#252B35",
             "fill-opacity": 0.5
+          }
+        },
+        {
+          "id": "pmtiles_buildings_3d",
+          "type": "fill-extrusion",
+          "source": "protomaps_vector",
+          "source-layer": "buildings",
+          "minzoom": 14.5,
+          "paint": {
+            "fill-extrusion-color": [
+              "interpolate",
+              ["linear"],
+              ["coalesce", ["get", "height"], 12],
+              0, "#1E2530",
+              25, "#2A3444",
+              75, "#3D4B63",
+              150, "#56688A"
+            ],
+            "fill-extrusion-height": [
+              "interpolate",
+              ["linear"],
+              ["zoom"],
+              14.5, 0,
+              15.5, ["coalesce", ["get", "height"], 12]
+            ],
+            "fill-extrusion-base": ["coalesce", ["get", "min_height"], 0],
+            "fill-extrusion-opacity": 0.85
           }
         },
         {

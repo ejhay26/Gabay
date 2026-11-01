@@ -160,6 +160,10 @@ dependencies {
     // JNA for UniFFI FFI bindings
     implementation("net.java.dev.jna:jna:5.14.0@aar")
 
+    // Android for Cars (Android Auto Navigation & Automotive Projected)
+    implementation("androidx.car.app:app:1.4.0")
+    implementation("androidx.car.app:app-projected:1.4.0")
+
     // Testing
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
