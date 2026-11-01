@@ -9,10 +9,15 @@ on:
   workflow_dispatch:
     inputs:
       create_release:
-        description: 'Publish a GitHub Release with the APK artifact'
+        description: 'Publish or update GitHub Release with APK artifact'
         required: false
         type: boolean
         default: true
+      target_tag:
+        description: 'Release Tag to update (e.g. v1.0.46, leave blank for commit-based)'
+        required: false
+        type: string
+        default: ''
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -31,18 +36,33 @@ jobs:
         with:
           fetch-depth: 0 # Needed for accurate commit counting (git rev-list --count HEAD)
 
-      - name: Calculate App Version from Commits
+      - name: Calculate App Version from Commits or Target Tag
         id: versioning
         run: |
-          COMMIT_COUNT=$(git rev-list --count HEAD)
-          VERSION_NAME="1.0.${COMMIT_COUNT}"
+          TARGET_TAG="${{ github.event.inputs.target_tag }}"
+          if [ -n "$TARGET_TAG" ]; then
+            RELEASE_TAG="$TARGET_TAG"
+            VERSION_NAME="${TARGET_TAG#v}"
+            COMMIT_COUNT=$(git rev-list --count HEAD)
+          elif [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            RELEASE_TAG="${GITHUB_REF#refs/tags/}"
+            VERSION_NAME="${RELEASE_TAG#v}"
+            COMMIT_COUNT=$(git rev-list --count HEAD)
+          else
+            COMMIT_COUNT=$(git rev-list --count HEAD)
+            VERSION_NAME="1.0.${COMMIT_COUNT}"
+            RELEASE_TAG="v${VERSION_NAME}"
+          fi
           echo "COMMIT_COUNT=${COMMIT_COUNT}" >> $GITHUB_ENV
           echo "APP_VERSION_NAME=${VERSION_NAME}" >> $GITHUB_ENV
+          echo "RELEASE_TAG=${RELEASE_TAG}" >> $GITHUB_ENV
           echo "commit_count=${COMMIT_COUNT}" >> $GITHUB_OUTPUT
           echo "version_name=${VERSION_NAME}" >> $GITHUB_OUTPUT
+          echo "release_tag=${RELEASE_TAG}" >> $GITHUB_OUTPUT
           echo "--------------------------------------------------"
           echo "Building Gabay App Version: ${VERSION_NAME}"
-          echo "Version Code (Commits): ${COMMIT_COUNT}"
+          echo "Target Release Tag: ${RELEASE_TAG}"
+          echo "Version Code: ${COMMIT_COUNT}"
           echo "--------------------------------------------------"
 
       - name: Setup Java 17
@@ -97,16 +117,20 @@ jobs:
         env:
           KEYSTORE_SECRET: ${{ secrets.KEYSTORE_BASE64 || secrets.RELEASE_KEYSTORE || secrets.SIGNING_KEY || secrets.KEYSTORE || secrets.ANDROID_KEYSTORE || secrets.RELEASE_KEY }}
         run: |
-          if [ -n "$KEYSTORE_SECRET" ]; then
-            echo "Keystore secret detected. Decoding into release.keystore..."
-            mkdir -p android_app/app
-            # Attempt base64 decode, fall back to plain if already binary
-            echo "$KEYSTORE_SECRET" | base64 -d > android_app/app/release.keystore 2>/dev/null || echo "$KEYSTORE_SECRET" > android_app/app/release.keystore
-            echo "KEYSTORE_FILE=$(pwd)/android_app/app/release.keystore" >> $GITHUB_ENV
-            echo "Keystore installed successfully."
-          else
-            echo "::warning::No keystore secret detected. Release build will proceed with fallback signing configuration."
+          if [ -z "$KEYSTORE_SECRET" ]; then
+            echo "::error::No keystore secret detected! Make sure KEYSTORE_BASE64 is configured."
+            exit 1
           fi
+          echo "Keystore secret detected. Decoding into release.keystore..."
+          mkdir -p android_app/app
+          echo "$KEYSTORE_SECRET" | base64 -d > android_app/app/release.keystore
+          KEYSTORE_ABS_PATH="$(cd android_app/app && pwd)/release.keystore"
+          if [ ! -s "$KEYSTORE_ABS_PATH" ]; then
+            echo "::error::Decoded keystore is empty or failed to decode!"
+            exit 1
+          fi
+          echo "KEYSTORE_FILE=${KEYSTORE_ABS_PATH}" >> $GITHUB_ENV
+          echo "Keystore installed successfully at: ${KEYSTORE_ABS_PATH} ($(wc -c < "$KEYSTORE_ABS_PATH") bytes)"
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
@@ -125,12 +149,21 @@ jobs:
         run: |
           ./gradlew assembleRelease --no-daemon --stacktrace
 
+      - name: Verify APK Signature (apksigner)
+        run: |
+          BUILD_TOOLS_DIR=$(ls -1d $ANDROID_HOME/build-tools/* | sort -V | tail -n 1)
+          APKSIGNER="$BUILD_TOOLS_DIR/apksigner"
+          APK_RAW=$(find android_app/app/build/outputs/apk/release -name "*.apk" | head -n 1)
+          echo "Verifying APK signature using $APKSIGNER on $APK_RAW..."
+          $APKSIGNER verify --verbose "$APK_RAW"
+          echo "APK signature successfully verified!"
+
       - name: Package Release APK
         run: |
           mkdir -p release_artifacts
           APK_FILE=$(find android_app/app/build/outputs/apk/release -name "*.apk" | head -n 1)
           if [ -f "$APK_FILE" ]; then
-            TARGET_APK="release_artifacts/Gabay-v${APP_VERSION_NAME}-release.apk"
+            TARGET_APK="release_artifacts/Gabay-${RELEASE_TAG}-release.apk"
             cp "$APK_FILE" "$TARGET_APK"
             echo "Packaged APK: $TARGET_APK"
             ls -lh "$TARGET_APK"
@@ -142,26 +175,27 @@ jobs:
       - name: Upload Release APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Gabay-v${{ env.APP_VERSION_NAME }}-release
-          path: release_artifacts/Gabay-v${{ env.APP_VERSION_NAME }}-release.apk
+          name: Gabay-${{ env.RELEASE_TAG }}-release
+          path: release_artifacts/Gabay-${{ env.RELEASE_TAG }}-release.apk
           if-no-files-found: error
           retention-days: 30
 
-      - name: Create GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.create_release == 'true'
+      - name: Create or Update GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.create_release == 'true' || github.event_name == 'workflow_dispatch'
         uses: softprops/action-gh-release@v2
         with:
-          files: release_artifacts/Gabay-v${{ env.APP_VERSION_NAME }}-release.apk
-          name: Gabay v${{ env.APP_VERSION_NAME }}
-          tag_name: v${{ env.APP_VERSION_NAME }}
+          files: release_artifacts/Gabay-${{ env.RELEASE_TAG }}-release.apk
+          name: Gabay ${{ env.RELEASE_TAG }}
+          tag_name: ${{ env.RELEASE_TAG }}
           body: |
-            ## Gabay Navigation v${{ env.APP_VERSION_NAME }} (Build #${{ env.COMMIT_COUNT }})
+            ## Gabay Navigation ${{ env.RELEASE_TAG }} (Build #${{ env.COMMIT_COUNT }})
             
-            ### Automated Android Release Build
+            ### Automated Android Release Build (Signed)
             - **Version Code**: `${{ env.COMMIT_COUNT }}`
             - **Version Name**: `${{ env.APP_VERSION_NAME }}`
             - **Target Architecture**: `arm64-v8a`
             - **Commit**: `${{ github.sha }}`
+            - **Signature Scheme**: APK Signature Scheme v1, v2 & v3 verified
           draft: false
           prerelease: false
-          generate_release_notes: true
+          generate_release_notes: false

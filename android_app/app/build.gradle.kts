@@ -84,6 +84,8 @@ android {
                 storePassword = System.getenv("KEYSTORE_PASSWORD") ?: "12345678"
                 keyAlias = System.getenv("KEY_ALIAS") ?: "key1"
                 keyPassword = System.getenv("KEY_PASSWORD") ?: "12345678"
+                enableV1Signing = true
+                enableV2Signing = true
             }
         }
     }
@@ -94,6 +96,8 @@ android {
             isShrinkResources = false
             if (releaseKeystoreFile != null) {
                 signingConfig = signingConfigs.getByName("release")
+            } else {
+                throw GradleException("Release keystore was not found! Aborting to prevent producing an unsigned APK.")
             }
         }
         debug {
