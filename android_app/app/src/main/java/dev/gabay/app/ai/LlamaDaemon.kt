@@ -104,6 +104,83 @@ object LlamaDaemon {
         }
     }
 
+    // Standalone Modular Semantic Dispatcher (reusable across any app)
+    private val dispatcher = ModularSemanticDispatcher(
+        endpointUrl = SERVER_URL,
+        systemRole = "You are Gabay, an offline motorcycle navigation co-pilot in the Philippines.\n" +
+            "You provide concise, clear, and direct vehicular voice guidance.\n" +
+            "Never use generic AI filler, marketing fluff, or robotic sci-fi phrases."
+    ).apply {
+        registerAction(
+            name = "navigate",
+            description = "Route to a destination",
+            targetDescription = "Destination name (e.g. Neust San Isidro, Gapan City, SM Cabanatuan)",
+            examples = listOf("can you navigate to neust san isidro campus", "take me to Gapan City", "dalhin mo ako sa Cabanatuan"),
+            keywords = listOf("navigate", "take me to", "route to", "go to", "drive to", "dalhin mo ako")
+        )
+        registerAction(
+            name = "search",
+            description = "Find nearby POIs, emergency services, food, or amenities",
+            targetDescription = "POI category or name (e.g. Gas, Hospital, Food, School, Pharmacy, Bank)",
+            examples = listOf("take me to the nearest gas station", "emergency hospital nearby", "find food nearby", "saan may gasolinahan"),
+            keywords = listOf("gas", "hospital", "food", "school", "pharmacy", "bank", "restaurant", "police")
+        )
+        registerAction(
+            name = "where_am_i",
+            description = "Check current location, road name, or navigation progress",
+            examples = listOf("where am I right now?", "what road is this?", "nasaan ako?", "anong kalsada ito"),
+            keywords = listOf("where am i", "nasaan", "location", "what road", "status")
+        )
+        registerAction(
+            name = "street",
+            description = "Switch map layer to vector dark street view",
+            examples = listOf("switch to street view", "show street map"),
+            keywords = listOf("street view", "street map")
+        )
+        registerAction(
+            name = "satellite",
+            description = "Switch map layer to satellite imagery",
+            examples = listOf("switch to satellite mode", "ipakita ang satellite"),
+            keywords = listOf("satellite", "sat view")
+        )
+        registerAction(
+            name = "topo",
+            description = "Switch map layer to contour topography",
+            examples = listOf("show me topography", "switch to topo view"),
+            keywords = listOf("topo", "topography", "contour")
+        )
+        registerAction(
+            name = "3d",
+            description = "Enable 3D driver perspective view",
+            examples = listOf("switch to 3D", "driver view"),
+            keywords = listOf("3d", "perspective", "driver view")
+        )
+        registerAction(
+            name = "2d",
+            description = "Enable 2D flat overhead map",
+            examples = listOf("switch to 2D", "flat view", "overhead"),
+            keywords = listOf("2d", "flat", "overhead")
+        )
+        registerAction(
+            name = "follow",
+            description = "Recenter camera and magnetically lock to vehicle",
+            examples = listOf("recenter camera", "lock camera", "magnet view"),
+            keywords = listOf("recenter", "follow", "magnet", "lock")
+        )
+        registerAction(
+            name = "north",
+            description = "Align compass rotation facing True North",
+            examples = listOf("align north", "face north", "reset rotation"),
+            keywords = listOf("north", "compass", "reset rotation")
+        )
+        registerAction(
+            name = "cancel",
+            description = "Cancel active route or end navigation",
+            examples = listOf("cancel route", "stop navigation", "end route", "itigil ang ruta"),
+            keywords = listOf("cancel", "stop navigation", "end route", "itigil")
+        )
+    }
+
     /**
      * Executes the AI Dual-Intent Router & Brain.
      * Guardrails execute first to protect Android hardware from CPU runaway.
@@ -138,143 +215,35 @@ object LlamaDaemon {
         lastPrompt = trimmed
         lastInferenceTime = now
 
-        // Check if server is reachable
-        if (!isPortOpen(SERVER_PORT)) {
-            Log.w(TAG, "llama-server not ready on port $SERVER_PORT, using fast heuristic")
-            val fallback = fastHeuristic(trimmed, riderContext)
-            lastResult = fallback
-            return@withContext fallback
+        val navStatus = if (riderContext.isNavigating) {
+            "En route to ${riderContext.destinationName} (${String.format(Locale.US, "%.1f", riderContext.remainingDistanceKm)} km remaining)"
+        } else {
+            "Free exploration (no active navigation route)"
         }
 
-        // Call on-device Qwen2.5-0.5B-Instruct model with calibrated few-shot context
-        try {
-            val navStatus = if (riderContext.isNavigating) {
-                "En route to ${riderContext.destinationName} (${String.format(Locale.US, "%.1f", riderContext.remainingDistanceKm)} km remaining)"
-            } else {
-                "Free exploration (no active navigation route)"
+        val contextMap = mapOf(
+            "Current Road" to riderContext.currentRoad,
+            "Coordinates" to "Lat ${String.format(Locale.US, "%.4f", riderContext.latitude)}, Lon ${String.format(Locale.US, "%.4f", riderContext.longitude)}",
+            "Speed" to "${riderContext.speedKmh.toInt()} km/h",
+            "Heading" to "${riderContext.heading.toInt()}°",
+            "Navigation Status" to navStatus
+        )
+
+        val dispatchResult = dispatcher.dispatch(trimmed, contextMap, recentHistory)
+        val finalResult = when (dispatchResult) {
+            is ModularSemanticDispatcher.DispatchResult.Action -> {
+                IntentResult.Action(dispatchResult.action, dispatchResult.target, dispatchResult.rawResponse)
             }
-
-            val systemPrompt = "You are Gabay, an offline motorcycle navigation co-pilot in the Philippines.\n" +
-                "You provide concise, clear, and direct vehicular voice guidance.\n" +
-                "Never use generic AI filler, marketing fluff, or robotic sci-fi phrases.\n\n" +
-                "LIVE RIDER CONTEXT:\n" +
-                "- Current Road: ${riderContext.currentRoad}\n" +
-                "- Coordinates: Lat ${String.format(Locale.US, "%.4f", riderContext.latitude)}, Lon ${String.format(Locale.US, "%.4f", riderContext.longitude)}\n" +
-                "- Speed: ${riderContext.speedKmh.toInt()} km/h | Heading: ${riderContext.heading.toInt()}°\n" +
-                "- Navigation Status: $navStatus\n\n" +
-                "INSTRUCTIONS:\n" +
-                "1. If the rider commands an action or navigation task, respond with a JSON object ONLY: {\"action\": \"...\", \"target\": \"...\"}.\n" +
-                "   Supported actions:\n" +
-                "   - \"navigate\": Target is the destination name (e.g. \"Neust San Isidro\", \"Gapan City\", \"SM Cabanatuan\").\n" +
-                "   - \"search\": Target is the POI category or search term (e.g. \"Gas\", \"Hospital\", \"Food\", \"School\").\n" +
-                "   - \"where_am_i\": Checks current road, location, or heading.\n" +
-                "   - \"street\": Switches map layer to vector dark street view.\n" +
-                "   - \"satellite\": Switches map layer to satellite imagery.\n" +
-                "   - \"topo\": Switches map layer to contour topography.\n" +
-                "   - \"3d\": Enables 3D perspective / driver view.\n" +
-                "   - \"2d\": Enables 2D flat overhead map.\n" +
-                "   - \"follow\": Recenters camera and locks magnetic orientation to the vehicle/phone.\n" +
-                "   - \"north\": Resets map rotation facing True North.\n" +
-                "   - \"cancel\": Cancels active navigation or clears destination route.\n\n" +
-                "   Examples:\n" +
-                "   - \"can you switch to street view right now\" -> {\"action\": \"street\"}\n" +
-                "   - \"switch to satellite mode\" / \"ipakita ang satellite\" -> {\"action\": \"satellite\"}\n" +
-                "   - \"show me topography\" -> {\"action\": \"topo\"}\n" +
-                "   - \"can you navigate to neust san isidro campus\" -> {\"action\": \"navigate\", \"target\": \"Neust San Isidro Campus\"}\n" +
-                "   - \"take me to the nearest gas station\" -> {\"action\": \"search\", \"target\": \"Gas\"}\n" +
-                "   - \"emergency hospital nearby\" -> {\"action\": \"search\", \"target\": \"Hospital\"}\n" +
-                "   - \"where am I right now?\" / \"nasaan ako?\" -> {\"action\": \"where_am_i\"}\n" +
-                "   - \"lock camera / magnet view / recenter\" -> {\"action\": \"follow\"}\n" +
-                "   - \"stop route / end navigation / cancel\" -> {\"action\": \"cancel\"}\n\n" +
-                "2. For ANY general motorcycle advice, tire pressure, road rules, greeting, or chit-chat, reply directly in 1 to 2 clear, natural sentences.\n" +
-                "3. NEVER output markdown code blocks or commentary around the JSON."
-
-            val messagesArray = org.json.JSONArray().apply {
-                put(JSONObject().apply {
-                    put("role", "system")
-                    put("content", systemPrompt)
-                })
-
-                // Inject recent conversational history for multi-turn context
-                for (turn in recentHistory) {
-                    val content = turn.second.trim()
-                    if (content.isNotEmpty()) {
-                        put(JSONObject().apply {
-                            val role = if (turn.first.equals("RIDER", ignoreCase = true) || turn.first.equals("You", ignoreCase = true)) "user" else "assistant"
-                            put("role", role)
-                            put("content", content)
-                        })
-                    }
-                }
-
-                put(JSONObject().apply {
-                    put("role", "user")
-                    put("content", trimmed)
-                })
+            is ModularSemanticDispatcher.DispatchResult.Conversation -> {
+                IntentResult.Conversational(dispatchResult.text)
             }
-
-            val requestJson = JSONObject().apply {
-                put("messages", messagesArray)
-                put("temperature", 0.2)
-                put("max_tokens", 128)
+            is ModularSemanticDispatcher.DispatchResult.Error -> {
+                fastHeuristic(trimmed, riderContext)
             }
-
-            val conn = (URL(SERVER_URL).openConnection() as HttpURLConnection).apply {
-                requestMethod = "POST"
-                connectTimeout = 4000
-                readTimeout = 15000
-                doOutput = true
-                setRequestProperty("Content-Type", "application/json")
-            }
-
-            OutputStreamWriter(conn.outputStream).use { writer ->
-                writer.write(requestJson.toString())
-                writer.flush()
-            }
-
-            if (conn.responseCode == 200) {
-                val responseText = BufferedReader(InputStreamReader(conn.inputStream)).use { it.readText() }
-                val root = JSONObject(responseText)
-                val content = root.getJSONArray("choices")
-                    .getJSONObject(0)
-                    .getJSONObject("message")
-                    .getString("content")
-                    .trim()
-
-                Log.d(TAG, "LLM Response: $content")
-
-                // Check if model returned a JSON action
-                val jsonStart = content.indexOf('{')
-                val jsonEnd = content.lastIndexOf('}')
-                if (jsonStart != -1 && jsonEnd != -1 && jsonEnd > jsonStart) {
-                    try {
-                        val parsed = JSONObject(content.substring(jsonStart, jsonEnd + 1))
-                        val action = parsed.optString("action", "")
-                        val target = parsed.optString("target", "")
-                        if (action.isNotEmpty()) {
-                            val actionResult = IntentResult.Action(action, target, content)
-                            lastResult = actionResult
-                            return@withContext actionResult
-                        }
-                    } catch (e: Exception) {
-                        Log.d(TAG, "JSON parse fallback: $content")
-                    }
-                }
-
-                // Otherwise, general conversational answer from the model
-                val convResult = IntentResult.Conversational(content)
-                lastResult = convResult
-                return@withContext convResult
-            } else {
-                Log.w(TAG, "Server error code: ${conn.responseCode}")
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Inference exception", e)
         }
 
-        val fallback = fastHeuristic(trimmed, riderContext)
-        lastResult = fallback
-        return@withContext fallback
+        lastResult = finalResult
+        return@withContext finalResult
     }
 
     private fun fastHeuristic(prompt: String, riderContext: RiderContext = RiderContext()): IntentResult {

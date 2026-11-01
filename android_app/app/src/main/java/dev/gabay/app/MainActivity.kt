@@ -749,29 +749,6 @@ fun CockpitScreen(
     var lastRerouteTimeMs by remember { mutableLongStateOf(0L) }
     var lastArrivalAnnouncedTimeMs by remember { mutableLongStateOf(0L) }
 
-    // Adversarial /break-ui stress testing toggle ("demo", "worst", "empty")
-    var breakUiMode by remember { mutableStateOf("demo") }
-    val effectiveOrigin = when (breakUiMode) {
-        "worst" -> "MacArthur Highway, Brgy. Santo Cristo, Gapan City, Nueva Ecija, 3105"
-        "empty" -> ""
-        else -> originName
-    }
-    val effectiveDestination = when (breakUiMode) {
-        "worst" -> "NEUST - San Isidro Campus, Brgy. Malapit, San Isidro, Nueva Ecija, 3106, Central Luzon, Philippines"
-        "empty" -> ""
-        else -> destinationName
-    }
-    val effectiveSpeed = when (breakUiMode) {
-        "worst" -> 148.0f
-        "empty" -> 0.0f
-        else -> userSpeed
-    }
-    val effectiveRoad = when (breakUiMode) {
-        "worst" -> "PRESIDENT DIOSDADO MACAPAGAL REGIONAL GOVERNMENT CENTER ACCESS BYPASS ROAD NORTHBOUND"
-        "empty" -> ""
-        else -> if (activeRoute != null) telemetry.nextTurnRoad else ""
-    }
-
 
 
     // Process search queries in real-time from SQLite FTS5 database
@@ -1754,10 +1731,10 @@ fun CockpitScreen(
 
         ) {
 
-            if ((activeRoute != null || isRouteLoading || breakUiMode == "worst") && !isPickingOrigin && !isPickingDestination) {
+            if ((activeRoute != null || isRouteLoading) && !isPickingOrigin && !isPickingDestination) {
                 TwoWayRouteHeader(
-                    originName = effectiveOrigin,
-                    destinationName = effectiveDestination,
+                    originName = originName,
+                    destinationName = destinationName,
                     isLoading = isRouteLoading,
                     isNavigating = isNavigating,
 
@@ -2646,9 +2623,9 @@ fun CockpitScreen(
 
                 // Center Primary: Speedometer & Maneuver Telemetry Pod
                 MiddleBottomSpeedometer(
-                    speedKmh = effectiveSpeed,
+                    speedKmh = userSpeed,
                     nextTurnIcon = if (activeRoute != null) telemetry.nextTurnIcon else "straight",
-                    bottomLabel = effectiveRoad
+                    bottomLabel = if (activeRoute != null) telemetry.nextTurnRoad else ""
                 )
 
                 // Right Primary: Recenter GPS & Magnetic Lock
@@ -2805,54 +2782,7 @@ fun CockpitScreen(
 
         }
 
-        // LAYER 8: Dev-Only /break-ui Toggle (Neutral, Plain Chrome, Instant Switching)
-        BreakUiDevToggle(
-            currentMode = breakUiMode,
-            onSelectMode = { breakUiMode = it },
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = 120.dp)
-        )
-
     }
 
-}
-
-@Composable
-fun BreakUiDevToggle(
-    currentMode: String,
-    onSelectMode: (String) -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Row(
-        modifier = modifier
-            .background(Color(0xEE1E293B), RoundedCornerShape(20.dp))
-            .border(1.dp, Color(0xFF475569), RoundedCornerShape(20.dp))
-            .padding(3.dp),
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        listOf("demo" to "Demo data", "worst" to "Worst case", "empty" to "Empty").forEach { (key, label) ->
-            val isSelected = (currentMode == key)
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(if (isSelected) Color(0xFFF8FAFC) else Color.Transparent)
-                    .clickable { onSelectMode(key) }
-                    .padding(horizontal = 10.dp, vertical = 4.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = label,
-                    style = TextStyle(
-                        fontFamily = FontFamily.SansSerif,
-                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                        fontSize = 10.5.sp,
-                        color = if (isSelected) Color(0xFF0F172A) else Color(0xFF94A3B8)
-                    )
-                )
-            }
-        }
-    }
 }
 

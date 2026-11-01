@@ -19,6 +19,31 @@ object PmTilesServer {
 
     private var appContext: android.content.Context? = null
 
+    private val tileCache = java.util.concurrent.ConcurrentHashMap<String, ByteArray>()
+
+    private fun fetchOnlineTile(urlStr: String): ByteArray? {
+        val cached = tileCache[urlStr]
+        if (cached != null) return cached
+        return try {
+            val url = java.net.URL(urlStr)
+            val conn = url.openConnection() as java.net.HttpURLConnection
+            conn.connectTimeout = 3500
+            conn.readTimeout = 3500
+            conn.setRequestProperty("User-Agent", "GabayNavigation/1.0 (Android)")
+            if (conn.responseCode == 200) {
+                val bytes = conn.inputStream.readBytes()
+                if (tileCache.size < 500) {
+                    tileCache[urlStr] = bytes
+                }
+                bytes
+            } else {
+                null
+            }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
     @Synchronized
     fun start(context: android.content.Context, vaultDir: File) {
         if (isRunning) return
@@ -123,6 +148,8 @@ object PmTilesServer {
                         }
                     }
 
+
+
                     // Map Tile Request: /{layer}/{z}/{x}/{y}.{ext}
                     if (segments.size == 4) {
                         val layer = segments[0].lowercase()
@@ -134,8 +161,33 @@ object PmTilesServer {
                         if (z != null && x != null && y != null) {
                             val (tileBytes, contentType, isGzip) = when (layer) {
                                 "vector" -> Triple(vectorReader?.getTile(z, x, y), "application/x-protobuf", true)
-                                "topo", "topography" -> Triple(topoReader?.getTile(z, x, y), "image/webp", false)
-                                "satellite", "sat" -> Triple(satReader?.getTile(z, x, y), "image/jpeg", false)
+                                "topo", "topography" -> {
+                                    val local = topoReader?.getTile(z, x, y)
+                                    if (local != null) {
+                                        Triple(local, "image/webp", false)
+                                    } else {
+                                        val online = fetchOnlineTile("https://tile.opentopomap.org/$z/$x/$y.png")
+                                        Triple(online, "image/png", false)
+                                    }
+                                }
+                                "satellite", "sat" -> {
+                                    val local = satReader?.getTile(z, x, y)
+                                    if (local != null) {
+                                        Triple(local, "image/jpeg", false)
+                                    } else {
+                                        val online = fetchOnlineTile("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/$z/$y/$x")
+                                        Triple(online, "image/jpeg", false)
+                                    }
+                                }
+                                "online_raster", "base_raster" -> {
+                                    if (vectorReader != null) {
+                                        // Offline vector is active; vector layers will render natively
+                                        Triple(null, "image/png", false)
+                                    } else {
+                                        val online = fetchOnlineTile("https://a.basemaps.cartocdn.com/rastertiles/dark_all/$z/$x/$y.png")
+                                        Triple(online, "image/png", false)
+                                    }
+                                }
                                 else -> Triple(null, "application/octet-stream", false)
                             }
 

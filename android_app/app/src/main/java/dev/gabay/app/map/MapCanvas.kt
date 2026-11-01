@@ -562,6 +562,13 @@ private fun setupTacticalMap(
           "tileSize": 256,
           "minzoom": 3,
           "maxzoom": 8
+        },
+        "online_base_raster": {
+          "type": "raster",
+          "tiles": ["http://127.0.0.1:8765/online_raster/{z}/{x}/{y}.png"],
+          "tileSize": 256,
+          "minzoom": 0,
+          "maxzoom": 19
         }
       },
       "layers": [
@@ -571,6 +578,13 @@ private fun setupTacticalMap(
           "paint": {
             "background-color": "#16191E"
           }
+        },
+        {
+          "id": "online_base_layer",
+          "type": "raster",
+          "source": "online_base_raster",
+          "layout": { "visibility": "visible" },
+          "paint": { "raster-opacity": 1.0 }
         },
         {
           "id": "sat_layer",
@@ -880,15 +894,15 @@ private fun setupTacticalMap(
         style.addSource(sqlitePoiSource)
 
         val sqlitePoiCircle = CircleLayer("sqlite_poi_circle", "sqlite_poi_source").apply {
-            minZoom = 9.5f
+            minZoom = 14.5f
             setProperties(
                 circleRadius(
                     interpolate(
                         linear(),
                         zoom(),
-                        stop(9.5f, literal(3.5f)),
-                        stop(12.0f, literal(5.0f)),
-                        stop(16.0f, literal(7.0f))
+                        stop(14.5f, literal(3.5f)),
+                        stop(16.0f, literal(5.0f)),
+                        stop(18.0f, literal(7.0f))
                     )
                 ),
                 circleColor(
@@ -917,7 +931,7 @@ private fun setupTacticalMap(
         style.addLayer(sqlitePoiCircle)
 
         val sqlitePoiLabel = SymbolLayer("sqlite_poi_label", "sqlite_poi_source").apply {
-            minZoom = 11.0f
+            minZoom = 15.0f
             setProperties(
                 textField("{name}"),
                 textFont(arrayOf("Noto Sans Regular")),
@@ -984,7 +998,7 @@ fun queryAndRenderVisiblePois(map: MapLibreMap) {
     val style = map.style ?: return
     val poiSource = style.getSourceAs<GeoJsonSource>("sqlite_poi_source") ?: return
     val zoom = map.cameraPosition.zoom
-    if (zoom < 9.5) {
+    if (zoom < 14.5) {
         poiSource.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
         return
     }
@@ -1001,7 +1015,7 @@ fun queryAndRenderVisiblePois(map: MapLibreMap) {
             if (dbFile.exists()) {
                 val db = android.database.sqlite.SQLiteDatabase.openDatabase(dbFile.absolutePath, null, android.database.sqlite.SQLiteDatabase.OPEN_READONLY)
                 val cursor = db.rawQuery(
-                    "SELECT name, category, latitude, longitude FROM pois WHERE latitude BETWEEN ? AND ? AND longitude BETWEEN ? AND ? LIMIT 350",
+                    "SELECT name, category, latitude, longitude FROM pois WHERE latitude BETWEEN ? AND ? AND longitude BETWEEN ? AND ? LIMIT 50",
                     arrayOf(minLat.toString(), maxLat.toString(), minLon.toString(), maxLon.toString())
                 )
                 val features = mutableListOf<Feature>()
