@@ -832,6 +832,22 @@ fun CockpitScreen(
         onComplete: (() -> Unit)? = null
     ) {
         if (isRouteLoading) return
+
+        val isStartOverseas = startCoord.latitude !in 4.0..22.0 || startCoord.longitude !in 116.0..127.5
+        val isDestOverseas = destCoord.latitude !in 4.0..22.0 || destCoord.longitude !in 116.0..127.5
+        if (isStartOverseas || isDestOverseas) {
+            isRouteLoading = false
+            activeRoute = null
+            alternativeRoute = null
+            audioController.speakTerseCue("Overseas location not supported")
+            android.widget.Toast.makeText(
+                context,
+                "Selected location is overseas. Gabay offline navigation is currently active for the Philippines only.",
+                android.widget.Toast.LENGTH_LONG
+            ).show()
+            return
+        }
+
         isRouteLoading = true
         if (!preserveNavigating) {
             isNavigating = false
@@ -857,7 +873,8 @@ fun CockpitScreen(
                     var alternative: RouteResult? = null
                     if (primary.success && primary.polyline.isNotEmpty()) {
                         try { activeEngine?.setActiveRoute(primary) } catch (e: Exception) {}
-                        if (primary.totalDistanceMeters > 2500.0) {
+                        val hasFerry = primary.maneuvers.any { it.turnType.contains("ferry", ignoreCase = true) }
+                        if (primary.totalDistanceMeters in 2500.0..300000.0 && !hasFerry) {
                             try {
                                 val altOptions = options.copy(avoidFerries = true)
                                 val a = activeEngine?.calculateRoute(startCoord, destCoord, altOptions)
@@ -895,8 +912,15 @@ fun CockpitScreen(
                 } else {
                     activeRoute = null
                     alternativeRoute = null
-                    audioController.speakTerseCue("No road route found")
-                    android.widget.Toast.makeText(context, "No connected road route found", android.widget.Toast.LENGTH_SHORT).show()
+                    val errMsg = route.errorMessage ?: "No connected road route found"
+                    val cue = when {
+                        errMsg.contains("overseas", ignoreCase = true) || errMsg.contains("outside", ignoreCase = true) -> "Location overseas"
+                        errMsg.contains("open water", ignoreCase = true) -> "Location in open water"
+                        errMsg.contains("limits", ignoreCase = true) -> "Route search exceeded"
+                        else -> "No road route found"
+                    }
+                    audioController.speakTerseCue(cue)
+                    android.widget.Toast.makeText(context, errMsg, android.widget.Toast.LENGTH_LONG).show()
                 }
             } catch (e: Exception) {
                 android.util.Log.e("GabayRoute", "Route calculation failure: ${e.message}")

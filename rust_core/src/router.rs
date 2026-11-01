@@ -19,6 +19,17 @@ pub const FLAG_TOLL: u8 = 1 << 4;
 pub const FLAG_EXPRESSWAY: u8 = 1 << 5;
 pub const FLAG_FERRY: u8 = 1 << 6;
 
+/// Philippine Geographic Bounding Box (Lat: 4.0°N – 22.0°N, Lon: 116.0°E – 127.5°E)
+pub const PHILIPPINES_MIN_LAT: f64 = 4.0;
+pub const PHILIPPINES_MAX_LAT: f64 = 22.0;
+pub const PHILIPPINES_MIN_LON: f64 = 116.0;
+pub const PHILIPPINES_MAX_LON: f64 = 127.5;
+
+/// Maximum allowable distance (in meters) to snap a coordinate to the nearest road network node.
+/// Legitimate roads across remote provinces snap within 1-5 km. Coordinates > 15 km away
+/// are in open ocean or overseas and are strictly rejected.
+pub const MAX_SNAP_DISTANCE_M: f64 = 15_000.0;
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct OsmNode {
     pub id: i64,
@@ -267,6 +278,15 @@ impl Router {
         grid: &HashMap<(i32, i32), Vec<u32>>,
         options: &RouteOptions,
     ) -> Option<u32> {
+        // Fast boundary rejection: Strictly reject coordinates outside Philippine coverage
+        if coord.latitude < PHILIPPINES_MIN_LAT
+            || coord.latitude > PHILIPPINES_MAX_LAT
+            || coord.longitude < PHILIPPINES_MIN_LON
+            || coord.longitude > PHILIPPINES_MAX_LON
+        {
+            return None;
+        }
+
         const CELL_SIZE: f64 = 0.005;
         let cx = (coord.latitude / CELL_SIZE).floor() as i32;
         let cy = (coord.longitude / CELL_SIZE).floor() as i32;
@@ -307,11 +327,13 @@ impl Router {
                 for dy in -10..=10 {
                     if let Some(nodes) = grid.get(&(cx + dx, cy + dy)) {
                         for &n_idx in nodes {
-                            let node = &graph.nodes[n_idx as usize];
-                            let d = Self::haversine_distance(coord, &LatLng { latitude: node.lat, longitude: node.lon });
-                            if d < min_dist {
-                                min_dist = d;
-                                best_idx = Some(n_idx);
+                            if Self::node_has_traversable_edge(n_idx, graph, options) {
+                                let node = &graph.nodes[n_idx as usize];
+                                let d = Self::haversine_distance(coord, &LatLng { latitude: node.lat, longitude: node.lon });
+                                if d < min_dist {
+                                    min_dist = d;
+                                    best_idx = Some(n_idx);
+                                }
                             }
                         }
                     }
@@ -319,22 +341,59 @@ impl Router {
             }
         }
 
-        // Step 3: Global fallback (e.g. coordinates outside current regional grid bounds)
+        // Step 3: Global fallback within maximum threshold (rejects open ocean / overseas)
         if best_idx.is_none() {
             for (idx, node) in graph.nodes.iter().enumerate() {
                 let d = Self::haversine_distance(coord, &LatLng { latitude: node.lat, longitude: node.lon });
-                if d < min_dist {
-                    min_dist = d;
-                    best_idx = Some(idx as u32);
+                if d < min_dist && d <= MAX_SNAP_DISTANCE_M {
+                    if Self::node_has_traversable_edge(idx as u32, graph, options) {
+                        min_dist = d;
+                        best_idx = Some(idx as u32);
+                    }
                 }
             }
         }
 
-        best_idx
+        if min_dist > MAX_SNAP_DISTANCE_M {
+            None
+        } else {
+            best_idx
+        }
     }
 
     /// Calculate route between start and destination
     pub fn calculate_route(&self, start: LatLng, end: LatLng, options: RouteOptions) -> RouteResult {
+        // Fast boundary rejection: Validate both endpoints are within Philippine territory
+        if start.latitude < PHILIPPINES_MIN_LAT
+            || start.latitude > PHILIPPINES_MAX_LAT
+            || start.longitude < PHILIPPINES_MIN_LON
+            || start.longitude > PHILIPPINES_MAX_LON
+        {
+            return RouteResult {
+                success: false,
+                total_distance_meters: 0.0,
+                estimated_duration_seconds: 0,
+                polyline: vec![],
+                maneuvers: vec![],
+                error_message: Some("Origin location is overseas (outside the Philippines offline coverage area)".to_string()),
+            };
+        }
+
+        if end.latitude < PHILIPPINES_MIN_LAT
+            || end.latitude > PHILIPPINES_MAX_LAT
+            || end.longitude < PHILIPPINES_MIN_LON
+            || end.longitude > PHILIPPINES_MAX_LON
+        {
+            return RouteResult {
+                success: false,
+                total_distance_meters: 0.0,
+                estimated_duration_seconds: 0,
+                polyline: vec![],
+                maneuvers: vec![],
+                error_message: Some("Destination location is overseas (outside the Philippines offline coverage area)".to_string()),
+            };
+        }
+
         // Cache lookup: (start, end, mode, exp, toll, alt)
         let cache_key = format!(
             "{:.5},{:.5}->{:.5},{:.5}:{:?}:exp={}:toll={}:alt={}",
@@ -416,7 +475,7 @@ impl Router {
                     estimated_duration_seconds: 0,
                     polyline: vec![],
                     maneuvers: vec![],
-                    error_message: Some("Unable to snap start coordinate to road network".to_string()),
+                    error_message: Some("Origin coordinate could not be snapped to road network (open water or unsupported area)".to_string()),
                 };
             }
         };
@@ -430,7 +489,7 @@ impl Router {
                     estimated_duration_seconds: 0,
                     polyline: vec![],
                     maneuvers: vec![],
-                    error_message: Some("Unable to snap destination coordinate to road network".to_string()),
+                    error_message: Some("Destination coordinate could not be snapped to road network (open water or unsupported area)".to_string()),
                 };
             }
         };
@@ -498,8 +557,16 @@ impl Router {
         heap.push(AStarState { f_cost: start_h, g_cost: 0.0, node: start_node });
 
         let mut reached_dest = false;
+        let mut iterations: usize = 0;
+        const MAX_ASTAR_ITERATIONS: usize = 350_000;
 
         while let Some(AStarState { g_cost, node, .. }) = heap.pop() {
+            iterations += 1;
+            if iterations > MAX_ASTAR_ITERATIONS {
+                log::warn!("A* search reached iteration cap ({}), terminating unreachable route search", MAX_ASTAR_ITERATIONS);
+                break;
+            }
+
             if node == dest_node {
                 reached_dest = true;
                 break;
@@ -548,15 +615,20 @@ impl Router {
             }
         }
 
-        // Explicit Failure: If destination is unreachable (e.g. disconnected graph component)
+        // Explicit Failure: If destination is unreachable (e.g. disconnected graph component or island)
         if !reached_dest {
+            let err_msg = if iterations >= MAX_ASTAR_ITERATIONS {
+                "No connected road or ferry route found between origin and destination within search limits".to_string()
+            } else {
+                "No connected road or ferry route found between origin and destination".to_string()
+            };
             return RouteResult {
                 success: false,
                 total_distance_meters: 0.0,
                 estimated_duration_seconds: 0,
                 polyline: vec![],
                 maneuvers: vec![],
-                error_message: Some("No road connection found between origin and destination".to_string()),
+                error_message: Some(err_msg),
             };
         }
 
