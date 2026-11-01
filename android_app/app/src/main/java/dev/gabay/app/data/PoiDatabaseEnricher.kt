@@ -198,70 +198,34 @@ object PoiDatabaseEnricher {
         Triple("San Leonardo - Peñaranda Crossing", "JUNCTION", Pair(15.3628, 120.9635))
     )
 
-    fun ensureEnriched(context: Context) {
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val currentVersion = prefs.getInt(KEY_ENRICHED_VERSION, 0)
+    fun purgeSyntheticPois(context: Context) {
         val dbFile = File("/sdcard/Documents/Gabay/pois_fts.sqlite")
         if (!dbFile.exists() || !dbFile.canWrite()) {
-            Log.d(TAG, "POI database not ready or writable on /sdcard/Documents/Gabay")
             return
         }
 
         try {
             val db = SQLiteDatabase.openDatabase(dbFile.absolutePath, null, SQLiteDatabase.OPEN_READWRITE)
-            
-            // Check if already enriched
-            val checkCursor = db.rawQuery(
-                "SELECT 1 FROM pois WHERE name = 'NEUST - San Isidro Campus' LIMIT 1",
-                emptyArray()
-            )
-            val alreadyPresent = checkCursor.moveToFirst()
-            checkCursor.close()
-
-            if (alreadyPresent && currentVersion >= CURRENT_VERSION) {
-                db.close()
-                return
-            }
-
-            Log.i(TAG, "Seeding ${RICH_POIS.size} authentic local POIs into database...")
+            Log.i(TAG, "Purging synthetic / guessed POIs from database to ensure 100% genuine OSM data...")
             db.beginTransaction()
             try {
-                val insertStmt = db.compileStatement(
-                    "INSERT OR IGNORE INTO pois (name, category, latitude, longitude) VALUES (?, ?, ?, ?)"
-                )
-
                 for (poi in RICH_POIS) {
                     val name = poi.first
-                    val category = poi.second
-                    val lat = poi.third.first
-                    val lon = poi.third.second
-
-                    insertStmt.bindString(1, name)
-                    insertStmt.bindString(2, category)
-                    insertStmt.bindDouble(3, lat)
-                    insertStmt.bindDouble(4, lon)
-                    val rowId = insertStmt.executeInsert()
-
-                    if (rowId > 0) {
-                        try {
-                            db.execSQL(
-                                "INSERT OR IGNORE INTO pois_fts (rowid, name, category) VALUES (?, ?, ?)",
-                                arrayOf(rowId, name, category)
-                            )
-                        } catch (e: Exception) {
-                            // Virtual FTS5 table may be content-backed or managed by rust_core
-                        }
+                    db.execSQL("DELETE FROM pois WHERE name = ?", arrayOf(name))
+                    try {
+                        db.execSQL("DELETE FROM pois_fts WHERE name = ?", arrayOf(name))
+                    } catch (e: Exception) {
+                        // In case pois_fts is a virtual table or content-backed
                     }
                 }
                 db.setTransactionSuccessful()
-                prefs.edit().putInt(KEY_ENRICHED_VERSION, CURRENT_VERSION).apply()
-                Log.i(TAG, "Successfully enriched local POI database with schools, hospitals, governments, and housing!")
+                Log.i(TAG, "Successfully purged synthetic POIs.")
             } finally {
                 db.endTransaction()
                 db.close()
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to enrich POI database: ${e.message}", e)
+            Log.e(TAG, "Failed to purge synthetic POIs: ${e.message}", e)
         }
     }
 }

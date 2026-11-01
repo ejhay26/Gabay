@@ -185,7 +185,7 @@ class MainActivity : ComponentActivity() {
 
         LlamaDaemon.ensureServerRunning(this)
         thread {
-            dev.gabay.app.data.PoiDatabaseEnricher.ensureEnriched(this@MainActivity)
+            dev.gabay.app.data.PoiDatabaseEnricher.purgeSyntheticPois(this@MainActivity)
         }
 
 
@@ -469,14 +469,21 @@ fun CockpitScreen(
 
 
 
-    // User GPS state (Defaults to real Central Luzon coordinates detected on device)
+    // User GPS state (Initializes from device's last known location if available)
+    val initialLoc = remember {
+        val lm = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
+        var bestLoc: Location? = null
+        try {
+            bestLoc = lm?.getLastKnownLocation(LocationManager.GPS_PROVIDER)
+                ?: lm?.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
+        } catch (e: SecurityException) {}
+        bestLoc
+    }
 
-    var userLat by remember { mutableDoubleStateOf(15.2611) }
-
-    var userLon by remember { mutableDoubleStateOf(120.9105) }
+    var userLat by remember { mutableDoubleStateOf(initialLoc?.latitude ?: 14.5995) }
+    var userLon by remember { mutableDoubleStateOf(initialLoc?.longitude ?: 120.9842) }
 
     var userSpeed by remember { mutableFloatStateOf(0.0f) }
-
     var userHeading by remember { mutableFloatStateOf(0.0f) }
 
 

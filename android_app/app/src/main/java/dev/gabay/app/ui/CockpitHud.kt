@@ -1469,9 +1469,10 @@ fun AgentCoPilotSheet(
                             Text(
                                 text = msg.text,
                                 style = TextStyle(
-                                    fontFamily = if (isAgent) FontFamily.Monospace else FontFamily.Default,
-                                    fontSize = 13.sp,
-                                    color = GabayColors.TextPrimary
+                                    fontFamily = FontFamily.SansSerif,
+                                    fontSize = 13.5.sp,
+                                    lineHeight = 18.sp,
+                                    color = if (isAgent) Color(0xFFF8FAFC) else GabayColors.TextPrimary
                                 )
                             )
                         }

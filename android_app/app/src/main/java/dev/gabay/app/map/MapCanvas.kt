@@ -253,7 +253,6 @@ fun MapCanvas(
         val routeCasing = style.getLayer("route_casing")
         val poisLayer = style.getLayer("pmtiles_pois")
         val roadLabels = style.getLayer("pmtiles_roads_labels")
-        val sqlitePoiLabel = style.getLayer("sqlite_poi_label")
 
         if (isSunlightLightMode) {
             bgLayer?.setProperties(backgroundColor(AndroidColor.parseColor("#F1F5F9")))
@@ -270,7 +269,6 @@ fun MapCanvas(
             routeCasing?.setProperties(lineColor(AndroidColor.parseColor("#7C2D12")))
             poisLayer?.setProperties(textColor(AndroidColor.parseColor("#0F172A")), textHaloColor(AndroidColor.WHITE))
             roadLabels?.setProperties(textColor(AndroidColor.parseColor("#334155")), textHaloColor(AndroidColor.WHITE))
-            sqlitePoiLabel?.setProperties(textColor(AndroidColor.parseColor("#0F172A")), textHaloColor(AndroidColor.WHITE))
         } else {
             bgLayer?.setProperties(backgroundColor(AndroidColor.parseColor("#16191E")))
             earthLayer?.setProperties(fillColor(AndroidColor.parseColor("#16191E")))
@@ -286,7 +284,6 @@ fun MapCanvas(
             routeCasing?.setProperties(lineColor(AndroidColor.parseColor("#4D3200")))
             poisLayer?.setProperties(textColor(AndroidColor.parseColor("#FFB300")), textHaloColor(AndroidColor.parseColor("#080B10")))
             roadLabels?.setProperties(textColor(AndroidColor.parseColor("#CBD5E1")), textHaloColor(AndroidColor.parseColor("#0B0E14")))
-            sqlitePoiLabel?.setProperties(textColor(AndroidColor.parseColor("#F1F5F9")), textHaloColor(AndroidColor.parseColor("#0B0E14")))
         }
     }
 
@@ -455,11 +452,6 @@ fun MapCanvas(
         }
     }
 
-    // Query and render visible POIs on map whenever camera or user location changes
-    LaunchedEffect(mapInstance, userLat, userLon) {
-        val map = mapInstance ?: return@LaunchedEffect
-        queryAndRenderVisiblePois(map)
-    }
 
     AndroidView(
         factory = { ctx ->
@@ -889,89 +881,10 @@ private fun setupTacticalMap(
         }
         style.addLayer(userDot)
 
-        // 7. Rich SQLite Offline POIs (NEUST, hospitals, clinics, schools, municipal halls, barangays)
-        val sqlitePoiSource = GeoJsonSource("sqlite_poi_source", FeatureCollection.fromFeatures(emptyList()))
-        style.addSource(sqlitePoiSource)
-
-        val sqlitePoiCircle = CircleLayer("sqlite_poi_circle", "sqlite_poi_source").apply {
-            minZoom = 14.5f
-            setProperties(
-                circleRadius(
-                    interpolate(
-                        linear(),
-                        zoom(),
-                        stop(14.5f, literal(3.5f)),
-                        stop(16.0f, literal(5.0f)),
-                        stop(18.0f, literal(7.0f))
-                    )
-                ),
-                circleColor(
-                    match(
-                        get("category"),
-                        literal("#FFB300"), // Solar Amber Default
-                        stop("HOSPITAL", literal("#EF4444")),
-                        stop("CLINIC", literal("#EF4444")),
-                        stop("PHARMACY", literal("#EF4444")),
-                        stop("SCHOOL", literal("#38BDF8")),
-                        stop("UNIVERSITY", literal("#38BDF8")),
-                        stop("COLLEGE", literal("#38BDF8")),
-                        stop("GAS", literal("#10B981")),
-                        stop("FUEL", literal("#10B981")),
-                        stop("FOOD", literal("#FB923C")),
-                        stop("RESTAURANT", literal("#FB923C")),
-                        stop("GOVERNMENT", literal("#A855F7")),
-                        stop("POLICE", literal("#A855F7")),
-                        stop("FIRE", literal("#A855F7"))
-                    )
-                ),
-                circleStrokeWidth(1.5f),
-                circleStrokeColor(AndroidColor.parseColor("#0B0E14"))
-            )
-        }
-        style.addLayer(sqlitePoiCircle)
-
-        val sqlitePoiLabel = SymbolLayer("sqlite_poi_label", "sqlite_poi_source").apply {
-            minZoom = 15.0f
-            setProperties(
-                textField("{name}"),
-                textFont(arrayOf("Noto Sans Regular")),
-                textSize(
-                    interpolate(
-                        linear(),
-                        zoom(),
-                        stop(11.0f, literal(10.0f)),
-                        stop(13.0f, literal(11.5f)),
-                        stop(16.0f, literal(13.5f))
-                    )
-                ),
-                textColor(if (dev.gabay.app.ui.GabayColors.isSunlightLightMode) AndroidColor.parseColor("#0F172A") else AndroidColor.parseColor("#F1F5F9")),
-                textHaloColor(if (dev.gabay.app.ui.GabayColors.isSunlightLightMode) AndroidColor.WHITE else AndroidColor.parseColor("#0B0E14")),
-                textHaloWidth(1.75f),
-                textAnchor(org.maplibre.android.style.layers.Property.TEXT_ANCHOR_TOP),
-                textOffset(arrayOf(0f, 0.7f)),
-                textMaxWidth(8.0f),
-                textAllowOverlap(false),
-                textOptional(true)
-            )
-        }
-        style.addLayer(sqlitePoiLabel)
-
-        // Seed visible POIs immediately upon style initialization
-        queryAndRenderVisiblePois(map)
     }
 
-    // Single Tap Listener: Tap on POI on map to select destination
+    // Single Tap Listener on map canvas
     map.addOnMapClickListener { latLng ->
-        val screenPoint = map.projection.toScreenLocation(latLng)
-        val features = map.queryRenderedFeatures(screenPoint, "sqlite_poi_circle", "sqlite_poi_label")
-        if (features.isNotEmpty()) {
-            val poiPoint = features.first().geometry() as? Point
-            if (poiPoint != null) {
-                onFollowModeChanged(false)
-                onPinDropped(uniffi.gabay_core.LatLng(poiPoint.latitude(), poiPoint.longitude()))
-                return@addOnMapClickListener true
-            }
-        }
         false
     }
 
@@ -982,62 +895,9 @@ private fun setupTacticalMap(
         true
     }
 
-    // Elastic Border Spring Bounce-Back Constraint & POI Viewport Query
+    // Elastic Border Spring Bounce-Back Constraint
     map.addOnCameraIdleListener {
         applyElasticConstraint(map)
-        queryAndRenderVisiblePois(map)
-    }
-}
-
-/**
- * Queries offline SQLite POIs within the current visible viewport and updates the map.
- * Guarantees institutes (NEUST San Isidro), hospitals, gas stations, schools, and restaurants
- * are dynamically rendered on the actual map canvas.
- */
-fun queryAndRenderVisiblePois(map: MapLibreMap) {
-    val style = map.style ?: return
-    val poiSource = style.getSourceAs<GeoJsonSource>("sqlite_poi_source") ?: return
-    val zoom = map.cameraPosition.zoom
-    if (zoom < 14.5) {
-        poiSource.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
-        return
-    }
-
-    val bounds = map.projection.visibleRegion.latLngBounds
-    val minLat = bounds.latitudeSouth
-    val maxLat = bounds.latitudeNorth
-    val minLon = bounds.longitudeWest
-    val maxLon = bounds.longitudeEast
-
-    CoroutineScope(Dispatchers.IO).launch {
-        try {
-            val dbFile = File("/sdcard/Documents/Gabay/pois_fts.sqlite")
-            if (dbFile.exists()) {
-                val db = android.database.sqlite.SQLiteDatabase.openDatabase(dbFile.absolutePath, null, android.database.sqlite.SQLiteDatabase.OPEN_READONLY)
-                val cursor = db.rawQuery(
-                    "SELECT name, category, latitude, longitude FROM pois WHERE latitude BETWEEN ? AND ? AND longitude BETWEEN ? AND ? LIMIT 50",
-                    arrayOf(minLat.toString(), maxLat.toString(), minLon.toString(), maxLon.toString())
-                )
-                val features = mutableListOf<Feature>()
-                while (cursor.moveToNext()) {
-                    val name = cursor.getString(0) ?: continue
-                    val cat = cursor.getString(1) ?: "GENERAL"
-                    val lat = cursor.getDouble(2)
-                    val lon = cursor.getDouble(3)
-                    val feat = Feature.fromGeometry(Point.fromLngLat(lon, lat))
-                    feat.addStringProperty("name", name)
-                    feat.addStringProperty("category", cat)
-                    features.add(feat)
-                }
-                cursor.close()
-                db.close()
-                withContext(Dispatchers.Main) {
-                    poiSource.setGeoJson(FeatureCollection.fromFeatures(features))
-                }
-            }
-        } catch (e: Exception) {
-            android.util.Log.w("MapCanvas", "Error querying visible POIs: ${e.message}")
-        }
     }
 }
 

@@ -129,7 +129,7 @@ class ModularSemanticDispatcher(
                     .getString("content")
                     .trim()
 
-                return@withContext parseModelResponse(content)
+                return@withContext parseModelResponse(content, trimmed)
             } else {
                 Log.w(TAG, "Server responded with code ${conn.responseCode}, falling back to fuzzy semantic match")
             }
@@ -216,8 +216,13 @@ class ModularSemanticDispatcher(
         }
     }
 
-    private fun parseModelResponse(content: String): DispatchResult {
-        val clean = content.replace("```json", "").replace("```", "").trim()
+    private fun parseModelResponse(content: String, query: String): DispatchResult {
+        val clean = content
+            .replace("<tool_call>", "")
+            .replace("</tool_call>", "")
+            .replace("```json", "")
+            .replace("```", "")
+            .trim()
 
         val jsonStart = clean.indexOf('{')
         val jsonEnd = clean.lastIndexOf('}')
@@ -226,8 +231,39 @@ class ModularSemanticDispatcher(
             try {
                 val jsonStr = clean.substring(jsonStart, jsonEnd + 1)
                 val json = JSONObject(jsonStr)
-                val actionName = json.optString("action", "").trim().lowercase(Locale.ROOT)
-                val target = json.optString("target", "").trim()
+
+                // Read action or tool name
+                var actionName = json.optString("action", "")
+                    .ifEmpty { json.optString("name", "") }
+                    .ifEmpty { json.optString("function", "") }
+                    .trim()
+                    .lowercase(Locale.ROOT)
+
+                // Read target parameter
+                var target = json.optString("target", "").trim()
+                if (target.isEmpty()) {
+                    val args = json.optJSONObject("arguments")
+                    if (args != null) {
+                        target = args.optString("target", "")
+                            .ifEmpty { args.optString("destination", "") }
+                            .ifEmpty { args.optString("query", "") }
+                            .ifEmpty { args.optString("location", "") }
+                            .trim()
+                    }
+                }
+
+                // Normalize action aliases common in LLM tool calling
+                actionName = when (actionName) {
+                    "get_info", "info", "status", "location", "my_location", "check_status" -> "where_am_i"
+                    "route", "directions", "drive", "go_to", "start_navigation" -> "navigate"
+                    "find", "find_poi", "nearby", "search_poi", "search_place" -> "search"
+                    "cancel_route", "stop_route", "end_navigation", "abort" -> "cancel"
+                    "re_center", "center", "recenter_camera" -> "recenter"
+                    "street_view", "vector_view" -> "street"
+                    "sat_view", "satellite_view" -> "satellite"
+                    "topo_view", "topography", "elevation" -> "topo"
+                    else -> actionName
+                }
 
                 if (actions.containsKey(actionName)) {
                     return DispatchResult.Action(action = actionName, target = target, rawResponse = clean)
@@ -235,9 +271,17 @@ class ModularSemanticDispatcher(
             } catch (e: Exception) {
                 Log.w(TAG, "Failed to parse JSON candidate: $clean", e)
             }
+
+            // If it looked like raw JSON tool call but couldn't be mapped, NEVER leak JSON to chat
+            return executeFuzzyHeuristic(query)
         }
 
-        // Model determined it is conversational
+        // If the model output still looks like raw unparsed JSON or tool tags, fall back
+        if (clean.startsWith("{") || clean.startsWith("<")) {
+            return executeFuzzyHeuristic(query)
+        }
+
+        // Clean conversational natural language
         return DispatchResult.Conversation(clean)
     }
 
