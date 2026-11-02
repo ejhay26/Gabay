@@ -1,8 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <style name="Theme.Gabay" parent="android:Theme.Material.NoActionBar">
-        <item name="android:statusBarColor">#0A0D10</item>
-        <item name="android:navigationBarColor">#0A0D10</item>
-        <item name="android:windowBackground">#0A0D10</item>
+        <item name="android:statusBarColor">#141A15</item>
+        <item name="android:navigationBarColor">#141A15</item>
+        <item name="android:windowBackground">#141A15</item>
+        <!-- Suppress native Android 12+ circular splash icon to let Gabay's custom Compose splash take over seamlessly -->
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/splash_blank</item>
+        <item name="android:windowSplashScreenBackground">#141A15</item>
     </style>
 </resources>

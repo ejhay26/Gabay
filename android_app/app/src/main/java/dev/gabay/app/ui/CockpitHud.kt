@@ -96,30 +96,114 @@ object GabayHudSettings {
 }
 
 /**
- * Apple Design System & Fluid Glass Surfaces
+ * Earthy Minimal Liquid Glass System Tokens
+ * Palette:
+ * Primary: #2E3A2F (Deep Forest Slate)
+ * Secondary: #6B7F5B (Muted Sage Green)
+ * Tertiary: #D9C9B2 (Warm Sand / Linen)
+ * Accent: #C96F4F (Terracotta Clay) / #E87A54 (Glowing Ember)
+ * Background: #F8F6EE (Warm Alabaster Linen) / #141A15 (Deep Forest Obsidian)
  */
-private object AppleUiTokens {
-    val GlassDark = Color(0xDD181B24)
-    val GlassLight = Color(0xF4FFFFFF)
-    val GlassBorderDark = Color(0x2EFFFFFF)
-    val GlassBorderLight = Color(0x1F000000)
-    val AppleBlue = Color(0xFF0A84FF)
-    val AppleGreen = Color(0xFF30D158)
-    val AppleGreenDark = Color(0xFF249D42)
-    val AppleRed = Color(0xFFFF453A)
-    val AppleAmber = Color(0xFFFF9F0A)
-    val TextPrimaryDark = Color(0xFFFFFFFF)
-    val TextSecondaryDark = Color(0x99EBEBF5)
-    val TextMutedDark = Color(0x66EBEBF5)
+private object EarthyLiquidTokens {
+    val ForestSlate = Color(0xFF2E3A2F)
+    val ForestObsidian = Color(0xFF141A15)
+    val ForestGlassDark = Color(0xD01C251E)
+    val AlabasterGlassLight = Color(0xF2F8F6EE)
+    val GlassBorderDark = Color(0x3BD9C9B2)
+    val GlassBorderLight = Color(0x55D9C9B2)
+
+    val SageGreen = Color(0xFF6B7F5B)
+    val WarmSand = Color(0xFFD9C9B2)
+    val Terracotta = Color(0xFFC96F4F)
+    val TerracottaGlow = Color(0xFFE87A54)
+
     val CardShape = RoundedCornerShape(22.dp)
     val PillShape = RoundedCornerShape(26.dp)
     val SmallPillShape = RoundedCornerShape(16.dp)
 
-    fun glassBg(): Color = if (GabayColors.isSunlightLightMode) GlassLight else GlassDark
+    fun glassBg(): Color = if (GabayColors.isSunlightLightMode) AlabasterGlassLight else ForestGlassDark
     fun glassBorder(): Color = if (GabayColors.isSunlightLightMode) GlassBorderLight else GlassBorderDark
-    fun textPrimary(): Color = if (GabayColors.isSunlightLightMode) Color(0xFF0F172A) else TextPrimaryDark
-    fun textSecondary(): Color = if (GabayColors.isSunlightLightMode) Color(0xFF475569) else TextSecondaryDark
-    fun textMuted(): Color = if (GabayColors.isSunlightLightMode) Color(0xFF94A3B8) else TextMutedDark
+    fun accent(): Color = if (GabayColors.isSunlightLightMode) Terracotta else TerracottaGlow
+    fun textPrimary(): Color = if (GabayColors.isSunlightLightMode) Color(0xFF1E2820) else Color(0xFFF8F6EE)
+    fun textSecondary(): Color = if (GabayColors.isSunlightLightMode) Color(0xFF4E5F48) else WarmSand
+    fun textMuted(): Color = if (GabayColors.isSunlightLightMode) Color(0xFF7A8B75) else Color(0xFF8A9E85)
+}
+
+/**
+ * Modern iOS Liquid Glass Toggle Switch (Apple HIG / Convx Specification)
+ * 51dp × 31dp capsule track with 27dp sliding knob, concentric specular lens ring and spring physics
+ */
+@Composable
+fun IosLiquidToggle(
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    activeColor: Color = EarthyLiquidTokens.accent(),
+    inactiveTrackColor: Color = if (GabayColors.isSunlightLightMode) Color(0x28000000) else Color(0x38FFFFFF)
+) {
+    val thumbOffset by animateDpAsState(
+        targetValue = if (checked) 20.dp else 0.dp,
+        animationSpec = spring(dampingRatio = 0.82f, stiffness = 450f),
+        label = "IosToggleOffset"
+    )
+
+    val trackColor by animateColorAsState(
+        targetValue = if (checked) activeColor else inactiveTrackColor,
+        animationSpec = tween(durationMillis = 200),
+        label = "IosToggleTrackColor"
+    )
+
+    val rimColor by animateColorAsState(
+        targetValue = if (checked) activeColor.copy(alpha = 0.8f) else Color.White.copy(alpha = 0.16f),
+        animationSpec = tween(durationMillis = 200),
+        label = "IosToggleRim"
+    )
+
+    Box(
+        modifier = modifier
+            .size(width = 51.dp, height = 31.dp)
+            .clip(RoundedCornerShape(15.5.dp))
+            .background(trackColor)
+            .border(0.8.dp, rimColor, RoundedCornerShape(15.5.dp))
+            .clickable(enabled = enabled) { onCheckedChange(!checked) }
+            .padding(2.dp),
+        contentAlignment = Alignment.CenterStart
+    ) {
+        // Sliding Knob with Specular Rim & Lens Depth Shadow
+        Box(
+            modifier = Modifier
+                .offset(x = thumbOffset)
+                .size(27.dp)
+                .shadow(elevation = 3.dp, shape = CircleShape)
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            Color(0xFFFFFFFF),
+                            Color(0xFFF8F6EE)
+                        )
+                    ),
+                    shape = CircleShape
+                )
+                .border(
+                    width = 0.6.dp,
+                    color = Color.Black.copy(alpha = 0.08f),
+                    shape = CircleShape
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            // Subtle concentric inner lens ring
+            Box(
+                modifier = Modifier
+                    .size(23.dp)
+                    .border(
+                        width = 0.5.dp,
+                        color = Color.White.copy(alpha = 0.75f),
+                        shape = CircleShape
+                    )
+            )
+        }
+    }
 }
 
 private fun resolveManeuverIcon(iconStr: String): ImageVector {
@@ -137,7 +221,7 @@ private fun resolveManeuverIcon(iconStr: String): ImageVector {
 }
 
 /**
- * Apple Maps Two-Way Origin to Destination Header
+ * Earthy Liquid Glass Two-Way Origin to Destination Header
  */
 @Composable
 fun TwoWayRouteHeader(
@@ -155,11 +239,11 @@ fun TwoWayRouteHeader(
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 2.dp)
-            .shadow(elevation = 10.dp, shape = AppleUiTokens.CardShape),
-        shape = AppleUiTokens.CardShape,
-        colors = CardDefaults.cardColors(containerColor = AppleUiTokens.glassBg()),
+            .shadow(elevation = 10.dp, shape = EarthyLiquidTokens.CardShape),
+        shape = EarthyLiquidTokens.CardShape,
+        colors = CardDefaults.cardColors(containerColor = EarthyLiquidTokens.glassBg()),
         border = CardDefaults.outlinedCardBorder().copy(
-            brush = SolidColor(if (isLoading) AppleUiTokens.AppleAmber.copy(alpha = 0.8f) else AppleUiTokens.glassBorder()),
+            brush = SolidColor(if (isLoading) EarthyLiquidTokens.accent().copy(alpha = 0.8f) else EarthyLiquidTokens.glassBorder()),
             width = 0.8.dp
         )
     ) {
@@ -170,37 +254,33 @@ fun TwoWayRouteHeader(
                     .padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Left Route Visual Indicator (Apple Maps Origin Ring -> Vertical Connector -> Destination Pin)
+                // Route Visual Indicator (Sage Ring -> Vertical Connector -> Terracotta Dot)
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     modifier = Modifier.padding(top = 2.dp, end = 12.dp)
                 ) {
-                    // Origin Teal Ring
                     Box(
                         modifier = Modifier
                             .size(12.dp)
                             .background(Color.Transparent, CircleShape)
-                            .border(2.5.dp, Color(0xFF00C7BE), CircleShape)
+                            .border(2.5.dp, EarthyLiquidTokens.SageGreen, CircleShape)
                     )
-                    // Sleek connector dots
                     Box(
                         modifier = Modifier
                             .padding(vertical = 3.dp)
                             .width(1.5.dp)
                             .height(16.dp)
-                            .background(AppleUiTokens.textMuted().copy(alpha = 0.35f))
+                            .background(EarthyLiquidTokens.textMuted().copy(alpha = 0.4f))
                     )
-                    // Destination Coral Red Dot
                     Box(
                         modifier = Modifier
                             .size(12.dp)
-                            .background(AppleUiTokens.AppleRed, CircleShape)
+                            .background(EarthyLiquidTokens.accent(), CircleShape)
                     )
                 }
 
-                // Center Origin & Destination Names
+                // Center Origin & Destination Labels
                 Column(modifier = Modifier.weight(1f)) {
-                    // Origin Row
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -214,7 +294,7 @@ fun TwoWayRouteHeader(
                                 fontFamily = FontFamily.SansSerif,
                                 fontWeight = FontWeight.Medium,
                                 fontSize = 14.sp,
-                                color = AppleUiTokens.textPrimary()
+                                color = EarthyLiquidTokens.textPrimary()
                             ),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
@@ -223,7 +303,6 @@ fun TwoWayRouteHeader(
 
                     Spacer(modifier = Modifier.height(6.dp))
 
-                    // Destination Row
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -237,7 +316,7 @@ fun TwoWayRouteHeader(
                                 fontFamily = FontFamily.SansSerif,
                                 fontWeight = FontWeight.SemiBold,
                                 fontSize = 15.sp,
-                                color = AppleUiTokens.textPrimary()
+                                color = EarthyLiquidTokens.textPrimary()
                             ),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
@@ -247,7 +326,7 @@ fun TwoWayRouteHeader(
 
                 Spacer(modifier = Modifier.width(10.dp))
 
-                // Right Action Buttons: Swap [⇅] and Close [✕]
+                // Action Buttons: Swap and Close
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
@@ -264,7 +343,7 @@ fun TwoWayRouteHeader(
                             Icon(
                                 imageVector = GabayIcons.ModeSwap,
                                 contentDescription = "Swap Locations",
-                                tint = AppleUiTokens.textPrimary(),
+                                tint = EarthyLiquidTokens.textPrimary(),
                                 modifier = Modifier.size(16.dp)
                             )
                         }
@@ -281,20 +360,19 @@ fun TwoWayRouteHeader(
                         Icon(
                             imageVector = GabayIcons.ActionClose,
                             contentDescription = "Cancel Route",
-                            tint = AppleUiTokens.textPrimary(),
+                            tint = EarthyLiquidTokens.textPrimary(),
                             modifier = Modifier.size(16.dp)
                         )
                     }
                 }
             }
 
-            // Animated Loading Progress Bar
             if (isLoading) {
                 LinearProgressIndicator(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(2.5.dp),
-                    color = AppleUiTokens.AppleAmber,
+                    color = EarthyLiquidTokens.accent(),
                     trackColor = Color.Transparent
                 )
             }
@@ -312,10 +390,10 @@ fun RouteCalculatingIndicator(
     Card(
         modifier = modifier
             .padding(horizontal = 24.dp, vertical = 6.dp)
-            .shadow(8.dp, AppleUiTokens.PillShape),
-        shape = AppleUiTokens.PillShape,
-        colors = CardDefaults.cardColors(containerColor = AppleUiTokens.glassBg()),
-        border = CardDefaults.outlinedCardBorder().copy(brush = SolidColor(AppleUiTokens.glassBorder()), width = 0.8.dp)
+            .shadow(8.dp, EarthyLiquidTokens.PillShape),
+        shape = EarthyLiquidTokens.PillShape,
+        colors = CardDefaults.cardColors(containerColor = EarthyLiquidTokens.glassBg()),
+        border = CardDefaults.outlinedCardBorder().copy(brush = SolidColor(EarthyLiquidTokens.glassBorder()), width = 0.8.dp)
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
@@ -325,7 +403,7 @@ fun RouteCalculatingIndicator(
             CircularProgressIndicator(
                 modifier = Modifier.size(16.dp),
                 strokeWidth = 2.dp,
-                color = AppleUiTokens.AppleAmber
+                color = EarthyLiquidTokens.accent()
             )
             Text(
                 text = "Calculating fastest route...",
@@ -333,7 +411,7 @@ fun RouteCalculatingIndicator(
                     fontFamily = FontFamily.SansSerif,
                     fontWeight = FontWeight.Medium,
                     fontSize = 13.sp,
-                    color = AppleUiTokens.textPrimary()
+                    color = EarthyLiquidTokens.textPrimary()
                 )
             )
         }
@@ -341,7 +419,7 @@ fun RouteCalculatingIndicator(
 }
 
 /**
- * Apple Maps / CarPlay Fluid Search Bar Capsule
+ * Earthy Liquid Glass Search Bar Capsule
  */
 @Composable
 fun TopSearchBar(
@@ -356,7 +434,7 @@ fun TopSearchBar(
     onSelectRecent: (dev.gabay.app.data.RecentDestination) -> Unit = {},
     onClearRecents: () -> Unit = {},
     onCategoryClick: (String) -> Unit = {},
-    hint: String = "Search places, roads, landmarks...",
+    hint: String = "Search destinations, roads, landmarks...",
     onCancelSearch: (() -> Unit)? = null,
     onUseCurrentLocation: (() -> Unit)? = null,
     modifier: Modifier = Modifier
@@ -375,10 +453,10 @@ fun TopSearchBar(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(52.dp)
-                .shadow(elevation = 12.dp, shape = AppleUiTokens.PillShape),
-            shape = AppleUiTokens.PillShape,
-            colors = CardDefaults.cardColors(containerColor = AppleUiTokens.glassBg()),
-            border = CardDefaults.outlinedCardBorder().copy(brush = SolidColor(AppleUiTokens.glassBorder()), width = 0.8.dp)
+                .shadow(elevation = 12.dp, shape = EarthyLiquidTokens.PillShape),
+            shape = EarthyLiquidTokens.PillShape,
+            colors = CardDefaults.cardColors(containerColor = EarthyLiquidTokens.glassBg()),
+            border = CardDefaults.outlinedCardBorder().copy(brush = SolidColor(EarthyLiquidTokens.glassBorder()), width = 0.8.dp)
         ) {
             Row(
                 modifier = Modifier
@@ -386,7 +464,6 @@ fun TopSearchBar(
                     .padding(horizontal = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Left Button: Back or Menu
                 if (onCancelSearch != null) {
                     IconButton(
                         onClick = onCancelSearch,
@@ -395,7 +472,7 @@ fun TopSearchBar(
                         Icon(
                             imageVector = GabayIcons.ChevronLeft,
                             contentDescription = "Back",
-                            tint = AppleUiTokens.textPrimary(),
+                            tint = EarthyLiquidTokens.textPrimary(),
                             modifier = Modifier.size(20.dp)
                         )
                     }
@@ -411,7 +488,7 @@ fun TopSearchBar(
                         Icon(
                             imageVector = GabayIcons.Menu,
                             contentDescription = "Menu",
-                            tint = AppleUiTokens.textPrimary(),
+                            tint = EarthyLiquidTokens.textPrimary(),
                             modifier = Modifier.size(18.dp)
                         )
                     }
@@ -419,7 +496,6 @@ fun TopSearchBar(
 
                 Spacer(modifier = Modifier.width(8.dp))
 
-                // Search Input Field
                 Box(
                     modifier = Modifier
                         .weight(1f)
@@ -433,7 +509,7 @@ fun TopSearchBar(
                                 fontFamily = FontFamily.SansSerif,
                                 fontWeight = FontWeight.Normal,
                                 fontSize = 15.sp,
-                                color = AppleUiTokens.textMuted()
+                                color = EarthyLiquidTokens.textMuted()
                             ),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
@@ -450,14 +526,13 @@ fun TopSearchBar(
                             fontFamily = FontFamily.SansSerif,
                             fontWeight = FontWeight.Normal,
                             fontSize = 15.sp,
-                            color = AppleUiTokens.textPrimary()
+                            color = EarthyLiquidTokens.textPrimary()
                         ),
-                        cursorBrush = SolidColor(AppleUiTokens.AppleAmber),
+                        cursorBrush = SolidColor(EarthyLiquidTokens.accent()),
                         modifier = Modifier.fillMaxWidth()
                     )
                 }
 
-                // Clear Query Action
                 if (query.isNotEmpty()) {
                     IconButton(
                         onClick = {
@@ -468,14 +543,13 @@ fun TopSearchBar(
                     ) {
                         Icon(
                             imageVector = GabayIcons.ActionClose,
-                            contentDescription = "Clear search",
-                            tint = AppleUiTokens.textMuted(),
+                            contentDescription = "Clear",
+                            tint = EarthyLiquidTokens.textMuted(),
                             modifier = Modifier.size(16.dp)
                         )
                     }
                 }
 
-                // Audio Guidance Toggle Button
                 Box(
                     modifier = Modifier
                         .size(38.dp)
@@ -490,9 +564,9 @@ fun TopSearchBar(
                         AudioGuidanceMode.MUTED -> GabayIcons.AudioMute
                     }
                     val audioTint = when (audioGuidanceMode) {
-                        AudioGuidanceMode.FULL_VOICE -> AppleUiTokens.AppleGreen
-                        AudioGuidanceMode.ALERTS_ONLY -> AppleUiTokens.AppleAmber
-                        AudioGuidanceMode.MUTED -> AppleUiTokens.AppleRed
+                        AudioGuidanceMode.FULL_VOICE -> EarthyLiquidTokens.SageGreen
+                        AudioGuidanceMode.ALERTS_ONLY -> EarthyLiquidTokens.accent()
+                        AudioGuidanceMode.MUTED -> Color(0xFFB91C1C)
                     }
                     Icon(
                         imageVector = audioIcon,
@@ -504,7 +578,7 @@ fun TopSearchBar(
             }
         }
 
-        // Quick Category Pills Row (Apple Maps Style)
+        // Clean Professional Typographic Category Pills (Zero Emojis / Zero Slop)
         if (query.isEmpty() && searchResults.isEmpty()) {
             Spacer(modifier = Modifier.height(8.dp))
             Row(
@@ -514,25 +588,25 @@ fun TopSearchBar(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 val categories = listOf(
-                    "⛽ Gas" to "gas station",
-                    "☕ Coffee" to "coffee",
-                    "🍔 Food" to "restaurant",
-                    "🅿️ Parking" to "parking",
-                    "🛣️ Tollway" to "expressway toll",
-                    "🏥 Hospital" to "hospital",
-                    "🏪 7-Eleven" to "convenience store"
+                    "Gas Stations" to "gas station",
+                    "Coffee & Cafes" to "coffee",
+                    "Restaurants" to "restaurant",
+                    "Parking" to "parking",
+                    "Expressway Tolls" to "expressway toll",
+                    "Hospitals" to "hospital",
+                    "Convenience Stores" to "convenience store"
                 )
                 categories.forEach { (label, keyword) ->
                     Box(
                         modifier = Modifier
-                            .clip(AppleUiTokens.SmallPillShape)
-                            .background(AppleUiTokens.glassBg())
-                            .border(0.8.dp, AppleUiTokens.glassBorder(), AppleUiTokens.SmallPillShape)
+                            .clip(EarthyLiquidTokens.SmallPillShape)
+                            .background(EarthyLiquidTokens.glassBg())
+                            .border(0.8.dp, EarthyLiquidTokens.glassBorder(), EarthyLiquidTokens.SmallPillShape)
                             .clickable {
                                 onQueryChange(keyword)
                                 onCategoryClick(keyword)
                             }
-                            .padding(horizontal = 12.dp, vertical = 7.dp)
+                            .padding(horizontal = 14.dp, vertical = 7.dp)
                     ) {
                         Text(
                             text = label,
@@ -540,7 +614,7 @@ fun TopSearchBar(
                                 fontFamily = FontFamily.SansSerif,
                                 fontWeight = FontWeight.Medium,
                                 fontSize = 12.sp,
-                                color = AppleUiTokens.textPrimary()
+                                color = EarthyLiquidTokens.textPrimary()
                             )
                         )
                     }
@@ -555,10 +629,10 @@ fun TopSearchBar(
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(max = 280.dp)
-                    .shadow(16.dp, AppleUiTokens.CardShape),
-                shape = AppleUiTokens.CardShape,
-                colors = CardDefaults.cardColors(containerColor = AppleUiTokens.glassBg()),
-                border = CardDefaults.outlinedCardBorder().copy(brush = SolidColor(AppleUiTokens.glassBorder()), width = 0.8.dp)
+                    .shadow(16.dp, EarthyLiquidTokens.CardShape),
+                shape = EarthyLiquidTokens.CardShape,
+                colors = CardDefaults.cardColors(containerColor = EarthyLiquidTokens.glassBg()),
+                border = CardDefaults.outlinedCardBorder().copy(brush = SolidColor(EarthyLiquidTokens.glassBorder()), width = 0.8.dp)
             ) {
                 LazyColumn(modifier = Modifier.fillMaxWidth()) {
                     items(searchResults) { result ->
@@ -576,7 +650,7 @@ fun TopSearchBar(
                             Icon(
                                 imageVector = GabayIcons.DestinationPin,
                                 contentDescription = null,
-                                tint = AppleUiTokens.AppleAmber,
+                                tint = EarthyLiquidTokens.accent(),
                                 modifier = Modifier.size(18.dp)
                             )
                             Spacer(modifier = Modifier.width(12.dp))
@@ -587,7 +661,7 @@ fun TopSearchBar(
                                         fontFamily = FontFamily.SansSerif,
                                         fontWeight = FontWeight.SemiBold,
                                         fontSize = 14.sp,
-                                        color = AppleUiTokens.textPrimary()
+                                        color = EarthyLiquidTokens.textPrimary()
                                     ),
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
@@ -598,14 +672,14 @@ fun TopSearchBar(
                                     style = TextStyle(
                                         fontFamily = FontFamily.SansSerif,
                                         fontSize = 12.sp,
-                                        color = AppleUiTokens.textSecondary()
+                                        color = EarthyLiquidTokens.textSecondary()
                                     ),
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
                             }
                         }
-                        HorizontalDivider(color = AppleUiTokens.glassBorder(), thickness = 0.5.dp)
+                        HorizontalDivider(color = EarthyLiquidTokens.glassBorder(), thickness = 0.5.dp)
                     }
                 }
             }
@@ -615,10 +689,10 @@ fun TopSearchBar(
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(max = 240.dp)
-                    .shadow(16.dp, AppleUiTokens.CardShape),
-                shape = AppleUiTokens.CardShape,
-                colors = CardDefaults.cardColors(containerColor = AppleUiTokens.glassBg()),
-                border = CardDefaults.outlinedCardBorder().copy(brush = SolidColor(AppleUiTokens.glassBorder()), width = 0.8.dp)
+                    .shadow(16.dp, EarthyLiquidTokens.CardShape),
+                shape = EarthyLiquidTokens.CardShape,
+                colors = CardDefaults.cardColors(containerColor = EarthyLiquidTokens.glassBg()),
+                border = CardDefaults.outlinedCardBorder().copy(brush = SolidColor(EarthyLiquidTokens.glassBorder()), width = 0.8.dp)
             ) {
                 Column(modifier = Modifier.fillMaxWidth()) {
                     Row(
@@ -634,7 +708,7 @@ fun TopSearchBar(
                                 fontFamily = FontFamily.SansSerif,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 11.sp,
-                                color = AppleUiTokens.textMuted()
+                                color = EarthyLiquidTokens.textMuted()
                             )
                         )
                         Text(
@@ -644,11 +718,11 @@ fun TopSearchBar(
                                 fontFamily = FontFamily.SansSerif,
                                 fontWeight = FontWeight.SemiBold,
                                 fontSize = 12.sp,
-                                color = AppleUiTokens.AppleBlue
+                                color = EarthyLiquidTokens.accent()
                             )
                         )
                     }
-                    HorizontalDivider(color = AppleUiTokens.glassBorder(), thickness = 0.5.dp)
+                    HorizontalDivider(color = EarthyLiquidTokens.glassBorder(), thickness = 0.5.dp)
                     LazyColumn(modifier = Modifier.fillMaxWidth()) {
                         items(recentDestinations) { recent ->
                             Row(
@@ -665,7 +739,7 @@ fun TopSearchBar(
                                 Icon(
                                     imageVector = GabayIcons.TimePace,
                                     contentDescription = null,
-                                    tint = AppleUiTokens.textMuted(),
+                                    tint = EarthyLiquidTokens.textMuted(),
                                     modifier = Modifier.size(16.dp)
                                 )
                                 Spacer(modifier = Modifier.width(12.dp))
@@ -675,13 +749,13 @@ fun TopSearchBar(
                                         fontFamily = FontFamily.SansSerif,
                                         fontWeight = FontWeight.Medium,
                                         fontSize = 13.sp,
-                                        color = AppleUiTokens.textPrimary()
+                                        color = EarthyLiquidTokens.textPrimary()
                                     ),
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
                             }
-                            HorizontalDivider(color = AppleUiTokens.glassBorder(), thickness = 0.5.dp)
+                            HorizontalDivider(color = EarthyLiquidTokens.glassBorder(), thickness = 0.5.dp)
                         }
                     }
                 }
@@ -691,7 +765,7 @@ fun TopSearchBar(
 }
 
 /**
- * Apple CarPlay Bottom Telemetry & Speedometer Deck
+ * Earthy Liquid Glass Bottom Telemetry & Speedometer Deck
  */
 @Composable
 fun MiddleBottomSpeedometer(
@@ -709,10 +783,10 @@ fun MiddleBottomSpeedometer(
 
     Card(
         modifier = modifier
-            .shadow(elevation = 12.dp, shape = AppleUiTokens.PillShape),
-        shape = AppleUiTokens.PillShape,
-        colors = CardDefaults.cardColors(containerColor = AppleUiTokens.glassBg()),
-        border = CardDefaults.outlinedCardBorder().copy(brush = SolidColor(AppleUiTokens.glassBorder()), width = 0.8.dp)
+            .shadow(elevation = 12.dp, shape = EarthyLiquidTokens.PillShape),
+        shape = EarthyLiquidTokens.PillShape,
+        colors = CardDefaults.cardColors(containerColor = EarthyLiquidTokens.glassBg()),
+        border = CardDefaults.outlinedCardBorder().copy(brush = SolidColor(EarthyLiquidTokens.glassBorder()), width = 0.8.dp)
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
@@ -720,18 +794,18 @@ fun MiddleBottomSpeedometer(
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             if (hasActiveTurn) {
-                // Maneuver Glyph Pod
+                // Maneuver Glyph Pod (Terracotta Clay / Ember)
                 Box(
                     modifier = Modifier
                         .size(36.dp)
-                        .background(AppleUiTokens.AppleGreen.copy(alpha = 0.18f), CircleShape)
-                        .border(1.dp, AppleUiTokens.AppleGreen.copy(alpha = 0.5f), CircleShape),
+                        .background(EarthyLiquidTokens.accent().copy(alpha = 0.2f), CircleShape)
+                        .border(1.dp, EarthyLiquidTokens.accent().copy(alpha = 0.6f), CircleShape),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = resolveManeuverIcon(nextTurnIcon),
                         contentDescription = "Next Turn",
-                        tint = AppleUiTokens.AppleGreen,
+                        tint = EarthyLiquidTokens.accent(),
                         modifier = Modifier.size(20.dp)
                     )
                 }
@@ -746,7 +820,7 @@ fun MiddleBottomSpeedometer(
                                 fontFamily = FontFamily.SansSerif,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 13.sp,
-                                color = AppleUiTokens.textPrimary()
+                                color = EarthyLiquidTokens.textPrimary()
                             ),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
@@ -756,7 +830,7 @@ fun MiddleBottomSpeedometer(
                             style = TextStyle(
                                 fontFamily = FontFamily.SansSerif,
                                 fontSize = 10.sp,
-                                color = AppleUiTokens.textMuted()
+                                color = EarthyLiquidTokens.textMuted()
                             )
                         )
                     }
@@ -766,7 +840,7 @@ fun MiddleBottomSpeedometer(
                         modifier = Modifier
                             .width(0.8.dp)
                             .height(28.dp)
-                            .background(AppleUiTokens.glassBorder())
+                            .background(EarthyLiquidTokens.glassBorder())
                     )
                 }
             }
@@ -783,7 +857,7 @@ fun MiddleBottomSpeedometer(
                         fontWeight = FontWeight.Black,
                         fontSize = 32.sp,
                         letterSpacing = (-1.0).sp,
-                        color = AppleUiTokens.textPrimary()
+                        color = EarthyLiquidTokens.textPrimary()
                     )
                 )
                 Spacer(modifier = Modifier.width(3.dp))
@@ -793,7 +867,7 @@ fun MiddleBottomSpeedometer(
                         fontFamily = FontFamily.SansSerif,
                         fontWeight = FontWeight.Bold,
                         fontSize = 10.sp,
-                        color = AppleUiTokens.AppleAmber
+                        color = EarthyLiquidTokens.accent()
                     ),
                     modifier = Modifier.padding(bottom = 5.dp)
                 )
@@ -803,7 +877,7 @@ fun MiddleBottomSpeedometer(
 }
 
 /**
- * Minimalist Apple Glass Telemetry Capsule
+ * Minimalist Earthy Liquid Glass Telemetry Capsule
  */
 @Composable
 fun FloatingTelemetryPill(
@@ -813,10 +887,10 @@ fun FloatingTelemetryPill(
 ) {
     Card(
         modifier = modifier
-            .shadow(elevation = 8.dp, shape = AppleUiTokens.PillShape),
-        shape = AppleUiTokens.PillShape,
-        colors = CardDefaults.cardColors(containerColor = AppleUiTokens.glassBg()),
-        border = CardDefaults.outlinedCardBorder().copy(brush = SolidColor(AppleUiTokens.glassBorder()), width = 0.8.dp)
+            .shadow(elevation = 8.dp, shape = EarthyLiquidTokens.PillShape),
+        shape = EarthyLiquidTokens.PillShape,
+        colors = CardDefaults.cardColors(containerColor = EarthyLiquidTokens.glassBg()),
+        border = CardDefaults.outlinedCardBorder().copy(brush = SolidColor(EarthyLiquidTokens.glassBorder()), width = 0.8.dp)
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
@@ -829,7 +903,7 @@ fun FloatingTelemetryPill(
                     fontFamily = FontFamily.SansSerif,
                     fontWeight = FontWeight.Bold,
                     fontSize = 15.sp,
-                    color = AppleUiTokens.textPrimary()
+                    color = EarthyLiquidTokens.textPrimary()
                 )
             )
             Text(
@@ -838,7 +912,7 @@ fun FloatingTelemetryPill(
                     fontFamily = FontFamily.SansSerif,
                     fontWeight = FontWeight.SemiBold,
                     fontSize = 10.sp,
-                    color = AppleUiTokens.AppleAmber
+                    color = EarthyLiquidTokens.accent()
                 )
             )
         }
@@ -846,7 +920,7 @@ fun FloatingTelemetryPill(
 }
 
 /**
- * Apple-style Map Layer Selector
+ * Map Layer Speed Dial
  */
 @Composable
 fun MapStyleSpeedDial(
@@ -877,10 +951,10 @@ fun MapStyleSpeedDial(
             exit = fadeOut(tween(140)) + slideOutVertically(targetOffsetY = { it / 3 })
         ) {
             Card(
-                shape = AppleUiTokens.CardShape,
-                colors = CardDefaults.cardColors(containerColor = AppleUiTokens.glassBg()),
-                border = CardDefaults.outlinedCardBorder().copy(brush = SolidColor(AppleUiTokens.glassBorder()), width = 0.8.dp),
-                modifier = Modifier.shadow(16.dp, AppleUiTokens.CardShape)
+                shape = EarthyLiquidTokens.CardShape,
+                colors = CardDefaults.cardColors(containerColor = EarthyLiquidTokens.glassBg()),
+                border = CardDefaults.outlinedCardBorder().copy(brush = SolidColor(EarthyLiquidTokens.glassBorder()), width = 0.8.dp),
+                modifier = Modifier.shadow(16.dp, EarthyLiquidTokens.CardShape)
             ) {
                 Column(
                     modifier = Modifier.padding(6.dp),
@@ -892,7 +966,7 @@ fun MapStyleSpeedDial(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier
                                 .clip(RoundedCornerShape(14.dp))
-                                .background(if (isSelected) AppleUiTokens.AppleBlue.copy(alpha = 0.2f) else Color.Transparent)
+                                .background(if (isSelected) EarthyLiquidTokens.SageGreen.copy(alpha = 0.25f) else Color.Transparent)
                                 .clickable {
                                     onSelectMode(mode)
                                     isExpanded = false
@@ -902,7 +976,7 @@ fun MapStyleSpeedDial(
                             Icon(
                                 imageVector = icon,
                                 contentDescription = label,
-                                tint = if (isSelected) AppleUiTokens.AppleBlue else AppleUiTokens.textPrimary(),
+                                tint = if (isSelected) EarthyLiquidTokens.accent() else EarthyLiquidTokens.textPrimary(),
                                 modifier = Modifier.size(18.dp)
                             )
                             Spacer(modifier = Modifier.width(10.dp))
@@ -912,7 +986,7 @@ fun MapStyleSpeedDial(
                                     fontFamily = FontFamily.SansSerif,
                                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                                     fontSize = 12.sp,
-                                    color = if (isSelected) AppleUiTokens.AppleBlue else AppleUiTokens.textPrimary()
+                                    color = if (isSelected) EarthyLiquidTokens.accent() else EarthyLiquidTokens.textPrimary()
                                 )
                             )
                         }
@@ -944,10 +1018,10 @@ fun PerspectiveToggleButton(
         modifier = modifier
             .size(48.dp)
             .shadow(elevation = 8.dp, shape = CircleShape)
-            .background(if (is3d) AppleUiTokens.AppleAmber.copy(alpha = 0.22f) else AppleUiTokens.glassBg(), CircleShape)
+            .background(if (is3d) EarthyLiquidTokens.accent().copy(alpha = 0.22f) else EarthyLiquidTokens.glassBg(), CircleShape)
             .border(
                 0.8.dp,
-                if (is3d) AppleUiTokens.AppleAmber else AppleUiTokens.glassBorder(),
+                if (is3d) EarthyLiquidTokens.accent() else EarthyLiquidTokens.glassBorder(),
                 CircleShape
             )
             .clickable { onToggle() },
@@ -959,7 +1033,7 @@ fun PerspectiveToggleButton(
                 fontFamily = FontFamily.SansSerif,
                 fontWeight = FontWeight.Black,
                 fontSize = 13.sp,
-                color = if (is3d) AppleUiTokens.AppleAmber else AppleUiTokens.textPrimary()
+                color = if (is3d) EarthyLiquidTokens.accent() else EarthyLiquidTokens.textPrimary()
             )
         )
     }
@@ -985,8 +1059,8 @@ fun CompassResetButton(
             modifier = modifier
                 .size(48.dp)
                 .shadow(elevation = 8.dp, shape = CircleShape)
-                .background(AppleUiTokens.glassBg(), CircleShape)
-                .border(0.8.dp, AppleUiTokens.glassBorder(), CircleShape)
+                .background(EarthyLiquidTokens.glassBg(), CircleShape)
+                .border(0.8.dp, EarthyLiquidTokens.glassBorder(), CircleShape)
                 .clickable { onReset() },
             contentAlignment = Alignment.Center
         ) {
@@ -995,20 +1069,20 @@ fun CompassResetButton(
                 verticalArrangement = Arrangement.Center,
                 modifier = Modifier.rotate(-cameraBearing)
             ) {
-                // North Needle Tip
+                // North Needle Tip (Terracotta Ember)
                 Box(
                     modifier = Modifier
                         .width(4.dp)
                         .height(10.dp)
-                        .background(AppleUiTokens.AppleRed, RoundedCornerShape(topStart = 2.dp, topEnd = 2.dp))
+                        .background(EarthyLiquidTokens.accent(), RoundedCornerShape(topStart = 2.dp, topEnd = 2.dp))
                 )
                 Spacer(modifier = Modifier.height(1.5.dp))
-                // South Needle Base
+                // South Needle Base (Warm Sand)
                 Box(
                     modifier = Modifier
                         .width(4.dp)
                         .height(10.dp)
-                        .background(Color(0xFFE2E8F0), RoundedCornerShape(bottomStart = 2.dp, bottomEnd = 2.dp))
+                        .background(EarthyLiquidTokens.WarmSand, RoundedCornerShape(bottomStart = 2.dp, bottomEnd = 2.dp))
                 )
             }
         }
@@ -1024,17 +1098,17 @@ fun CircularFloatingButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     isActive: Boolean = false,
-    activeColor: Color = AppleUiTokens.AppleAmber,
+    activeColor: Color = EarthyLiquidTokens.accent(),
     contentDescription: String? = null
 ) {
     Box(
         modifier = modifier
             .size(48.dp)
             .shadow(elevation = 8.dp, shape = CircleShape)
-            .background(if (isActive) activeColor.copy(alpha = 0.2f) else AppleUiTokens.glassBg(), CircleShape)
+            .background(if (isActive) activeColor.copy(alpha = 0.22f) else EarthyLiquidTokens.glassBg(), CircleShape)
             .border(
                 0.8.dp,
-                if (isActive) activeColor else AppleUiTokens.glassBorder(),
+                if (isActive) activeColor else EarthyLiquidTokens.glassBorder(),
                 CircleShape
             )
             .clickable { onClick() },
@@ -1043,14 +1117,14 @@ fun CircularFloatingButton(
         Icon(
             imageVector = icon,
             contentDescription = contentDescription,
-            tint = if (isActive) activeColor else AppleUiTokens.textPrimary(),
+            tint = if (isActive) activeColor else EarthyLiquidTokens.textPrimary(),
             modifier = Modifier.size(20.dp)
         )
     }
 }
 
 /**
- * Apple Maps Style Route Preview Modal Sheet
+ * Earthy Liquid Glass Route Preview Modal Sheet
  */
 @Composable
 fun RoutePreviewSheet(
@@ -1070,16 +1144,16 @@ fun RoutePreviewSheet(
 ) {
     val distKm = route.totalDistanceMeters / 1000.0
     val durMin = (route.estimatedDurationSeconds / 60u).coerceAtLeast(1u)
-    val viaRoad = route.maneuvers.firstOrNull()?.roadName?.ifBlank { "Optimal Route" } ?: "Optimal Route"
+    val viaRoad = route.maneuvers.firstOrNull()?.roadName?.ifBlank { "Optimal Highway" } ?: "Optimal Highway"
 
     Card(
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 14.dp, vertical = 6.dp)
-            .shadow(elevation = 20.dp, shape = AppleUiTokens.CardShape),
-        shape = AppleUiTokens.CardShape,
-        colors = CardDefaults.cardColors(containerColor = AppleUiTokens.glassBg()),
-        border = CardDefaults.outlinedCardBorder().copy(brush = SolidColor(AppleUiTokens.glassBorder()), width = 0.8.dp)
+            .shadow(elevation = 20.dp, shape = EarthyLiquidTokens.CardShape),
+        shape = EarthyLiquidTokens.CardShape,
+        colors = CardDefaults.cardColors(containerColor = EarthyLiquidTokens.glassBg()),
+        border = CardDefaults.outlinedCardBorder().copy(brush = SolidColor(EarthyLiquidTokens.glassBorder()), width = 0.8.dp)
     ) {
         Column(
             modifier = Modifier
@@ -1087,21 +1161,20 @@ fun RoutePreviewSheet(
                 .padding(horizontal = 18.dp, vertical = 12.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // Drag Handle Bar
             Box(
                 modifier = Modifier
                     .width(36.dp)
                     .height(4.dp)
-                    .background(AppleUiTokens.textMuted().copy(alpha = 0.4f), CircleShape)
+                    .background(EarthyLiquidTokens.textMuted().copy(alpha = 0.4f), CircleShape)
             )
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // Vehicle Mode Segmented Pills
+            // Vehicle Mode Segmented Control
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(if (GabayColors.isSunlightLightMode) Color(0xFFF1F5F9) else Color(0x33000000), AppleUiTokens.SmallPillShape)
+                    .background(if (GabayColors.isSunlightLightMode) Color(0xFFF1F5F9) else Color(0x33000000), EarthyLiquidTokens.SmallPillShape)
                     .padding(3.dp),
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -1117,9 +1190,9 @@ fun RoutePreviewSheet(
                     Box(
                         modifier = Modifier
                             .weight(1f)
-                            .clip(AppleUiTokens.SmallPillShape)
-                            .background(if (isSelected) AppleUiTokens.glassBg() else Color.Transparent)
-                            .border(if (isSelected) 0.8.dp else 0.dp, if (isSelected) AppleUiTokens.glassBorder() else Color.Transparent, AppleUiTokens.SmallPillShape)
+                            .clip(EarthyLiquidTokens.SmallPillShape)
+                            .background(if (isSelected) EarthyLiquidTokens.glassBg() else Color.Transparent)
+                            .border(if (isSelected) 0.8.dp else 0.dp, if (isSelected) EarthyLiquidTokens.glassBorder() else Color.Transparent, EarthyLiquidTokens.SmallPillShape)
                             .clickable { onSelectMode(mode) }
                             .padding(vertical = 6.dp),
                         contentAlignment = Alignment.Center
@@ -1131,7 +1204,7 @@ fun RoutePreviewSheet(
                             Icon(
                                 imageVector = icon,
                                 contentDescription = label,
-                                tint = if (isSelected) AppleUiTokens.AppleGreen else AppleUiTokens.textSecondary(),
+                                tint = if (isSelected) EarthyLiquidTokens.accent() else EarthyLiquidTokens.textSecondary(),
                                 modifier = Modifier.size(15.dp)
                             )
                             Text(
@@ -1140,7 +1213,7 @@ fun RoutePreviewSheet(
                                     fontFamily = FontFamily.SansSerif,
                                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                                     fontSize = 11.5.sp,
-                                    color = if (isSelected) AppleUiTokens.textPrimary() else AppleUiTokens.textSecondary()
+                                    color = if (isSelected) EarthyLiquidTokens.textPrimary() else EarthyLiquidTokens.textSecondary()
                                 )
                             )
                         }
@@ -1167,7 +1240,7 @@ fun RoutePreviewSheet(
                                 fontFamily = FontFamily.SansSerif,
                                 fontWeight = FontWeight.ExtraBold,
                                 fontSize = 24.sp,
-                                color = AppleUiTokens.AppleGreen
+                                color = EarthyLiquidTokens.accent()
                             )
                         )
                         Text(
@@ -1176,7 +1249,7 @@ fun RoutePreviewSheet(
                                 fontFamily = FontFamily.SansSerif,
                                 fontWeight = FontWeight.Normal,
                                 fontSize = 15.sp,
-                                color = AppleUiTokens.textSecondary()
+                                color = EarthyLiquidTokens.textSecondary()
                             ),
                             modifier = Modifier.padding(bottom = 2.dp)
                         )
@@ -1187,7 +1260,7 @@ fun RoutePreviewSheet(
                             fontFamily = FontFamily.SansSerif,
                             fontWeight = FontWeight.Medium,
                             fontSize = 12.sp,
-                            color = AppleUiTokens.textSecondary()
+                            color = EarthyLiquidTokens.textSecondary()
                         )
                     )
                 }
@@ -1196,9 +1269,9 @@ fun RoutePreviewSheet(
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Box(
                         modifier = Modifier
-                            .clip(AppleUiTokens.SmallPillShape)
-                            .background(if (avoidTolls) AppleUiTokens.AppleAmber.copy(alpha = 0.2f) else Color.Transparent)
-                            .border(0.8.dp, if (avoidTolls) AppleUiTokens.AppleAmber else AppleUiTokens.glassBorder(), AppleUiTokens.SmallPillShape)
+                            .clip(EarthyLiquidTokens.SmallPillShape)
+                            .background(if (avoidTolls) EarthyLiquidTokens.accent().copy(alpha = 0.2f) else Color.Transparent)
+                            .border(0.8.dp, if (avoidTolls) EarthyLiquidTokens.accent() else EarthyLiquidTokens.glassBorder(), EarthyLiquidTokens.SmallPillShape)
                             .clickable { onToggleAvoidTolls() }
                             .padding(horizontal = 8.dp, vertical = 5.dp)
                     ) {
@@ -1208,16 +1281,16 @@ fun RoutePreviewSheet(
                                 fontFamily = FontFamily.SansSerif,
                                 fontWeight = if (avoidTolls) FontWeight.Bold else FontWeight.Medium,
                                 fontSize = 11.sp,
-                                color = if (avoidTolls) AppleUiTokens.AppleAmber else AppleUiTokens.textSecondary()
+                                color = if (avoidTolls) EarthyLiquidTokens.accent() else EarthyLiquidTokens.textSecondary()
                             )
                         )
                     }
 
                     Box(
                         modifier = Modifier
-                            .clip(AppleUiTokens.SmallPillShape)
-                            .background(if (avoidHighways) AppleUiTokens.AppleAmber.copy(alpha = 0.2f) else Color.Transparent)
-                            .border(0.8.dp, if (avoidHighways) AppleUiTokens.AppleAmber else AppleUiTokens.glassBorder(), AppleUiTokens.SmallPillShape)
+                            .clip(EarthyLiquidTokens.SmallPillShape)
+                            .background(if (avoidHighways) EarthyLiquidTokens.accent().copy(alpha = 0.2f) else Color.Transparent)
+                            .border(0.8.dp, if (avoidHighways) EarthyLiquidTokens.accent() else EarthyLiquidTokens.glassBorder(), EarthyLiquidTokens.SmallPillShape)
                             .clickable { onToggleAvoidHighways() }
                             .padding(horizontal = 8.dp, vertical = 5.dp)
                     ) {
@@ -1227,7 +1300,7 @@ fun RoutePreviewSheet(
                                 fontFamily = FontFamily.SansSerif,
                                 fontWeight = if (avoidHighways) FontWeight.Bold else FontWeight.Medium,
                                 fontSize = 11.sp,
-                                color = if (avoidHighways) AppleUiTokens.AppleAmber else AppleUiTokens.textSecondary()
+                                color = if (avoidHighways) EarthyLiquidTokens.accent() else EarthyLiquidTokens.textSecondary()
                             )
                         )
                     }
@@ -1236,7 +1309,7 @@ fun RoutePreviewSheet(
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            // Primary Actions: "START NAVIGATION" [GO] & Close [✕]
+            // Primary Actions: "START NAVIGATION" & Close
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -1245,10 +1318,10 @@ fun RoutePreviewSheet(
                 Button(
                     onClick = onStartNavigation,
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = AppleUiTokens.AppleGreen,
+                        containerColor = EarthyLiquidTokens.accent(),
                         contentColor = Color.White
                     ),
-                    shape = AppleUiTokens.PillShape,
+                    shape = EarthyLiquidTokens.PillShape,
                     modifier = Modifier
                         .weight(1f)
                         .height(48.dp)
@@ -1280,14 +1353,14 @@ fun RoutePreviewSheet(
                         .size(48.dp)
                         .clip(CircleShape)
                         .background(if (GabayColors.isSunlightLightMode) Color(0xFFFEE2E2) else Color(0x33FF3B30))
-                        .border(0.8.dp, AppleUiTokens.AppleRed.copy(alpha = 0.5f), CircleShape)
+                        .border(0.8.dp, Color(0xFFB91C1C).copy(alpha = 0.5f), CircleShape)
                         .clickable { onCancelRoute() },
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = GabayIcons.ActionClose,
                         contentDescription = "Cancel",
-                        tint = AppleUiTokens.AppleRed,
+                        tint = Color(0xFFEF4444),
                         modifier = Modifier.size(18.dp)
                     )
                 }
@@ -1297,7 +1370,7 @@ fun RoutePreviewSheet(
 }
 
 /**
- * Siri / Dynamic Island-inspired Voice Co-Pilot Sheet
+ * Earthy Liquid Co-Pilot Assistant Sheet
  */
 @Composable
 fun AgentCoPilotSheet(
@@ -1326,15 +1399,14 @@ fun AgentCoPilotSheet(
             .offset { IntOffset(0, offsetY.roundToInt()) }
             .shadow(24.dp, RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)),
         shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
-        colors = CardDefaults.cardColors(containerColor = AppleUiTokens.glassBg()),
-        border = CardDefaults.outlinedCardBorder().copy(brush = SolidColor(AppleUiTokens.glassBorder()), width = 0.8.dp)
+        colors = CardDefaults.cardColors(containerColor = EarthyLiquidTokens.glassBg()),
+        border = CardDefaults.outlinedCardBorder().copy(brush = SolidColor(EarthyLiquidTokens.glassBorder()), width = 0.8.dp)
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(horizontal = 18.dp, vertical = 8.dp)
         ) {
-            // Drag handle
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1355,11 +1427,10 @@ fun AgentCoPilotSheet(
                     modifier = Modifier
                         .width(44.dp)
                         .height(4.dp)
-                        .background(AppleUiTokens.textMuted().copy(alpha = 0.4f), CircleShape)
+                        .background(EarthyLiquidTokens.textMuted().copy(alpha = 0.4f), CircleShape)
                 )
             }
 
-            // Header
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -1369,7 +1440,7 @@ fun AgentCoPilotSheet(
                     Box(
                         modifier = Modifier
                             .size(10.dp)
-                            .background(if (isListening) AppleUiTokens.AppleRed else AppleUiTokens.AppleAmber, CircleShape)
+                            .background(if (isListening) Color(0xFFEF4444) else EarthyLiquidTokens.accent(), CircleShape)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
@@ -1378,7 +1449,7 @@ fun AgentCoPilotSheet(
                             fontFamily = FontFamily.SansSerif,
                             fontWeight = FontWeight.Bold,
                             fontSize = 15.sp,
-                            color = AppleUiTokens.textPrimary()
+                            color = EarthyLiquidTokens.textPrimary()
                         )
                     )
                 }
@@ -1390,20 +1461,19 @@ fun AgentCoPilotSheet(
                     Icon(
                         imageVector = GabayIcons.ActionClose,
                         contentDescription = "Close",
-                        tint = AppleUiTokens.textSecondary(),
+                        tint = EarthyLiquidTokens.textSecondary(),
                         modifier = Modifier.size(18.dp)
                     )
                 }
             }
 
-            // Real-time Waveform Meter
             if (isListening) {
                 Spacer(modifier = Modifier.height(8.dp))
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(if (GabayColors.isSunlightLightMode) Color(0xFFF1F5F9) else Color(0x33000000), AppleUiTokens.SmallPillShape)
-                        .border(0.8.dp, AppleUiTokens.AppleRed.copy(alpha = 0.4f), AppleUiTokens.SmallPillShape)
+                        .background(if (GabayColors.isSunlightLightMode) Color(0xFFF1F5F9) else Color(0x33000000), EarthyLiquidTokens.SmallPillShape)
+                        .border(0.8.dp, Color(0xFFEF4444).copy(alpha = 0.4f), EarthyLiquidTokens.SmallPillShape)
                         .padding(horizontal = 14.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -1419,7 +1489,7 @@ fun AgentCoPilotSheet(
                                 modifier = Modifier
                                     .width(3.dp)
                                     .height(h)
-                                    .background(AppleUiTokens.AppleRed, RoundedCornerShape(1.5.dp))
+                                    .background(Color(0xFFEF4444), RoundedCornerShape(1.5.dp))
                             )
                         }
                     }
@@ -1430,7 +1500,7 @@ fun AgentCoPilotSheet(
                         style = TextStyle(
                             fontFamily = FontFamily.SansSerif,
                             fontSize = 12.sp,
-                            color = AppleUiTokens.textPrimary()
+                            color = EarthyLiquidTokens.textPrimary()
                         ),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
@@ -1440,7 +1510,6 @@ fun AgentCoPilotSheet(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Context Quick Pills
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1456,9 +1525,9 @@ fun AgentCoPilotSheet(
                 ).forEach { prompt ->
                     Box(
                         modifier = Modifier
-                            .clip(AppleUiTokens.SmallPillShape)
+                            .clip(EarthyLiquidTokens.SmallPillShape)
                             .background(if (GabayColors.isSunlightLightMode) Color(0xFFF1F5F9) else Color(0x33FFFFFF))
-                            .border(0.8.dp, AppleUiTokens.glassBorder(), AppleUiTokens.SmallPillShape)
+                            .border(0.8.dp, EarthyLiquidTokens.glassBorder(), EarthyLiquidTokens.SmallPillShape)
                             .clickable { onSendPrompt(prompt) }
                             .padding(horizontal = 12.dp, vertical = 6.dp)
                     ) {
@@ -1467,7 +1536,7 @@ fun AgentCoPilotSheet(
                             style = TextStyle(
                                 fontFamily = FontFamily.SansSerif,
                                 fontSize = 12.sp,
-                                color = AppleUiTokens.textPrimary()
+                                color = EarthyLiquidTokens.textPrimary()
                             )
                         )
                     }
@@ -1476,7 +1545,6 @@ fun AgentCoPilotSheet(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // Chat Message List
             val listState = rememberLazyListState()
             LaunchedEffect(messages.size) {
                 if (messages.isNotEmpty()) listState.animateScrollToItem(messages.size - 1)
@@ -1502,7 +1570,7 @@ fun AgentCoPilotSheet(
                                 style = TextStyle(
                                     fontFamily = FontFamily.SansSerif,
                                     fontSize = 13.sp,
-                                    color = AppleUiTokens.textMuted(),
+                                    color = EarthyLiquidTokens.textMuted(),
                                     textAlign = TextAlign.Center
                                 )
                             )
@@ -1523,9 +1591,9 @@ fun AgentCoPilotSheet(
                                     bottomEnd = if (isUser) 4.dp else 16.dp
                                 ),
                                 colors = CardDefaults.cardColors(
-                                    containerColor = if (isUser) AppleUiTokens.AppleBlue else (if (GabayColors.isSunlightLightMode) Color(0xFFF1F5F9) else Color(0x33FFFFFF))
+                                    containerColor = if (isUser) EarthyLiquidTokens.ForestSlate else (if (GabayColors.isSunlightLightMode) Color(0xFFF1F5F9) else Color(0x33FFFFFF))
                                 ),
-                                border = if (isUser) null else CardDefaults.outlinedCardBorder().copy(brush = SolidColor(AppleUiTokens.glassBorder()), width = 0.8.dp),
+                                border = if (isUser) null else CardDefaults.outlinedCardBorder().copy(brush = SolidColor(EarthyLiquidTokens.glassBorder()), width = 0.8.dp),
                                 modifier = Modifier.widthIn(max = 280.dp)
                             ) {
                                 Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
@@ -1534,7 +1602,7 @@ fun AgentCoPilotSheet(
                                         style = TextStyle(
                                             fontFamily = FontFamily.SansSerif,
                                             fontSize = 13.sp,
-                                            color = if (isUser) Color.White else AppleUiTokens.textPrimary()
+                                            color = if (isUser) Color.White else EarthyLiquidTokens.textPrimary()
                                         )
                                     )
                                     Text(
@@ -1542,7 +1610,7 @@ fun AgentCoPilotSheet(
                                         style = TextStyle(
                                             fontFamily = FontFamily.SansSerif,
                                             fontSize = 9.sp,
-                                            color = if (isUser) Color.White.copy(alpha = 0.7f) else AppleUiTokens.textMuted()
+                                            color = if (isUser) Color.White.copy(alpha = 0.7f) else EarthyLiquidTokens.textMuted()
                                         ),
                                         modifier = Modifier.align(Alignment.End)
                                     )
@@ -1555,11 +1623,10 @@ fun AgentCoPilotSheet(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // Bottom Input Capsule
             Card(
-                shape = AppleUiTokens.PillShape,
+                shape = EarthyLiquidTokens.PillShape,
                 colors = CardDefaults.cardColors(containerColor = if (GabayColors.isSunlightLightMode) Color(0xFFF1F5F9) else Color(0x33FFFFFF)),
-                border = CardDefaults.outlinedCardBorder().copy(brush = SolidColor(AppleUiTokens.glassBorder()), width = 0.8.dp),
+                border = CardDefaults.outlinedCardBorder().copy(brush = SolidColor(EarthyLiquidTokens.glassBorder()), width = 0.8.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Row(
@@ -1577,7 +1644,7 @@ fun AgentCoPilotSheet(
                                 style = TextStyle(
                                     fontFamily = FontFamily.SansSerif,
                                     fontSize = 14.sp,
-                                    color = AppleUiTokens.textMuted()
+                                    color = EarthyLiquidTokens.textMuted()
                                 )
                             )
                         }
@@ -1587,14 +1654,13 @@ fun AgentCoPilotSheet(
                             textStyle = TextStyle(
                                 fontFamily = FontFamily.SansSerif,
                                 fontSize = 14.sp,
-                                color = AppleUiTokens.textPrimary()
+                                color = EarthyLiquidTokens.textPrimary()
                             ),
-                            cursorBrush = SolidColor(AppleUiTokens.AppleAmber),
+                            cursorBrush = SolidColor(EarthyLiquidTokens.accent()),
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
 
-                    // Mic Button
                     IconButton(
                         onClick = onToggleListening,
                         modifier = Modifier.size(36.dp)
@@ -1602,12 +1668,11 @@ fun AgentCoPilotSheet(
                         Icon(
                             imageVector = GabayIcons.CopilotMic,
                             contentDescription = "Mic",
-                            tint = if (isListening) AppleUiTokens.AppleRed else AppleUiTokens.AppleAmber,
+                            tint = if (isListening) Color(0xFFEF4444) else EarthyLiquidTokens.accent(),
                             modifier = Modifier.size(18.dp)
                         )
                     }
 
-                    // Send Button
                     IconButton(
                         onClick = {
                             if (inputText.isNotBlank()) {
@@ -1620,7 +1685,7 @@ fun AgentCoPilotSheet(
                         Icon(
                             imageVector = GabayIcons.Send,
                             contentDescription = "Send",
-                            tint = if (inputText.isNotBlank()) AppleUiTokens.AppleBlue else AppleUiTokens.textMuted(),
+                            tint = if (inputText.isNotBlank()) EarthyLiquidTokens.accent() else EarthyLiquidTokens.textMuted(),
                             modifier = Modifier.size(18.dp)
                         )
                     }
@@ -1631,7 +1696,7 @@ fun AgentCoPilotSheet(
 }
 
 /**
- * iOS Settings Style Drawer
+ * Earthy Liquid Glass Settings Drawer (with Modern IosLiquidToggle switches)
  */
 @Composable
 fun TopMenuSheet(
@@ -1652,19 +1717,18 @@ fun TopMenuSheet(
     Card(
         modifier = modifier
             .fillMaxWidth()
-            .fillMaxHeight(0.78f)
+            .fillMaxHeight(0.80f)
             .offset { IntOffset(0, offsetY.roundToInt()) }
             .shadow(24.dp, RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)),
         shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
-        colors = CardDefaults.cardColors(containerColor = AppleUiTokens.glassBg()),
-        border = CardDefaults.outlinedCardBorder().copy(brush = SolidColor(AppleUiTokens.glassBorder()), width = 0.8.dp)
+        colors = CardDefaults.cardColors(containerColor = EarthyLiquidTokens.glassBg()),
+        border = CardDefaults.outlinedCardBorder().copy(brush = SolidColor(EarthyLiquidTokens.glassBorder()), width = 0.8.dp)
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(horizontal = 18.dp, vertical = 8.dp)
         ) {
-            // Drag handle
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1681,11 +1745,10 @@ fun TopMenuSheet(
                     modifier = Modifier
                         .width(44.dp)
                         .height(4.dp)
-                        .background(AppleUiTokens.textMuted().copy(alpha = 0.4f), CircleShape)
+                        .background(EarthyLiquidTokens.textMuted().copy(alpha = 0.4f), CircleShape)
                 )
             }
 
-            // Header
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -1697,7 +1760,7 @@ fun TopMenuSheet(
                         fontFamily = FontFamily.SansSerif,
                         fontWeight = FontWeight.Bold,
                         fontSize = 17.sp,
-                        color = AppleUiTokens.textPrimary()
+                        color = EarthyLiquidTokens.textPrimary()
                     )
                 )
 
@@ -1708,7 +1771,7 @@ fun TopMenuSheet(
                     Icon(
                         imageVector = GabayIcons.ActionClose,
                         contentDescription = "Close",
-                        tint = AppleUiTokens.textSecondary(),
+                        tint = EarthyLiquidTokens.textSecondary(),
                         modifier = Modifier.size(18.dp)
                     )
                 }
@@ -1720,18 +1783,18 @@ fun TopMenuSheet(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(if (GabayColors.isSunlightLightMode) Color(0xFFF1F5F9) else Color(0x33000000), AppleUiTokens.SmallPillShape)
+                    .background(if (GabayColors.isSunlightLightMode) Color(0xFFF1F5F9) else Color(0x33000000), EarthyLiquidTokens.SmallPillShape)
                     .padding(3.dp),
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                listOf("Settings", "Drives (${driveHistory.size})", "Vault").forEachIndexed { index, label ->
+                listOf("Preferences", "Drives (${driveHistory.size})", "Offline Vault").forEachIndexed { index, label ->
                     val isSel = selectedTab == index
                     Box(
                         modifier = Modifier
                             .weight(1f)
-                            .clip(AppleUiTokens.SmallPillShape)
-                            .background(if (isSel) AppleUiTokens.glassBg() else Color.Transparent)
-                            .border(if (isSel) 0.8.dp else 0.dp, if (isSel) AppleUiTokens.glassBorder() else Color.Transparent, AppleUiTokens.SmallPillShape)
+                            .clip(EarthyLiquidTokens.SmallPillShape)
+                            .background(if (isSel) EarthyLiquidTokens.glassBg() else Color.Transparent)
+                            .border(if (isSel) 0.8.dp else 0.dp, if (isSel) EarthyLiquidTokens.glassBorder() else Color.Transparent, EarthyLiquidTokens.SmallPillShape)
                             .clickable { selectedTab = index }
                             .padding(vertical = 6.dp),
                         contentAlignment = Alignment.Center
@@ -1742,7 +1805,7 @@ fun TopMenuSheet(
                                 fontFamily = FontFamily.SansSerif,
                                 fontSize = 12.sp,
                                 fontWeight = if (isSel) FontWeight.Bold else FontWeight.Medium,
-                                color = if (isSel) AppleUiTokens.textPrimary() else AppleUiTokens.textMuted()
+                                color = if (isSel) EarthyLiquidTokens.textPrimary() else EarthyLiquidTokens.textMuted()
                             )
                         )
                     }
@@ -1753,16 +1816,16 @@ fun TopMenuSheet(
 
             when (selectedTab) {
                 0 -> {
-                    // TAB 0: Settings
+                    // TAB 0: Preferences
                     LazyColumn(
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxWidth(),
                         verticalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
-                        // Section: Vehicle Mode
+                        // Vehicle Mode Selector
                         item {
-                            Text("DEFAULT VEHICLE MODE", style = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Bold, fontSize = 11.sp, color = AppleUiTokens.textMuted()))
+                            Text("DEFAULT VEHICLE MODE", style = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Bold, fontSize = 11.sp, color = EarthyLiquidTokens.textMuted()))
                             Spacer(modifier = Modifier.height(6.dp))
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -1777,61 +1840,112 @@ fun TopMenuSheet(
                                     Box(
                                         modifier = Modifier
                                             .weight(1f)
-                                            .clip(AppleUiTokens.SmallPillShape)
-                                            .background(if (isSel) AppleUiTokens.AppleGreen.copy(alpha = 0.2f) else (if (GabayColors.isSunlightLightMode) Color(0xFFF1F5F9) else Color(0x33FFFFFF)))
-                                            .border(0.8.dp, if (isSel) AppleUiTokens.AppleGreen else AppleUiTokens.glassBorder(), AppleUiTokens.SmallPillShape)
+                                            .clip(EarthyLiquidTokens.SmallPillShape)
+                                            .background(if (isSel) EarthyLiquidTokens.accent().copy(alpha = 0.2f) else (if (GabayColors.isSunlightLightMode) Color(0xFFF1F5F9) else Color(0x33FFFFFF)))
+                                            .border(0.8.dp, if (isSel) EarthyLiquidTokens.accent() else EarthyLiquidTokens.glassBorder(), EarthyLiquidTokens.SmallPillShape)
                                             .clickable { onModeSelect(mode) }
                                             .padding(vertical = 10.dp),
                                         contentAlignment = Alignment.Center
                                     ) {
                                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                            Icon(imageVector = icon, contentDescription = null, tint = if (isSel) AppleUiTokens.AppleGreen else AppleUiTokens.textSecondary(), modifier = Modifier.size(16.dp))
-                                            Text(text = label, style = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, color = if (isSel) AppleUiTokens.AppleGreen else AppleUiTokens.textPrimary()))
+                                            Icon(imageVector = icon, contentDescription = null, tint = if (isSel) EarthyLiquidTokens.accent() else EarthyLiquidTokens.textSecondary(), modifier = Modifier.size(16.dp))
+                                            Text(text = label, style = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, color = if (isSel) EarthyLiquidTokens.accent() else EarthyLiquidTokens.textPrimary()))
                                         }
                                     }
                                 }
                             }
                         }
 
-                        // Section: Theme & Contrast
+                        // Modern iOS Liquid Toggles Section
                         item {
-                            Text("DISPLAY THEME", style = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Bold, fontSize = 11.sp, color = AppleUiTokens.textMuted()))
+                            Text("COCKPIT CONTROLS & HUD", style = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Bold, fontSize = 11.sp, color = EarthyLiquidTokens.textMuted()))
                             Spacer(modifier = Modifier.height(6.dp))
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            Card(
+                                shape = EarthyLiquidTokens.SmallPillShape,
+                                colors = CardDefaults.cardColors(containerColor = if (GabayColors.isSunlightLightMode) Color(0xFFF1F5F9) else Color(0x33FFFFFF)),
+                                border = CardDefaults.outlinedCardBorder().copy(brush = SolidColor(EarthyLiquidTokens.glassBorder()), width = 0.8.dp),
+                                modifier = Modifier.fillMaxWidth()
                             ) {
-                                val isSunlight = GabayColors.isSunlightLightMode
-                                Box(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .clip(AppleUiTokens.SmallPillShape)
-                                        .background(if (!isSunlight) AppleUiTokens.AppleAmber.copy(alpha = 0.2f) else (if (GabayColors.isSunlightLightMode) Color(0xFFF1F5F9) else Color(0x33FFFFFF)))
-                                        .border(0.8.dp, if (!isSunlight) AppleUiTokens.AppleAmber else AppleUiTokens.glassBorder(), AppleUiTokens.SmallPillShape)
-                                        .clickable { onThemeToggle(false) }
-                                        .padding(vertical = 10.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text("Tactical Dark", style = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, color = if (!isSunlight) AppleUiTokens.AppleAmber else AppleUiTokens.textPrimary()))
-                                }
-                                Box(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .clip(AppleUiTokens.SmallPillShape)
-                                        .background(if (isSunlight) AppleUiTokens.AppleAmber.copy(alpha = 0.2f) else (if (GabayColors.isSunlightLightMode) Color(0xFFF1F5F9) else Color(0x33FFFFFF)))
-                                        .border(0.8.dp, if (isSunlight) AppleUiTokens.AppleAmber else AppleUiTokens.glassBorder(), AppleUiTokens.SmallPillShape)
-                                        .clickable { onThemeToggle(true) }
-                                        .padding(vertical = 10.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text("Sunlight Bright", style = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, color = if (isSunlight) AppleUiTokens.AppleAmber else AppleUiTokens.textPrimary()))
+                                Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)) {
+                                    // Sunlight Bright Mode Toggle
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Column {
+                                            Text("Sunlight Bright Mode", style = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = EarthyLiquidTokens.textPrimary()))
+                                            Text("High contrast alabaster theme for direct tropical sunlight", style = TextStyle(fontFamily = FontFamily.SansSerif, fontSize = 11.sp, color = EarthyLiquidTokens.textMuted()))
+                                        }
+                                        IosLiquidToggle(
+                                            checked = GabayColors.isSunlightLightMode,
+                                            onCheckedChange = { onThemeToggle(it) }
+                                        )
+                                    }
+                                    HorizontalDivider(color = EarthyLiquidTokens.glassBorder(), thickness = 0.5.dp)
+
+                                    // Avoid Expressways Toggle
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Column {
+                                            Text("Avoid Expressways & Tolls", style = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = EarthyLiquidTokens.textPrimary()))
+                                            Text("Route via local service roads (<400cc friendly)", style = TextStyle(fontFamily = FontFamily.SansSerif, fontSize = 11.sp, color = EarthyLiquidTokens.textMuted()))
+                                        }
+                                        IosLiquidToggle(
+                                            checked = GabayHudSettings.avoidExpressways,
+                                            onCheckedChange = {
+                                                GabayHudSettings.avoidExpressways = it
+                                            }
+                                        )
+                                    }
+                                    HorizontalDivider(color = EarthyLiquidTokens.glassBorder(), thickness = 0.5.dp)
+
+                                    // Turn Guidance Arrows Toggle
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Column {
+                                            Text("Turn Guidance Arrows", style = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = EarthyLiquidTokens.textPrimary()))
+                                            Text("Display active maneuver indicators in speedometer pod", style = TextStyle(fontFamily = FontFamily.SansSerif, fontSize = 11.sp, color = EarthyLiquidTokens.textMuted()))
+                                        }
+                                        IosLiquidToggle(
+                                            checked = GabayHudSettings.showTurnArrows,
+                                            onCheckedChange = {
+                                                GabayHudSettings.showTurnArrows = it
+                                            }
+                                        )
+                                    }
+                                    HorizontalDivider(color = EarthyLiquidTokens.glassBorder(), thickness = 0.5.dp)
+
+                                    // Speed Units Toggle (MPH vs KM/H)
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Column {
+                                            Text("Use MPH Units", style = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = EarthyLiquidTokens.textPrimary()))
+                                            Text("Switch speed readout between KM/H and MPH", style = TextStyle(fontFamily = FontFamily.SansSerif, fontSize = 11.sp, color = EarthyLiquidTokens.textMuted()))
+                                        }
+                                        IosLiquidToggle(
+                                            checked = GabayHudSettings.useMph,
+                                            onCheckedChange = {
+                                                GabayHudSettings.useMph = it
+                                            }
+                                        )
+                                    }
                                 }
                             }
                         }
 
-                        // Section: Voice Engine
+                        // Voice Engine Selection
                         item {
-                            Text("VOICE GUIDANCE ENGINE", style = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Bold, fontSize = 11.sp, color = AppleUiTokens.textMuted()))
+                            Text("VOICE GUIDANCE ENGINE", style = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Bold, fontSize = 11.sp, color = EarthyLiquidTokens.textMuted()))
                             Spacer(modifier = Modifier.height(6.dp))
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -1845,9 +1959,9 @@ fun TopMenuSheet(
                                     Box(
                                         modifier = Modifier
                                             .weight(1f)
-                                            .clip(AppleUiTokens.SmallPillShape)
-                                            .background(if (isSel) AppleUiTokens.AppleAmber.copy(alpha = 0.2f) else (if (GabayColors.isSunlightLightMode) Color(0xFFF1F5F9) else Color(0x33FFFFFF)))
-                                            .border(0.8.dp, if (isSel) AppleUiTokens.AppleAmber else AppleUiTokens.glassBorder(), AppleUiTokens.SmallPillShape)
+                                            .clip(EarthyLiquidTokens.SmallPillShape)
+                                            .background(if (isSel) EarthyLiquidTokens.accent().copy(alpha = 0.2f) else (if (GabayColors.isSunlightLightMode) Color(0xFFF1F5F9) else Color(0x33FFFFFF)))
+                                            .border(0.8.dp, if (isSel) EarthyLiquidTokens.accent() else EarthyLiquidTokens.glassBorder(), EarthyLiquidTokens.SmallPillShape)
                                             .clickable {
                                                 currentVoiceEngine = engine
                                                 audioController.voiceEngine = engine
@@ -1855,7 +1969,7 @@ fun TopMenuSheet(
                                             .padding(vertical = 10.dp),
                                         contentAlignment = Alignment.Center
                                     ) {
-                                        Text(label, style = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, color = if (isSel) AppleUiTokens.AppleAmber else AppleUiTokens.textPrimary()))
+                                        Text(label, style = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, color = if (isSel) EarthyLiquidTokens.accent() else EarthyLiquidTokens.textPrimary()))
                                     }
                                 }
                             }
@@ -1865,12 +1979,12 @@ fun TopMenuSheet(
                                     val sample = if (currentVoiceEngine == VoiceEngineType.TACTICAL_EXTERNAL) "turn left" else "Turn left in 200 meters"
                                     audioController.testVoiceCue(sample)
                                 },
-                                shape = AppleUiTokens.SmallPillShape,
-                                colors = ButtonDefaults.buttonColors(containerColor = if (GabayColors.isSunlightLightMode) Color(0xFFE2E8F0) else Color(0x33FFFFFF), contentColor = AppleUiTokens.textPrimary()),
+                                shape = EarthyLiquidTokens.SmallPillShape,
+                                colors = ButtonDefaults.buttonColors(containerColor = if (GabayColors.isSunlightLightMode) Color(0xFFE2E8F0) else Color(0x33FFFFFF), contentColor = EarthyLiquidTokens.textPrimary()),
                                 modifier = Modifier.fillMaxWidth().height(40.dp)
                             ) {
                                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    Icon(imageVector = GabayIcons.AudioTts, contentDescription = null, tint = AppleUiTokens.AppleAmber, modifier = Modifier.size(16.dp))
+                                    Icon(imageVector = GabayIcons.AudioTts, contentDescription = null, tint = EarthyLiquidTokens.accent(), modifier = Modifier.size(16.dp))
                                     Text("Test Voice Audio Cue", style = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.SemiBold, fontSize = 12.sp))
                                 }
                             }
@@ -1881,15 +1995,15 @@ fun TopMenuSheet(
                     // TAB 1: Drives
                     if (driveHistory.isEmpty()) {
                         Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                            Text("No recorded drives yet.\nCompleted navigation trips will appear here.", style = TextStyle(fontFamily = FontFamily.SansSerif, fontSize = 13.sp, color = AppleUiTokens.textMuted(), textAlign = TextAlign.Center))
+                            Text("No recorded drives yet.\nCompleted navigation trips will appear here.", style = TextStyle(fontFamily = FontFamily.SansSerif, fontSize = 13.sp, color = EarthyLiquidTokens.textMuted(), textAlign = TextAlign.Center))
                         }
                     } else {
                         LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             items(driveHistory) { drive ->
                                 Card(
-                                    shape = AppleUiTokens.SmallPillShape,
+                                    shape = EarthyLiquidTokens.SmallPillShape,
                                     colors = CardDefaults.cardColors(containerColor = if (GabayColors.isSunlightLightMode) Color(0xFFF1F5F9) else Color(0x33FFFFFF)),
-                                    border = CardDefaults.outlinedCardBorder().copy(brush = SolidColor(AppleUiTokens.glassBorder()), width = 0.8.dp),
+                                    border = CardDefaults.outlinedCardBorder().copy(brush = SolidColor(EarthyLiquidTokens.glassBorder()), width = 0.8.dp),
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
                                     Row(
@@ -1898,10 +2012,10 @@ fun TopMenuSheet(
                                         horizontalArrangement = Arrangement.SpaceBetween
                                     ) {
                                         Column {
-                                            Text(text = drive.title, style = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = AppleUiTokens.textPrimary()))
-                                            Text(text = drive.date, style = TextStyle(fontFamily = FontFamily.SansSerif, fontSize = 11.sp, color = AppleUiTokens.textMuted()))
+                                            Text(text = drive.title, style = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = EarthyLiquidTokens.textPrimary()))
+                                            Text(text = drive.date, style = TextStyle(fontFamily = FontFamily.SansSerif, fontSize = 11.sp, color = EarthyLiquidTokens.textMuted()))
                                         }
-                                        Text(text = "${drive.distanceKm} km • ${drive.durationMin} min", style = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Bold, fontSize = 12.sp, color = AppleUiTokens.AppleGreen))
+                                        Text(text = "${drive.distanceKm} km • ${drive.durationMin} min", style = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Bold, fontSize = 12.sp, color = EarthyLiquidTokens.accent()))
                                     }
                                 }
                             }
@@ -1915,17 +2029,17 @@ fun TopMenuSheet(
                             val graphFile = File("/sdcard/Documents/Gabay/ph.gabay")
                             val graphMb = if (graphFile.exists()) "${graphFile.length() / (1024 * 1024)} MB" else "MISSING"
                             Card(
-                                shape = AppleUiTokens.SmallPillShape,
+                                shape = EarthyLiquidTokens.SmallPillShape,
                                 colors = CardDefaults.cardColors(containerColor = if (GabayColors.isSunlightLightMode) Color(0xFFF1F5F9) else Color(0x33FFFFFF)),
-                                border = CardDefaults.outlinedCardBorder().copy(brush = SolidColor(AppleUiTokens.glassBorder()), width = 0.8.dp),
+                                border = CardDefaults.outlinedCardBorder().copy(brush = SolidColor(EarthyLiquidTokens.glassBorder()), width = 0.8.dp),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 Column(modifier = Modifier.padding(14.dp)) {
                                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                        Text("OSM Graph Router (ph.gabay)", style = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = AppleUiTokens.textPrimary()))
-                                        Text(if (graphFile.exists()) "READY ($graphMb)" else "MISSING", style = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Bold, fontSize = 11.sp, color = if (graphFile.exists()) AppleUiTokens.AppleGreen else AppleUiTokens.AppleRed))
+                                        Text("OSM Graph Router (ph.gabay)", style = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = EarthyLiquidTokens.textPrimary()))
+                                        Text(if (graphFile.exists()) "READY ($graphMb)" else "MISSING", style = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Bold, fontSize = 11.sp, color = if (graphFile.exists()) EarthyLiquidTokens.SageGreen else Color(0xFFEF4444)))
                                     }
-                                    Text("A* Canonical Highway Graph for Offline Routing", style = TextStyle(fontFamily = FontFamily.SansSerif, fontSize = 11.sp, color = AppleUiTokens.textMuted()))
+                                    Text("A* Canonical Highway Graph for Offline Routing", style = TextStyle(fontFamily = FontFamily.SansSerif, fontSize = 11.sp, color = EarthyLiquidTokens.textMuted()))
                                 }
                             }
                         }
@@ -1933,17 +2047,17 @@ fun TopMenuSheet(
                             val dbFile = File("/sdcard/Documents/Gabay/pois_fts.sqlite")
                             val dbMb = if (dbFile.exists()) "${dbFile.length() / (1024 * 1024)} MB" else "MISSING"
                             Card(
-                                shape = AppleUiTokens.SmallPillShape,
+                                shape = EarthyLiquidTokens.SmallPillShape,
                                 colors = CardDefaults.cardColors(containerColor = if (GabayColors.isSunlightLightMode) Color(0xFFF1F5F9) else Color(0x33FFFFFF)),
-                                border = CardDefaults.outlinedCardBorder().copy(brush = SolidColor(AppleUiTokens.glassBorder()), width = 0.8.dp),
+                                border = CardDefaults.outlinedCardBorder().copy(brush = SolidColor(EarthyLiquidTokens.glassBorder()), width = 0.8.dp),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 Column(modifier = Modifier.padding(14.dp)) {
                                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                        Text("SQLite Spatial FTS5 POIs", style = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = AppleUiTokens.textPrimary()))
-                                        Text(if (dbFile.exists()) "READY ($dbMb)" else "MISSING", style = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Bold, fontSize = 11.sp, color = if (dbFile.exists()) AppleUiTokens.AppleGreen else AppleUiTokens.AppleRed))
+                                        Text("SQLite Spatial FTS5 POIs", style = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = EarthyLiquidTokens.textPrimary()))
+                                        Text(if (dbFile.exists()) "READY ($dbMb)" else "MISSING", style = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Bold, fontSize = 11.sp, color = if (dbFile.exists()) EarthyLiquidTokens.SageGreen else Color(0xFFEF4444)))
                                     }
-                                    Text("Offline search over nationwide landmarks & barangays", style = TextStyle(fontFamily = FontFamily.SansSerif, fontSize = 11.sp, color = AppleUiTokens.textMuted()))
+                                    Text("Offline search over nationwide landmarks & barangays", style = TextStyle(fontFamily = FontFamily.SansSerif, fontSize = 11.sp, color = EarthyLiquidTokens.textMuted()))
                                 }
                             }
                         }
@@ -1951,17 +2065,17 @@ fun TopMenuSheet(
                             val pmtilesFile = File("/sdcard/Documents/Gabay/philippines_vector.pmtiles")
                             val pmtilesMb = if (pmtilesFile.exists()) "${pmtilesFile.length() / (1024 * 1024)} MB" else "MISSING"
                             Card(
-                                shape = AppleUiTokens.SmallPillShape,
+                                shape = EarthyLiquidTokens.SmallPillShape,
                                 colors = CardDefaults.cardColors(containerColor = if (GabayColors.isSunlightLightMode) Color(0xFFF1F5F9) else Color(0x33FFFFFF)),
-                                border = CardDefaults.outlinedCardBorder().copy(brush = SolidColor(AppleUiTokens.glassBorder()), width = 0.8.dp),
+                                border = CardDefaults.outlinedCardBorder().copy(brush = SolidColor(EarthyLiquidTokens.glassBorder()), width = 0.8.dp),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 Column(modifier = Modifier.padding(14.dp)) {
                                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                        Text("PMTiles Offline Vector Map", style = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = AppleUiTokens.textPrimary()))
-                                        Text(if (pmtilesFile.exists()) "BOUND ($pmtilesMb)" else "LOCAL", style = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Bold, fontSize = 11.sp, color = if (pmtilesFile.exists()) AppleUiTokens.AppleGreen else AppleUiTokens.textMuted()))
+                                        Text("PMTiles Offline Vector Map", style = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = EarthyLiquidTokens.textPrimary()))
+                                        Text(if (pmtilesFile.exists()) "BOUND ($pmtilesMb)" else "LOCAL", style = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Bold, fontSize = 11.sp, color = if (pmtilesFile.exists()) EarthyLiquidTokens.SageGreen else EarthyLiquidTokens.textMuted()))
                                     }
-                                    Text("Offline vector basemap with 3D extrusions", style = TextStyle(fontFamily = FontFamily.SansSerif, fontSize = 11.sp, color = AppleUiTokens.textMuted()))
+                                    Text("Offline vector basemap with 3D extrusions", style = TextStyle(fontFamily = FontFamily.SansSerif, fontSize = 11.sp, color = EarthyLiquidTokens.textMuted()))
                                 }
                             }
                         }

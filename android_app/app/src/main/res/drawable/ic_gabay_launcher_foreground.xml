@@ -4,16 +4,16 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
     
-    <!-- Outer Cybernetic Solar Halo -->
+    <!-- Outer Halo (Muted Sage Green) -->
     <path
-        android:strokeColor="#FFB300"
-        android:strokeAlpha="0.25"
+        android:strokeColor="#6B7F5B"
+        android:strokeAlpha="0.35"
         android:strokeWidth="1.5"
         android:pathData="M54,26 A28,28 0 1,0 54,82 A28,28 0 1,0 54,26 Z" />
 
-    <!-- Master Gabay 'G' Navigator Monogram (Solar Amber) -->
+    <!-- Master Gabay 'G' Navigator Monogram (Warm Terracotta Clay) -->
     <path
-        android:fillColor="#FFB300"
+        android:fillColor="#C96F4F"
         android:pathData="M54,29
                          C40.2,29 29,40.2 29,54
                          C29,67.8 40.2,79 54,79
@@ -26,9 +26,9 @@
                          L74.4,37.5
                          C69.5,32.2 62.1,29 54,29 Z" />
 
-    <!-- Tactical Directional Heading Chevron (Crisp Signal White) -->
+    <!-- Directional Heading Chevron (Warm Alabaster Linen) -->
     <path
-        android:fillColor="#FFFFFF"
+        android:fillColor="#F8F6EE"
         android:pathData="M54,43
                          L67,54
                          L54,65

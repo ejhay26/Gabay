@@ -43,51 +43,59 @@ val HexagonShape = GenericShape { size, _ ->
 object GabayColors {
     var isSunlightLightMode by mutableStateOf(false)
 
+    // ── Earthy Minimal Core Palette Tokens ────────────────────────────────────
+    val EarthyForest = Color(0xFF2E3A2F)        // Primary Forest Slate (#2E3A2F)
+    val EarthySage = Color(0xFF6B7F5B)          // Secondary Muted Olive / Sage (#6B7F5B)
+    val EarthySand = Color(0xFFD9C9B2)          // Tertiary Warm Sand / Linen (#D9C9B2)
+    val EarthyTerracotta = Color(0xFFC96F4F)    // Accent Warm Clay / Terracotta (#C96F4F)
+    val EarthyEmber = Color(0xFFE87A54)         // High-luminance night beacon (#E87A54)
+    val EarthyAlabaster = Color(0xFFF8F6EE)     // Background Warm Alabaster (#F8F6EE)
+    val EarthyObsidian = Color(0xFF141A15)      // Dark Forest Obsidian Canvas (#141A15)
+
     // ── Map Canvas Palette ────────────────────────────────────────────────────
-    val MapCanvasBg: Color get() = if (isSunlightLightMode) Color(0xFFF1F5F9) else Color(0xFF12141A)
-    val MapWater: Color get() = if (isSunlightLightMode) Color(0xFF93C5FD) else Color(0xFF0E1520)
-    val MapParks: Color get() = if (isSunlightLightMode) Color(0xFFBBF7D0) else Color(0xFF161F1A)
-    val MapRoadMinor: Color get() = if (isSunlightLightMode) Color(0xFFFFFFFF) else Color(0xFF242830)
-    val MapRoadSecondary: Color get() = if (isSunlightLightMode) Color(0xFFCBD5E1) else Color(0xFF353D4D)
-    val MapRoadPrimary: Color get() = if (isSunlightLightMode) Color(0xFF64748B) else Color(0xFF4D5568)
-    val RoutePrimary: Color get() = if (isSunlightLightMode) Color(0xFFB45309) else Color(0xFFFFB300)
+    val MapCanvasBg: Color get() = if (isSunlightLightMode) EarthyAlabaster else EarthyObsidian
+    val MapWater: Color get() = if (isSunlightLightMode) Color(0xFF9BB7C4) else Color(0xFF152228)
+    val MapParks: Color get() = if (isSunlightLightMode) Color(0xFFD6E2CE) else Color(0xFF1D2920)
+    val MapRoadMinor: Color get() = if (isSunlightLightMode) Color(0xFFFFFFFF) else Color(0xFF1E2820)
+    val MapRoadSecondary: Color get() = if (isSunlightLightMode) Color(0xFFCBD6C7) else Color(0xFF28362B)
+    val MapRoadPrimary: Color get() = if (isSunlightLightMode) Color(0xFF8C9B88) else Color(0xFF38473B)
+    val RoutePrimary: Color get() = if (isSunlightLightMode) EarthyTerracotta else EarthyEmber
     val RouteMint: Color get() = RoutePrimary
 
-    // ── Brand Amber / Philippine Sun ─────────────────────────────────────────
-    val AccentPrimary: Color get() = if (isSunlightLightMode) Color(0xFFB45309) else Color(0xFFFFB300)
-    val AccentAmber: Color get() = if (isSunlightLightMode) Color(0xFFB45309) else Color(0xFFFFB300)
-    val AccentAmberGlow: Color get() = if (isSunlightLightMode) Color(0xFFD97706) else Color(0xFFFFCC40)
-    val AccentAmberDim: Color get() = if (isSunlightLightMode) Color(0xFFCA8A04) else Color(0xFF8A6010)
+    // ── Brand Accent: Terracotta Clay / Philippine Sun Warmth ────────────────
+    val AccentPrimary: Color get() = if (isSunlightLightMode) EarthyTerracotta else EarthyEmber
+    val AccentAmber: Color get() = if (isSunlightLightMode) EarthyTerracotta else EarthyEmber
+    val AccentAmberGlow: Color get() = EarthyEmber
+    val AccentAmberDim: Color get() = EarthyTerracotta
 
-    // ── Legacy Mint aliases → re-mapped to Amber ──────────────────────────────
-    val AccentMint: Color get() = AccentPrimary
-    val AccentCyan: Color get() = AccentPrimary
-    val AccentSky: Color get() = Color(0xFF38BDF8)     // kept for misc info
+    // ── Legacy Aliases → Re-mapped to Earthy Palette ─────────────────────────
+    val AccentMint: Color get() = EarthySage
+    val AccentCyan: Color get() = EarthySage
+    val AccentSky: Color get() = EarthySand
     val AccentSolar: Color get() = AccentPrimary
     val AccentFire: Color get() = AccentCrimson
 
     // ── Semantic Signals ─────────────────────────────────────────────────────
-    val AccentEmerald: Color get() = if (isSunlightLightMode) Color(0xFF047857) else Color(0xFF10B981)
+    val AccentEmerald: Color get() = if (isSunlightLightMode) Color(0xFF2E6B3E) else Color(0xFF52B771)
     val AccentRed: Color get() = if (isSunlightLightMode) Color(0xFFB91C1C) else Color(0xFFEF4444)
     val AccentCrimson: Color get() = if (isSunlightLightMode) Color(0xFFB91C1C) else Color(0xFFEF4444)
 
-    // ── UI Chrome ────────────────────────────────────────────────────────────
-    val BgObsidian: Color get() = if (isSunlightLightMode) Color(0xFFF8FAFC) else Color(0xFF0D0F14)
-    val UiCard: Color get() = if (isSunlightLightMode) Color(0xFFFFFFFF) else Color(0xFF14171D)
-    val UiCardGlass: Color get() = if (isSunlightLightMode) Color(0xF8FFFFFF) else Color(0xEE14171D)
-    val UiCardElevated: Color get() = if (isSunlightLightMode) Color(0xFFF1F5F9) else Color(0xFF1C2028)
-    val UiInput: Color get() = if (isSunlightLightMode) Color(0xFFE2E8F0) else Color(0xFF1E2330)
-    val UiBorder: Color get() = if (isSunlightLightMode) Color(0xFF94A3B8) else Color(0xFF2C3345)
-    val UiBorderActive: Color get() = if (isSunlightLightMode) Color(0xFFB45309) else Color(0xFFFFB300)
-    val UiBorderLight: Color get() = if (isSunlightLightMode) Color(0xFFCBD5E1) else Color(0xFF343D4F)
-    // Amber-tinted card for active/selected states
-    val UiCardAmber: Color get() = if (isSunlightLightMode) Color(0xFFFEF3C7) else Color(0xFF1E1508)
+    // ── UI Chrome & Liquid Glass Surfaces ─────────────────────────────────────
+    val BgObsidian: Color get() = if (isSunlightLightMode) EarthyAlabaster else EarthyObsidian
+    val UiCard: Color get() = if (isSunlightLightMode) Color(0xFFFFFFFF) else Color(0xFF1C251E)
+    val UiCardGlass: Color get() = if (isSunlightLightMode) Color(0xF2F8F6EE) else Color(0xD81C251E)
+    val UiCardElevated: Color get() = if (isSunlightLightMode) Color(0xFFEFECE1) else Color(0xFF243127)
+    val UiInput: Color get() = if (isSunlightLightMode) Color(0xFFE7E3D4) else Color(0xFF222C24)
+    val UiBorder: Color get() = if (isSunlightLightMode) EarthySand else Color(0xFF3B4C3E)
+    val UiBorderActive: Color get() = if (isSunlightLightMode) EarthyTerracotta else EarthyEmber
+    val UiBorderLight: Color get() = if (isSunlightLightMode) Color(0x60D9C9B2) else Color(0x3BD9C9B2)
+    val UiCardAmber: Color get() = if (isSunlightLightMode) Color(0xFFFBECE6) else Color(0xFF2B1D16)
 
     // ── Typography ───────────────────────────────────────────────────────────
-    val TextPrimary: Color get() = if (isSunlightLightMode) Color(0xFF0F172A) else Color(0xFFF1F5F9)
-    val TextSecondary: Color get() = if (isSunlightLightMode) Color(0xFF1E293B) else Color(0xFFCBD5E1)
-    val TextMuted: Color get() = if (isSunlightLightMode) Color(0xFF475569) else Color(0xFF718096)
-    val TextInverse: Color get() = if (isSunlightLightMode) Color(0xFFFFFFFF) else Color(0xFF0D0F14)
+    val TextPrimary: Color get() = if (isSunlightLightMode) Color(0xFF1E2820) else EarthyAlabaster
+    val TextSecondary: Color get() = if (isSunlightLightMode) Color(0xFF4E5F48) else EarthySand
+    val TextMuted: Color get() = if (isSunlightLightMode) Color(0xFF7A8B75) else Color(0xFF8A9E85)
+    val TextInverse: Color get() = if (isSunlightLightMode) EarthyAlabaster else EarthyObsidian
 
     // ── Legacy Aliases ───────────────────────────────────────────────────────
     val BgCard: Color get() = UiCard

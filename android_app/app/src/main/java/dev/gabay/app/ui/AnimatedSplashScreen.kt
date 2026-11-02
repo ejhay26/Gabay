@@ -24,12 +24,12 @@ import kotlin.math.hypot
 
 /**
  * Convx-Style Circular Ripple Engulfing Splash Transition
- * Directly uses the app launcher icon seamlessly with zero secondary text cards.
+ * Directly uses the recolored Earthy Minimal app launcher icon seamlessly with zero secondary text cards.
  *
  * Sequence:
- * 1. Matches exact position, scale, and background of Android OS system splash.
+ * 1. Matches exact position, scale, and background of Android OS system splash (#141A15).
  * 2. Radiates an expanding circular liquid ripple wave from the icon center.
- * 3. Engulfs the entire screen with an amber-edged wavefront, revealing the live Cockpit.
+ * 3. Engulfs the entire screen with a Terracotta & Warm Sand wavefront, revealing the live Cockpit.
  * 4. Dismisses cleanly from the composition tree.
  */
 @Composable
@@ -41,18 +41,18 @@ fun AnimatedSplashScreen(
 
     // Liquid ripple wave progression: 0f (center icon) -> 1f (engulfs entire diagonal)
     val rippleProgress = remember { Animatable(0f) }
-    // Icon scale: 1.0f -> 1.12f as the ripple blasts outward
+    // Icon scale: 1.0f -> 1.15f as the ripple blasts outward
     val iconScale = remember { Animatable(1.0f) }
     // Icon alpha: 1.0f -> 0f as it dissolves into the live map center
     val iconAlpha = remember { Animatable(1.0f) }
-    // Background obsidian scrim alpha
+    // Background forest scrim alpha
     val bgAlpha = remember { Animatable(1.0f) }
 
     LaunchedEffect(Unit) {
-        // Brief 150ms hold to seamlessly anchor against the system window transition
-        delay(150L)
+        // Brief 120ms hold to seamlessly anchor against the system window transition
+        delay(120L)
 
-        // Emil Kowalski high-fluidity expansion curve (0.16, 1, 0.3, 1)
+        // Emil Kowalski / Apple high-fluidity expansion curve (0.16, 1, 0.3, 1)
         val fluidCurve = CubicBezierEasing(0.16f, 1.0f, 0.3f, 1.0f)
 
         // Launch simultaneous ripple blast & icon dissolve
@@ -63,14 +63,14 @@ fun AnimatedSplashScreen(
             )
         }
         launch {
-            delay(120L)
+            delay(100L)
             iconAlpha.animateTo(
                 targetValue = 0f,
-                animationSpec = tween(durationMillis = 300, easing = LinearOutSlowInEasing)
+                animationSpec = tween(durationMillis = 280, easing = LinearOutSlowInEasing)
             )
         }
         launch {
-            delay(200L)
+            delay(180L)
             bgAlpha.animateTo(
                 targetValue = 0f,
                 animationSpec = tween(durationMillis = 350, easing = FastOutSlowInEasing)
@@ -99,8 +99,8 @@ fun AnimatedSplashScreen(
                 val maxRadius = hypot(size.width / 2f, size.height / 2f) * 1.15f
                 val currentRadius = rippleProgress.value * maxRadius
 
-                // Solid obsidian background
-                drawRect(color = Color(0xFF0A0D10))
+                // Solid deep forest obsidian canvas (#141A15)
+                drawRect(color = Color(0xFF141A15))
 
                 if (currentRadius > 0f) {
                     // Expanding clear aperture revealing live cockpit underneath
@@ -111,13 +111,13 @@ fun AnimatedSplashScreen(
                         blendMode = BlendMode.Clear
                     )
 
-                    // Glowing Solar Amber wavefront boundary
+                    // Glowing Terracotta Clay wavefront boundary
                     drawCircle(
                         brush = Brush.radialGradient(
                             colors = listOf(
                                 Color.Transparent,
-                                Color(0xFFFFB300).copy(alpha = (1f - rippleProgress.value * 0.7f).coerceIn(0f, 1f)),
-                                Color(0xFFFFD54F).copy(alpha = (1f - rippleProgress.value).coerceIn(0f, 0.9f))
+                                Color(0xFFC96F4F).copy(alpha = (1f - rippleProgress.value * 0.7f).coerceIn(0f, 1f)),
+                                Color(0xFFD9C9B2).copy(alpha = (1f - rippleProgress.value).coerceIn(0f, 0.9f))
                             ),
                             center = center,
                             radius = currentRadius + 30f
@@ -127,10 +127,10 @@ fun AnimatedSplashScreen(
                         style = Stroke(width = 8.dp.toPx())
                     )
 
-                    // Secondary trailing echo wave
+                    // Secondary trailing echo wave (Warm Sand)
                     if (currentRadius > 40f) {
                         drawCircle(
-                            color = Color(0xFFFFB300).copy(alpha = ((1f - rippleProgress.value) * 0.35f).coerceIn(0f, 1f)),
+                            color = Color(0xFFD9C9B2).copy(alpha = ((1f - rippleProgress.value) * 0.35f).coerceIn(0f, 1f)),
                             radius = currentRadius * 0.85f,
                             center = center,
                             style = Stroke(width = 2.dp.toPx())
@@ -139,14 +139,14 @@ fun AnimatedSplashScreen(
                 }
             }
 
-            // Direct App Launcher Icon (Identical to system splash icon)
+            // Direct App Launcher Icon (Recolored Earthy Minimal)
             Box(
                 modifier = Modifier
-                    .size(76.dp)
+                    .size(80.dp)
                     .scale(iconScale.value)
                     .alpha(iconAlpha.value)
                     .clip(CircleShape)
-                    .background(Color(0xFF0A0D10)),
+                    .background(Color(0xFF141A15)),
                 contentAlignment = Alignment.Center
             ) {
                 Image(
