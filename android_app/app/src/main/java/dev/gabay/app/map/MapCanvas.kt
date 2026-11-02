@@ -913,6 +913,42 @@ private fun setupTacticalMap(
         }
         style.addLayer(userDot)
 
+        // 7. Enriched Regional Landmarks & University Campuses (NEUST, Colleges, Plazas)
+        val landmarkFeatures = dev.gabay.app.data.PoiDatabaseEnricher.RICH_POIS.map { poi ->
+            val pt = Point.fromLngLat(poi.third.second, poi.third.first)
+            val feat = Feature.fromGeometry(pt)
+            feat.addStringProperty("name", poi.first)
+            feat.addStringProperty("category", poi.second)
+            feat
+        }
+        val landmarkSource = GeoJsonSource("landmark_source", FeatureCollection.fromFeatures(landmarkFeatures))
+        style.addSource(landmarkSource)
+
+        val landmarkDot = CircleLayer("landmark_dot", "landmark_source").apply {
+            setProperties(
+                circleRadius(5.5f),
+                circleColor(AndroidColor.parseColor("#E87A54")),
+                circleStrokeColor(AndroidColor.parseColor("#F8F6EE")),
+                circleStrokeWidth(1.6f)
+            )
+        }
+        style.addLayer(landmarkDot)
+
+        val landmarkLabel = SymbolLayer("landmark_label", "landmark_source").apply {
+            setProperties(
+                textField(get("name")),
+                textSize(10.5f),
+                textColor(AndroidColor.parseColor("#F8F6EE")),
+                textHaloColor(AndroidColor.parseColor("#141A15")),
+                textHaloWidth(2.0f),
+                textOffset(arrayOf(0f, 1.3f)),
+                textAnchor(org.maplibre.android.style.layers.Property.TEXT_ANCHOR_TOP),
+                textAllowOverlap(false),
+                textOptional(true)
+            )
+        }
+        style.addLayer(landmarkLabel)
+
     }
 
     // Single Tap Listener on map canvas

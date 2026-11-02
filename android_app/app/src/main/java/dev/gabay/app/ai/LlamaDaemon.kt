@@ -271,6 +271,11 @@ object LlamaDaemon {
         // Autocorrect common abbreviations/typos
         cleaned = cleaned.replace("nust", "neust")
 
+        // Handle Campus selection conversationally
+        if (cleaned.contains("campus") && (cleaned.contains("change") || cleaned.contains("switch") || cleaned.contains("set") || cleaned == "campus")) {
+            return IntentResult.Conversational("Active campus is NEUST - San Isidro Campus. Available campuses: San Isidro, Sumacab, General Tinio (Main), Atate, Peñaranda, Fort Magsaysay. Say \"route to [campus]\" to navigate.")
+        }
+
         return when {
             cleaned.contains("where am i") || cleaned.contains("what road") ||
                 cleaned.contains("where are we") || cleaned.contains("current location") ||
@@ -290,8 +295,9 @@ object LlamaDaemon {
             // Navigation commands with dynamic destination extraction
             cleaned.contains("navigate to ") || cleaned.contains("go to ") || cleaned.contains("take me to ") ||
                 cleaned.contains("head to ") || cleaned.contains("drive to ") || cleaned.contains("route to ") ||
-                cleaned.contains("bring me to ") || cleaned.contains("pumunta sa ") -> {
-                val verbs = listOf("navigate to ", "go to ", "take me to ", "head to ", "drive to ", "route to ", "bring me to ", "pumunta sa ")
+                cleaned.contains("directions to ") || cleaned.contains("lead me to ") ||
+                cleaned.contains("bring me to ") || cleaned.contains("pumunta sa ") || cleaned.contains("dalhin mo ako sa ") -> {
+                val verbs = listOf("navigate to ", "go to ", "take me to ", "head to ", "drive to ", "route to ", "directions to ", "lead me to ", "bring me to ", "pumunta sa ", "dalhin mo ako sa ")
                 var dest = cleaned
                 for (v in verbs) {
                     val idx = dest.indexOf(v)
@@ -304,17 +310,18 @@ object LlamaDaemon {
                 IntentResult.Action("navigate", dest)
             }
 
+            cleaned.contains("neust") -> IntentResult.Action("navigate", cleaned)
             cleaned.contains("gas") || cleaned.contains("fuel") || cleaned.contains("petron") || cleaned.contains("shell") || cleaned.contains("caltex") -> IntentResult.Action("search", "Gas")
             cleaned.contains("restaurant") || cleaned.contains("food") || cleaned.contains("jollibee") || cleaned.contains("kain") || cleaned.contains("eat") -> IntentResult.Action("search", "Restaurant")
             cleaned.contains("hospital") || cleaned.contains("emergency") || cleaned.contains("clinic") || cleaned.contains("pharmacy") -> IntentResult.Action("search", "Hospital")
-            cleaned.contains("school") || cleaned.contains("university") || cleaned.contains("college") || cleaned.contains("campus") -> IntentResult.Action("search", cleaned)
+            cleaned.contains("school") || cleaned.contains("university") || cleaned.contains("college") -> IntentResult.Action("search", cleaned)
 
             else -> {
                 // If it looks like a place query (e.g. "neust san isidro"), route to it directly
-                if (cleaned.length >= 3 && !cleaned.contains("hello") && !cleaned.contains("hi") && !cleaned.contains("how")) {
+                if (cleaned.length >= 3 && !cleaned.contains("hello") && !cleaned.contains("hi") && !cleaned.contains("how") && !cleaned.contains("who")) {
                     IntentResult.Action("navigate", cleaned)
                 } else {
-                    IntentResult.Conversational("Co-pilot ready. Speak a destination, map command (e.g. street view, 3D), or search.")
+                    IntentResult.Conversational("Gabay offline co-pilot ready. Speak a destination, NEUST campus, map view command, or ask \"where am I\".")
                 }
             }
         }

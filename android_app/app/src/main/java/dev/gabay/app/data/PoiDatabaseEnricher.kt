@@ -11,7 +11,7 @@ object PoiDatabaseEnricher {
     private const val KEY_ENRICHED_VERSION = "enriched_version_key"
     private const val CURRENT_VERSION = 2
 
-    private val RICH_POIS = listOf(
+    val RICH_POIS = listOf(
         // --- UNIVERSITIES, COLLEGES & INSTITUTES ---
         Triple("NEUST - San Isidro Campus", "SCHOOL", Pair(15.3101, 120.9038)),
         Triple("NEUST Main Campus Cabanatuan", "UNIVERSITY", Pair(15.4855, 120.9712)),
@@ -198,7 +198,7 @@ object PoiDatabaseEnricher {
         Triple("San Leonardo - Peñaranda Crossing", "JUNCTION", Pair(15.3628, 120.9635))
     )
 
-    fun purgeSyntheticPois(context: Context) {
+    fun enrichPois(context: Context) {
         val dbFile = File("/sdcard/Documents/Gabay/pois_fts.sqlite")
         if (!dbFile.exists() || !dbFile.canWrite()) {
             return
@@ -206,26 +206,39 @@ object PoiDatabaseEnricher {
 
         try {
             val db = SQLiteDatabase.openDatabase(dbFile.absolutePath, null, SQLiteDatabase.OPEN_READWRITE)
-            Log.i(TAG, "Purging synthetic / guessed POIs from database to ensure 100% genuine OSM data...")
+            Log.i(TAG, "Enriching POI database with NEUST campuses and regional landmarks...")
             db.beginTransaction()
             try {
                 for (poi in RICH_POIS) {
                     val name = poi.first
-                    db.execSQL("DELETE FROM pois WHERE name = ?", arrayOf(name))
-                    try {
-                        db.execSQL("DELETE FROM pois_fts WHERE name = ?", arrayOf(name))
-                    } catch (e: Exception) {
-                        // In case pois_fts is a virtual table or content-backed
+                    val cat = poi.second
+                    val lat = poi.third.first
+                    val lon = poi.third.second
+                    
+                    val cur = db.rawQuery("SELECT id FROM pois WHERE name = ?", arrayOf(name))
+                    if (!cur.moveToFirst()) {
+                        db.execSQL(
+                            "INSERT INTO pois (name, category, latitude, longitude) VALUES (?, ?, ?, ?)",
+                            arrayOf(name, cat, lat, lon)
+                        )
+                        try {
+                            db.execSQL(
+                                "INSERT INTO pois_fts (name, category) VALUES (?, ?)",
+                                arrayOf(name, cat)
+                            )
+                        } catch (e: Exception) {}
                     }
+                    cur.close()
                 }
                 db.setTransactionSuccessful()
-                Log.i(TAG, "Successfully purged synthetic POIs.")
+                Log.i(TAG, "Successfully enriched database with ${RICH_POIS.size} landmarks and NEUST campuses.")
             } finally {
                 db.endTransaction()
                 db.close()
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to purge synthetic POIs: ${e.message}", e)
+            Log.e(TAG, "Failed to enrich POIs: ${e.message}", e)
         }
     }
 }
+

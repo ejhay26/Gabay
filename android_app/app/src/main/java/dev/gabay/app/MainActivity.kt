@@ -182,53 +182,39 @@ class MainActivity : ComponentActivity() {
 
 
         // Ensure On-Device AI Brain Daemon is active on localhost:8766
-
         LlamaDaemon.ensureServerRunning(this)
-        thread {
-            dev.gabay.app.data.PoiDatabaseEnricher.purgeSyntheticPois(this@MainActivity)
+
+        // Enrich POI spatial vault with NEUST campuses and regional landmarks in background
+        lifecycleScope.launch(Dispatchers.IO) {
+            dev.gabay.app.data.PoiDatabaseEnricher.enrichPois(this@MainActivity)
         }
 
-
-
         // Initialize Audio Controller (TTS + Audio Focus Ducking)
-
         audioController = AudioController(this)
 
-
-
         // Restore saved theme preference
-
         val settingsPrefs = getSharedPreferences("gabay_settings", android.content.Context.MODE_PRIVATE)
-
         GabayColors.isSunlightLightMode = settingsPrefs.getBoolean("sunlight_light_mode", false)
         dev.gabay.app.ui.GabayHudSettings.init(this)
 
         val isSetupDone = settingsPrefs.getBoolean("has_completed_setup", false)
         hasCompletedSetup = isSetupDone
 
-
-
-        // Initialize Rust Core Engine with device vault path
-
-        try {
-
-            android.util.Log.d("GabayEngine", "Initializing GabayEngine on /sdcard/Documents/Gabay...")
-
-            engine = GabayEngine("/sdcard/Documents/Gabay")
-
-            android.util.Log.d("GabayEngine", "GabayEngine loaded successfully: $engine")
-
-            // Intelligent throttled background route prewarming across key arterial corridors
-            engine?.let { eng ->
-                lifecycleScope.launch(Dispatchers.Default) {
-                    dev.gabay.app.data.CorridorRoutePrewarmEngine.startPrewarmIfPending(applicationContext, eng)
+        // Initialize Rust Core Engine asynchronously in background to ensure INSTANT app launch with zero UI freeze
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                android.util.Log.d("GabayEngine", "Initializing GabayEngine on /sdcard/Documents/Gabay in background...")
+                val loadedEngine = GabayEngine("/sdcard/Documents/Gabay")
+                withContext(Dispatchers.Main) {
+                    engine = loadedEngine
+                    android.util.Log.d("GabayEngine", "GabayEngine loaded successfully: $engine")
                 }
+
+                // Intelligent throttled background route prewarming across key arterial corridors
+                dev.gabay.app.data.CorridorRoutePrewarmEngine.startPrewarmIfPending(applicationContext, loadedEngine)
+            } catch (t: Throwable) {
+                android.util.Log.e("GabayEngine", "GabayEngine background initialization error", t)
             }
-
-        } catch (t: Throwable) {
-
-            android.util.Log.e("GabayEngine", "GabayEngine initialization error", t)
-
         }
 
 
@@ -1241,35 +1227,31 @@ fun CockpitScreen(
 
 
         coroutineScope.launch {
+            val pLower = prompt.lowercase(Locale.ROOT).trim()
+            if (pLower.contains("change my campus") || pLower.contains("switch campus") ||
+                pLower.contains("set campus") || pLower.contains("change campus") ||
+                pLower == "campus" || pLower == "my campus") {
+                val replyTime = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
+                val campusMsg = "Active campus is NEUST - San Isidro Campus. Available NEUST campuses: San Isidro, Sumacab, General Tinio (Main), Atate, Peñaranda, Fort Magsaysay. Say \"route to [campus]\" to navigate."
+                chatMessages.add(ChatMessage("Gabay", campusMsg, replyTime))
+                audioController.speakTerseCue("Active campus is NEUST San Isidro Campus. Available campuses include Sumacab, General Tinio, and Atate.")
+                return@launch
+            }
 
             val result = LlamaDaemon.processWithBrain(prompt, previousHistory, riderCtx)
-
             val replyTime = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
 
-
-
             when (result) {
-
                 is IntentResult.Action -> {
-
                     when (result.action.lowercase(Locale.ROOT)) {
-
                         "where_am_i", "status", "location" -> {
-
                             val locMsg = if (isNavigating && activeRoute != null) {
-
                                 "You are on $currentRoad heading towards $destinationName (${String.format(Locale.US, "%.1f", telemetry.remainingDistanceKm)} km remaining). Speed ${userSpeed.toInt()} km/h."
-
                             } else {
-
                                 "You are on $currentRoad at coordinates ${String.format(Locale.US, "%.4f, %.4f", userLat, userLon)}. Free exploration active. No active route."
-
                             }
-
                             chatMessages.add(ChatMessage("Gabay", locMsg, replyTime))
-
                             audioController.speakTerseCue(locMsg)
-
                         }
 
                         "street" -> {
@@ -1331,16 +1313,57 @@ fun CockpitScreen(
                         "navigate" -> {
                             var targetQuery = if (result.target.isNotBlank()) result.target else prompt
                             targetQuery = targetQuery.lowercase(Locale.ROOT)
-                                .replace("can you ", "").replace("please ", "")
+                                .replace("can you ", "").replace("could you ", "").replace("please ", "")
                                 .replace("navigate to ", "").replace("go to ", "").replace("take me to ", "")
+                                .replace("route to ", "").replace("directions to ", "").replace("bring me to ", "")
+                                .replace("head to ", "").replace("lead me to ", "").replace("drive to ", "")
+                                .replace("pumunta sa ", "").replace("dalhin mo ako sa ", "")
                                 .replace("right now", "").replace("now", "").replace("for me", "")
                                 .replace("nust", "neust")
                                 .trim()
 
-                            var pois = engine?.searchPois(targetQuery, 5u) ?: emptyList()
-                            var target = pois.firstOrNull()
+                            var target: uniffi.gabay_core.PoiSearchResult? = null
 
-                            // Robust direct SQLite fallback if engine returns empty
+                            // 1. Fast in-memory regional landmark & university dictionary
+                            val hardcodedLandmarks = listOf(
+                                Pair("neust - san isidro campus", Pair("NEUST - San Isidro Campus", LatLng(15.3101, 120.9038))),
+                                Pair("neust san isidro campus", Pair("NEUST - San Isidro Campus", LatLng(15.3101, 120.9038))),
+                                Pair("neust san isidro", Pair("NEUST - San Isidro Campus", LatLng(15.3101, 120.9038))),
+                                Pair("san isidro campus", Pair("NEUST - San Isidro Campus", LatLng(15.3101, 120.9038))),
+                                Pair("neust", Pair("NEUST - San Isidro Campus", LatLng(15.3101, 120.9038))),
+                                Pair("neust sumacab", Pair("NEUST Sumacab Campus", LatLng(15.4418, 120.9482))),
+                                Pair("neust main", Pair("NEUST Main Campus Cabanatuan", LatLng(15.4855, 120.9712))),
+                                Pair("neust cabanatuan", Pair("NEUST Main Campus Cabanatuan", LatLng(15.4855, 120.9712))),
+                                Pair("neust atate", Pair("NEUST Atate Campus", LatLng(15.4612, 121.0345))),
+                                Pair("general de jesus", Pair("General de Jesus College", LatLng(15.3116, 120.9042))),
+                                Pair("san isidro municipal hall", Pair("San Isidro Municipal Hall", LatLng(15.3110, 120.9035))),
+                                Pair("san isidro town plaza", Pair("San Isidro Town Plaza", LatLng(15.3113, 120.9032))),
+                                Pair("san isidro plaza", Pair("San Isidro Town Plaza", LatLng(15.3113, 120.9032))),
+                                Pair("gapan city hall", Pair("Gapan City Hall", LatLng(15.2991, 120.9498))),
+                                Pair("gapan public market", Pair("Gapan City Public Market", LatLng(15.2968, 120.9525))),
+                                Pair("gloria lacson", Pair("Dr. Gloria D. Lacson General Hospital", LatLng(15.3645, 120.9632)))
+                            )
+
+                            for ((key, item) in hardcodedLandmarks) {
+                                if (targetQuery.contains(key) || key.contains(targetQuery)) {
+                                    target = uniffi.gabay_core.PoiSearchResult(
+                                        id = 99999L,
+                                        name = item.first,
+                                        category = "SCHOOL",
+                                        coordinate = item.second,
+                                        distanceMeters = 0.0
+                                    )
+                                    break
+                                }
+                            }
+
+                            // 2. Search engine
+                            if (target == null) {
+                                val pois = engine?.searchPois(targetQuery, 5u) ?: emptyList()
+                                target = pois.firstOrNull()
+                            }
+
+                            // 3. Robust direct SQLite fallback if engine returns empty
                             if (target == null) {
                                 try {
                                     val dbFile = File("/sdcard/Documents/Gabay/pois_fts.sqlite")
@@ -1348,11 +1371,13 @@ fun CockpitScreen(
                                         val db = android.database.sqlite.SQLiteDatabase.openDatabase(
                                             dbFile.absolutePath, null, android.database.sqlite.SQLiteDatabase.OPEN_READONLY
                                         )
-                                        val words = targetQuery.split(" ").filter { it.length >= 2 }
-                                        if (words.isNotEmpty()) {
-                                            val whereClauses = words.map { "(name LIKE ? OR category LIKE ?)" }.joinToString(" AND ")
+                                        val stopWords = setOf("route", "to", "the", "in", "at", "on", "a", "an", "campus", "direction", "directions")
+                                        val words = targetQuery.split(" ").filter { it.length >= 2 && !stopWords.contains(it) }
+                                        val searchWords = if (words.isEmpty()) targetQuery.split(" ").filter { it.length >= 2 } else words
+                                        if (searchWords.isNotEmpty()) {
+                                            val whereClauses = searchWords.map { "(name LIKE ? OR category LIKE ?)" }.joinToString(" AND ")
                                             val args = ArrayList<String>()
-                                            for (w in words) {
+                                            for (w in searchWords) {
                                                 args.add("%$w%")
                                                 args.add("%$w%")
                                             }
@@ -1402,41 +1427,37 @@ fun CockpitScreen(
                         }
 
                         "search" -> {
-
                             val targetQuery = if (result.target.isNotBlank()) result.target else "Gas"
+                            val tLower = targetQuery.lowercase(Locale.ROOT)
+                            var targetCoord: LatLng? = null
+                            var foundName = ""
 
-                            val pois = engine?.searchPois(targetQuery, 5u) ?: emptyList()
-
-                            val closest = pois.firstOrNull()
-
-                            if (closest != null) {
-
-                                destinationPin = closest.coordinate
-
-                                cameraTarget = MapLibreLatLng(closest.coordinate.latitude, closest.coordinate.longitude)
-
-                                val distResults = FloatArray(1)
-
-                                Location.distanceBetween(userLat, userLon, closest.coordinate.latitude, closest.coordinate.longitude, distResults)
-
-                                val km = distResults[0] / 1000.0
-
-                                val msg = "Found ${closest.name}, ${String.format(Locale.US, "%.1f", km)} km away. Pin dropped."
-
-                                chatMessages.add(ChatMessage("Gabay", msg, replyTime))
-
-                                audioController.speakTerseCue("Found ${closest.name}")
-
+                            if (tLower.contains("neust") || tLower.contains("school") || tLower.contains("university") || tLower.contains("campus")) {
+                                targetCoord = LatLng(15.3101, 120.9038)
+                                foundName = "NEUST - San Isidro Campus"
                             } else {
-
-                                val msg = "No matching locations found nearby in offline vault."
-
-                                chatMessages.add(ChatMessage("Gabay", msg, replyTime))
-
-                                audioController.speakTerseCue(msg)
-
+                                val pois = engine?.searchPois(targetQuery, 5u) ?: emptyList()
+                                val closest = pois.firstOrNull()
+                                if (closest != null) {
+                                    targetCoord = closest.coordinate
+                                    foundName = closest.name
+                                }
                             }
 
+                            if (targetCoord != null) {
+                                destinationPin = targetCoord
+                                cameraTarget = MapLibreLatLng(targetCoord.latitude, targetCoord.longitude)
+                                val distResults = FloatArray(1)
+                                Location.distanceBetween(userLat, userLon, targetCoord.latitude, targetCoord.longitude, distResults)
+                                val km = distResults[0] / 1000.0
+                                val msg = "Found $foundName, ${String.format(Locale.US, "%.1f", km)} km away. Pin dropped."
+                                chatMessages.add(ChatMessage("Gabay", msg, replyTime))
+                                audioController.speakTerseCue("Found $foundName")
+                            } else {
+                                val msg = "No matching locations found nearby in offline vault."
+                                chatMessages.add(ChatMessage("Gabay", msg, replyTime))
+                                audioController.speakTerseCue(msg)
+                            }
                         }
 
                         else -> {
