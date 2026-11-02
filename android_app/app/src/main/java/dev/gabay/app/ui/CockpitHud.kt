@@ -1016,14 +1016,14 @@ fun MapStyleSpeedDial(
 
     Box(
         modifier = modifier.size(48.dp),
-        contentAlignment = Alignment.BottomStart
+        contentAlignment = Alignment.BottomEnd
     ) {
         AnimatedVisibility(
             visible = isExpanded,
             modifier = Modifier
-                .align(Alignment.BottomStart)
+                .align(Alignment.BottomEnd)
                 .padding(bottom = 56.dp)
-                .wrapContentSize(Alignment.BottomStart, unbounded = true),
+                .wrapContentSize(Alignment.BottomEnd, unbounded = true),
             enter = fadeIn(tween(180)) + slideInVertically(initialOffsetY = { it / 3 }),
             exit = fadeOut(tween(140)) + slideOutVertically(targetOffsetY = { it / 3 })
         ) {
@@ -1031,7 +1031,9 @@ fun MapStyleSpeedDial(
                 shape = EarthyLiquidTokens.CardShape,
                 colors = CardDefaults.cardColors(containerColor = EarthyLiquidTokens.glassBg()),
                 border = CardDefaults.outlinedCardBorder().copy(brush = SolidColor(EarthyLiquidTokens.glassBorder()), width = 0.8.dp),
-                modifier = Modifier.shadow(16.dp, EarthyLiquidTokens.CardShape)
+                modifier = Modifier
+                    .shadow(16.dp, EarthyLiquidTokens.CardShape)
+                    .width(168.dp)
             ) {
                 Column(
                     modifier = Modifier.padding(6.dp),
@@ -1042,6 +1044,7 @@ fun MapStyleSpeedDial(
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier
+                                .fillMaxWidth()
                                 .clip(RoundedCornerShape(14.dp))
                                 .background(if (isSelected) EarthyLiquidTokens.SageGreen.copy(alpha = 0.25f) else Color.Transparent)
                                 .clickable {
@@ -1077,7 +1080,7 @@ fun MapStyleSpeedDial(
             onClick = { isExpanded = !isExpanded },
             isActive = isExpanded,
             contentDescription = "Map Style",
-            modifier = Modifier.align(Alignment.BottomStart)
+            modifier = Modifier.align(Alignment.BottomEnd)
         )
     }
 }
@@ -1929,6 +1932,40 @@ fun TopMenuSheet(
                                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                             Icon(imageVector = icon, contentDescription = null, tint = if (isSel) EarthyLiquidTokens.accent() else EarthyLiquidTokens.textSecondary(), modifier = Modifier.size(16.dp))
                                             Text(text = label, style = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, color = if (isSel) EarthyLiquidTokens.accent() else EarthyLiquidTokens.textPrimary()))
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Map View Style Selector
+                        item {
+                            Text("MAP VIEW STYLE", style = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Bold, fontSize = 11.sp, color = EarthyLiquidTokens.textMuted()))
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                listOf(
+                                    Triple(FusedMapMode.STREET, "Street", GabayIcons.LayerVector),
+                                    Triple(FusedMapMode.HYBRID_3D, "3D", GabayIcons.Layer3d),
+                                    Triple(FusedMapMode.SATELLITE, "Satellite", GabayIcons.LayerSatellite),
+                                    Triple(FusedMapMode.TOPO, "Topo", GabayIcons.LayerTopo)
+                                ).forEach { (mode, label, icon) ->
+                                    val isSel = currentMapMode == mode
+                                    Box(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .clip(EarthyLiquidTokens.SmallPillShape)
+                                            .background(if (isSel) EarthyLiquidTokens.accent().copy(alpha = 0.2f) else (if (GabayColors.isSunlightLightMode) Color(0xFFF1F5F9) else Color(0x33FFFFFF)))
+                                            .border(0.8.dp, if (isSel) EarthyLiquidTokens.accent() else EarthyLiquidTokens.glassBorder(), EarthyLiquidTokens.SmallPillShape)
+                                            .clickable { onMapModeSelect(mode) }
+                                            .padding(vertical = 10.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                            Icon(imageVector = icon, contentDescription = null, tint = if (isSel) EarthyLiquidTokens.accent() else EarthyLiquidTokens.textSecondary(), modifier = Modifier.size(16.dp))
+                                            Text(text = label, style = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.SemiBold, fontSize = 11.sp, color = if (isSel) EarthyLiquidTokens.accent() else EarthyLiquidTokens.textPrimary()))
                                         }
                                     }
                                 }
