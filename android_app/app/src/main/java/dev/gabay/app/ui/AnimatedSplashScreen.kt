@@ -1,197 +1,209 @@
 package dev.gabay.app.ui
 
+import android.provider.Settings
 import android.view.HapticFeedbackConstants
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.*
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.ClipOp
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.graphics.drawscope.scale
+import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.vector.VectorPath
+import androidx.compose.ui.graphics.vector.toPath
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
-import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.unit.dp
 import dev.gabay.app.R
+import kotlin.math.PI
 import kotlin.math.hypot
 import kotlin.math.pow
+import kotlin.math.sin
 
 /**
- * Convx-Engineered Circular Ripple & Rotating Logo Splash Transition
+ * Convx-Engineered Cold-Start Animated Splash Transition for Gabay.
  *
  * Architecture:
- * 1. Single clock frame-driven animation via withFrameNanos (TOTAL_MS = 1500f).
- * 2. Bold logo entrance rotating along round direction: starts at -140° and spins into True North 0°.
- * 3. Directional heading arrow inside pulses forward with vibrant terracotta ember glow.
- * 4. Dual physical rhythm beats (at 450ms and 750ms) firing tactile CLOCK_TICK haptics.
- * 5. Thick, bold ripple wavefront graphics radiating outward (Stroke width 10dp and 6dp).
- * 6. Smooth circular aperture clip reveal transitioning seamlessly into the live Cockpit HUD.
+ * 1. Monotonic clock frame-driven animation via withFrameNanos.
+ *    Uses actual elapsed monotonic wall-clock time so startup stalls or initial
+ *    MapLibre GPU texture initialization do NOT artificially prolong the splash
+ *    screen beyond TOTAL_MS.
+ * 2. Instant tap-to-skip gesture so the user can immediately enter the app at any millisecond.
+ * 3. Vector paths extracted directly from R.drawable.ic_gabay_launcher_foreground and rendered
+ *    as pure GPU geometry inside Canvas, avoiding VectorPainter/Image re-rasterization memory spikes
+ *    during 17x zoom tunnel.
+ * 4. Hardware aperture hole punched via clipPath(hole, ClipOp.Difference), revealing the live
+ *    app underneath with zero offscreen buffer allocation and no BlendMode.Clear glitches.
+ * 5. Dual physical rhythm beats (at 450ms and 750ms) firing tactile CLOCK_TICK haptics.
+ * 6. Accessibility-aware: aborts immediately if system ANIMATOR_DURATION_SCALE == 0f.
  */
 @Composable
 fun AnimatedSplashScreen(
-    modifier: Modifier = Modifier,
     onDismiss: () -> Unit = {}
 ) {
+    val context = LocalContext.current
     val view = LocalView.current
-    var isDismissed by remember { mutableStateOf(false) }
-    var timeMs by remember { mutableFloatStateOf(0f) }
+    val reducedMotion = remember {
+        Settings.Global.getFloat(context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
+    }
+    val clock = remember { mutableFloatStateOf(0f) }
 
-    var beat1Fired by remember { mutableStateOf(false) }
-    var beat2Fired by remember { mutableStateOf(false) }
-
-    val totalDurationMs = 1500f
-    val zoomStartMs = 950f
-    val revealStartMs = 1200f
-
-    // Frame-driven single clock loop
     LaunchedEffect(Unit) {
-        val startNano = withFrameNanos { it }
-        while (timeMs < totalDurationMs) {
-            withFrameNanos { nowNano ->
-                timeMs = ((nowNano - startNano) / 1_000_000f).coerceAtMost(totalDurationMs)
+        if (!reducedMotion) {
+            val startNanos = withFrameNanos { it }
+            var prevClock = 0f
+            while (prevClock < TOTAL_MS) {
+                val nowNanos = withFrameNanos { it }
+                val elapsedMs = ((nowNanos - startNanos) / 1_000_000f).coerceAtMost(TOTAL_MS)
+                val before = prevClock
+                val after = elapsedMs
+                prevClock = after
+                clock.floatValue = after
+                if (BEATS_MS.any { it in before..after && it != before }) {
+                    try {
+                        view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                    } catch (_: Exception) {}
+                }
             }
         }
-        isDismissed = true
         onDismiss()
     }
 
-    // Trigger physical rhythm beats with tactile haptic ticks
-    if (timeMs >= 450f && !beat1Fired) {
-        beat1Fired = true
-        try {
-            view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-        } catch (_: Exception) {}
+    if (reducedMotion) return
+
+    val logoVector = ImageVector.vectorResource(R.drawable.ic_gabay_launcher_foreground)
+    val vectorPaths = remember(logoVector) {
+        logoVector.root.filterIsInstance<VectorPath>().map { it.pathData.toPath() }
     }
-    if (timeMs >= 750f && !beat2Fired) {
-        beat2Fired = true
-        try {
-            view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-        } catch (_: Exception) {}
-    }
+    val logoViewport = logoVector.viewportWidth.coerceAtLeast(1f)
+    val hole = remember { Path() }
 
-    if (isDismissed) return
-
-    // Convx easing math
-    fun outCubic(t: Float): Float = 1f - (1f - t).pow(3)
-    fun outBack(t: Float): Float {
-        val c1 = 1.70158f
-        val c3 = c1 + 1f
-        val m = t - 1f
-        return 1f + c3 * m.pow(3) + c1 * m.pow(2)
-    }
-
-    // Logo entrance & round direction spin (0..650ms)
-    val glyphProgress = (timeMs / 650f).coerceIn(0f, 1f)
-    val glyphRotation = -140f * (1f - outCubic(glyphProgress))
-    val glyphScale = 0.65f + 0.35f * outBack(glyphProgress)
-    val glyphAlpha = if (timeMs >= zoomStartMs) {
-        (1f - ((timeMs - zoomStartMs) / 300f)).coerceIn(0f, 1f)
-    } else {
-        (timeMs / 200f).coerceIn(0f, 1f)
-    }
-
-    // Zoom tunnel scale at conclusion
-    val zoomProgress = ((timeMs - zoomStartMs) / (totalDurationMs - zoomStartMs)).coerceIn(0f, 1f)
-    val finalZoomScale = 1f + 14f * zoomProgress.pow(1.6f)
-
-    // Aperture reveal progress
-    val revealProgress = ((timeMs - revealStartMs) / (totalDurationMs - revealStartMs)).coerceIn(0f, 1f)
-    val scrimAlpha = (1f - revealProgress).coerceIn(0f, 1f)
-
-    // Ripple wave 1 progress (starts at 450ms)
-    val ripple1Progress = if (timeMs > 450f) ((timeMs - 450f) / 750f).coerceIn(0f, 1f) else 0f
-    // Ripple wave 2 progress (starts at 750ms)
-    val ripple2Progress = if (timeMs > 750f) ((timeMs - 750f) / 600f).coerceIn(0f, 1f) else 0f
-
-    Box(
-        modifier = modifier
+    Canvas(
+        modifier = Modifier
             .fillMaxSize()
-            .alpha(scrimAlpha),
-        contentAlignment = Alignment.Center
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onTap = { onDismiss() },
+                    onPress = { onDismiss() }
+                )
+            }
     ) {
-        // Thick ripple graphics canvas
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            val center = Offset(size.width / 2f, size.height / 2f)
-            val maxRadius = hypot(size.width / 2f, size.height / 2f) * 1.25f
+        val t = clock.floatValue
+        val c = center
+        val r0 = 52.dp.toPx()
+        val cover = hypot(size.width, size.height) / 2f * 1.08f
 
-            // Solid obsidian background (#141A15)
-            drawRect(color = Color(0xFF141A15))
-
-            // Aperture reveal cutout
-            if (revealProgress > 0f) {
-                val apertureRadius = outCubic(revealProgress) * maxRadius
-                drawCircle(
-                    color = Color.Transparent,
-                    radius = apertureRadius,
-                    center = center,
-                    blendMode = BlendMode.Clear
-                )
-            }
-
-            // Wave 1: Thick Terracotta Clay Shockwave
-            if (ripple1Progress > 0f) {
-                val r1 = outCubic(ripple1Progress) * maxRadius
-                val alpha1 = (1f - ripple1Progress * 0.85f).coerceIn(0f, 1f)
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        colors = listOf(
-                            Color.Transparent,
-                            Color(0xFFE87A54).copy(alpha = alpha1),
-                            Color(0xFFC96F4F).copy(alpha = alpha1 * 0.6f)
-                        ),
-                        center = center,
-                        radius = r1 + 30f
-                    ),
-                    radius = r1,
-                    center = center,
-                    style = Stroke(width = 10.dp.toPx())
-                )
-            }
-
-            // Wave 2: Bold Warm Sand Echo Wave
-            if (ripple2Progress > 0f) {
-                val r2 = outCubic(ripple2Progress) * maxRadius
-                val alpha2 = (1f - ripple2Progress * 0.9f).coerceIn(0f, 1f)
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        colors = listOf(
-                            Color.Transparent,
-                            Color(0xFFD9C9B2).copy(alpha = alpha2 * 0.8f),
-                            Color(0xFF6B7F5B).copy(alpha = alpha2 * 0.4f)
-                        ),
-                        center = center,
-                        radius = r2 + 20f
-                    ),
-                    radius = r2,
-                    center = center,
-                    style = Stroke(width = 6.dp.toPx())
-                )
-            }
+        // Hardware aperture hole cutout revealing live Cockpit underneath
+        val holeR = cover * outCubic(phase(t, REVEAL_START, TOTAL_MS))
+        hole.reset()
+        if (holeR > 0f) {
+            hole.addOval(Rect(c, holeR))
         }
 
-        // Animated Gabay App Logo with Round Direction Spin & Forward Heading Pulse
-        Box(
-            modifier = Modifier
-                .size(86.dp)
-                .scale(glyphScale * finalZoomScale)
-                .rotate(glyphRotation)
-                .alpha(glyphAlpha)
-                .clip(CircleShape)
-                .background(Color(0xFF141A15)),
-            contentAlignment = Alignment.Center
-        ) {
-            Image(
-                painter = painterResource(id = R.drawable.ic_gabay_launcher_foreground),
-                contentDescription = "Gabay Monogram Logo",
-                modifier = Modifier.fillMaxSize()
+        clipPath(hole, ClipOp.Difference) {
+            // Obsidian background (#141A15)
+            drawRect(Color(0xFF141A15))
+
+            // Ripples radiating beneath the central disc
+            BEATS_MS.forEachIndexed { index, beat ->
+                val x = (t - beat) / RIPPLE_MS
+                if (x in 0f..1f) {
+                    val rippleColor = if (index == 0) Color(0xFFE87A54) else Color(0xFFD9C9B2)
+                    drawCircle(
+                        color = rippleColor.copy(alpha = 0.50f * (1f - x)),
+                        radius = r0 * (1f + 2.5f * outCubic(x)),
+                        center = c,
+                        style = Stroke(width = 2.5.dp.toPx() * (1f - 0.5f * x))
+                    )
+                }
+            }
+
+            // Central Disc Entrance & Zoom Tunnel
+            val beatPulse = BEATS_MS.sumOf { pulse(t - it).toDouble() }.toFloat()
+            val zoom = inCubic(phase(t, ZOOM_START, ZOOM_END))
+            val discIn = outBack(phase(t, 0f, 450f))
+            val discR = r0 * discIn * (1f + 0.08f * beatPulse) + (cover - r0) * zoom
+
+            // Deep forest obsidian disc carrying the emblem
+            drawCircle(
+                color = Color(0xFF1E2721),
+                radius = discR.coerceAtLeast(0f),
+                center = c
             )
+            // Subtle rim on disc
+            drawCircle(
+                color = Color(0xFF6B7F5B).copy(alpha = 0.35f * (1f - zoom)),
+                radius = discR.coerceAtLeast(0f),
+                center = c,
+                style = Stroke(width = 1.dp.toPx())
+            )
+
+            // Gabay App Icon Vectors:
+            // Grows faster than the disc while zooming, so terracotta and linen geometry sweep past the camera
+            val glyphIn = phase(t, 80f, 550f)
+            val glyphSize = r0 * 2f * 0.72f * outBack(glyphIn) * (1f + 0.08f * beatPulse) * (1f + 16f * zoom.pow(1.6f))
+            val spin = -140f * (1f - outCubic(glyphIn)) + 35f * zoom
+
+            if (glyphSize > 0f && vectorPaths.isNotEmpty()) {
+                rotate(spin, pivot = c) {
+                    translate(c.x - glyphSize / 2f, c.y - glyphSize / 2f) {
+                        scale(glyphSize / logoViewport, pivot = Offset.Zero) {
+                            if (vectorPaths.size >= 3) {
+                                // Path 0: Outer Halo
+                                drawPath(
+                                    path = vectorPaths[0],
+                                    color = Color(0xFF6B7F5B).copy(alpha = 0.45f),
+                                    style = Stroke(width = 1.5f)
+                                )
+                                // Path 1: Master Gabay 'G' Monogram (Warm Terracotta Clay)
+                                drawPath(
+                                    path = vectorPaths[1],
+                                    color = Color(0xFFC96F4F)
+                                )
+                                // Path 2: Directional Heading Chevron (Warm Alabaster Linen)
+                                drawPath(
+                                    path = vectorPaths[2],
+                                    color = Color(0xFFF8F6EE)
+                                )
+                            } else {
+                                // Fallback: draw all paths in Terracotta
+                                vectorPaths.forEach { p ->
+                                    drawPath(path = p, color = Color(0xFFC96F4F))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
+}
+
+private const val TOTAL_MS = 1350f
+private const val ZOOM_START = 800f
+private const val ZOOM_END = 1200f
+private const val REVEAL_START = 1120f
+private const val RIPPLE_MS = 500f
+private const val PULSE_MS = 180f
+private val BEATS_MS = listOf(350f, 650f)
+
+private fun phase(t: Float, start: Float, end: Float) = ((t - start) / (end - start)).coerceIn(0f, 1f)
+private fun pulse(dt: Float) = if (dt in 0f..PULSE_MS) sin(PI.toFloat() * dt / PULSE_MS) else 0f
+private fun outCubic(x: Float) = 1f - (1f - x).pow(3)
+private fun inCubic(x: Float) = x * x * x
+private fun outBack(x: Float): Float {
+    val c1 = 1.70158f
+    val c3 = c1 + 1f
+    return 1f + c3 * (x - 1f).pow(3) + c1 * (x - 1f).pow(2)
 }

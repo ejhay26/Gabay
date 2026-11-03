@@ -106,6 +106,8 @@ class NavigationService : LifecycleService() {
                     @Suppress("DEPRECATION")
                     stopForeground(true)
                 }
+                val manager = getSystemService(NotificationManager::class.java)
+                manager?.cancel(NOTIFICATION_ID)
                 onStopNavigationRequested?.invoke()
                 stopSelf()
             }
@@ -116,11 +118,42 @@ class NavigationService : LifecycleService() {
                     @Suppress("DEPRECATION")
                     stopForeground(true)
                 }
-                // Do not invoke onStopNavigationRequested: caller (MainActivity) already requested this stop!
+                val manager = getSystemService(NotificationManager::class.java)
+                manager?.cancel(NOTIFICATION_ID)
                 stopSelf()
             }
         }
-        return START_STICKY
+        return START_NOT_STICKY
+    }
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        android.util.Log.d("NavigationService", "Gabay closed/task removed. Dismissing notification and stopping service.")
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                stopForeground(STOP_FOREGROUND_REMOVE)
+            } else {
+                @Suppress("DEPRECATION")
+                stopForeground(true)
+            }
+            val manager = getSystemService(NotificationManager::class.java)
+            manager?.cancel(NOTIFICATION_ID)
+        } catch (_: Exception) {}
+        stopSelf()
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                stopForeground(STOP_FOREGROUND_REMOVE)
+            } else {
+                @Suppress("DEPRECATION")
+                stopForeground(true)
+            }
+            val manager = getSystemService(NotificationManager::class.java)
+            manager?.cancel(NOTIFICATION_ID)
+        } catch (_: Exception) {}
     }
 
     private fun startForegroundServiceInternal(title: String, content: String) {

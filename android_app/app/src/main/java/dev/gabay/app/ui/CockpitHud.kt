@@ -123,8 +123,40 @@ private object EarthyLiquidTokens {
     val PillShape = RoundedCornerShape(26.dp)
     val SmallPillShape = RoundedCornerShape(16.dp)
 
-    fun glassBg(): Color = if (GabayColors.isSunlightLightMode) AlabasterGlassLight else ForestGlassDark
+    fun glassBg(): Color {
+        val op = if (GabayGlassSettings.globalEnabled) GabayGlassSettings.surfaceOpacity else 0.90f
+        return if (GabayColors.isSunlightLightMode) {
+            Color(0xFFF8F6EE).copy(alpha = op)
+        } else {
+            Color(0xFF141A15).copy(alpha = op)
+        }
+    }
     fun glassBorder(): Color = if (GabayColors.isSunlightLightMode) GlassBorderLight else GlassBorderDark
+    fun glassBorderBrush(): Brush {
+        if (!GabayGlassSettings.specularRimEnabled || !GabayGlassSettings.globalEnabled) {
+            return SolidColor(glassBorder())
+        }
+        val isLight = GabayColors.isSunlightLightMode
+        return if (isLight) {
+            Brush.verticalGradient(
+                listOf(
+                    Color.White.copy(alpha = 0.75f),
+                    Color(0x35D9C9B2),
+                    Color(0x15D9C9B2),
+                    Color(0x40D9C9B2)
+                )
+            )
+        } else {
+            Brush.verticalGradient(
+                listOf(
+                    Color.White.copy(alpha = 0.48f),
+                    Color(0x25D9C9B2),
+                    Color(0x10141A15),
+                    Color(0x38D9C9B2)
+                )
+            )
+        }
+    }
     fun accent(): Color = if (GabayColors.isSunlightLightMode) Terracotta else TerracottaGlow
     fun textPrimary(): Color = if (GabayColors.isSunlightLightMode) Color(0xFF1E2820) else Color(0xFFF8F6EE)
     fun textSecondary(): Color = if (GabayColors.isSunlightLightMode) Color(0xFF4E5F48) else WarmSand
@@ -132,15 +164,9 @@ private object EarthyLiquidTokens {
 }
 
 /**
- * Authentic Convx Liquid Glass Toggle Switch (Apple HIG & Convx Design System)
- * 64dp × 30dp stadium capsule track with 38dp × 24dp sliding liquid glass lens thumb.
- * Features:
- * - Chromatic aberration dispersion rim (spectral rainbow refraction along lens curvature)
- * - Dynamic elastic stretch on transition (thumb stretches horizontally during motion)
- * - Concentric specular highlight arc for liquid lens refraction
- * - Vibrant liquid emerald ON state (#34C759) and translucent deep obsidian OFF state
- * - Physical spring dynamics (dampingRatio = 0.76f, stiffness = 420f)
- * - Tactile CLOCK_TICK haptic feedback
+ * Authentic Convx & iOS Liquid Glass Toggle Switch.
+ * Leverages GlassSwitch with 51dp x 31dp stadium track, 27dp circular thumb,
+ * dynamic viscous fluid squash-and-stretch, and tactile haptic feedback.
  */
 @Composable
 fun LiquidToggle(
@@ -149,118 +175,16 @@ fun LiquidToggle(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     activeColor: Color = Color(0xFF34C759), // Convx Liquid Green
-    inactiveTrackColor: Color = if (GabayColors.isSunlightLightMode) Color(0x28000000) else Color(0x381C251E)
+    inactiveTrackColor: Color = if (GabayColors.isSunlightLightMode) Color(0xFFE2E0D8) else Color(0xFF39393D)
 ) {
-    val view = LocalView.current
-    val transition = updateTransition(targetState = checked, label = "ConvxLiquidToggle")
-
-    val thumbOffset by transition.animateDp(
-        transitionSpec = { spring(dampingRatio = 0.76f, stiffness = 420f) },
-        label = "LiquidOffset"
-    ) { isChecked ->
-        if (isChecked) 23.dp else 3.dp
-    }
-
-    // Dynamic elastic stretch: thumb expands horizontally in transit
-    val thumbWidth by transition.animateDp(
-        transitionSpec = {
-            keyframes {
-                durationMillis = 280
-                (if (targetState) 43.dp else 43.dp) at 120 with FastOutSlowInEasing
-            }
-        },
-        label = "LiquidStretch"
-    ) { _ -> 38.dp }
-
-    val trackColor by transition.animateColor(
-        transitionSpec = { tween(durationMillis = 220) },
-        label = "LiquidTrackColor"
-    ) { isChecked ->
-        if (isChecked) activeColor else inactiveTrackColor
-    }
-
-    val trackBorderColor by transition.animateColor(
-        transitionSpec = { tween(durationMillis = 220) },
-        label = "LiquidTrackBorder"
-    ) { isChecked ->
-        if (isChecked) activeColor.copy(alpha = 0.85f) else Color.White.copy(alpha = 0.14f)
-    }
-
-    // Chromatic dispersion rainbow gradient for authentic Convx refraction rim
-    val chromaticDispersionBrush = Brush.linearGradient(
-        colors = listOf(
-            Color(0xFFFF3B30).copy(alpha = 0.65f),
-            Color(0xFFFF9500).copy(alpha = 0.65f),
-            Color(0xFF34C759).copy(alpha = 0.70f),
-            Color(0xFF007AFF).copy(alpha = 0.80f),
-            Color(0xFFAF52DE).copy(alpha = 0.65f),
-            Color(0xFFFF3B30).copy(alpha = 0.65f)
-        )
+    GlassSwitch(
+        checked = checked,
+        onCheckedChange = onCheckedChange,
+        modifier = modifier,
+        enabled = enabled,
+        activeTrackColor = activeColor,
+        inactiveTrackColor = inactiveTrackColor
     )
-
-    Box(
-        modifier = modifier
-            .size(width = 64.dp, height = 30.dp)
-            .clip(RoundedCornerShape(15.dp))
-            .background(trackColor)
-            .border(0.9.dp, trackBorderColor, RoundedCornerShape(15.dp))
-            .clickable(enabled = enabled) {
-                try {
-                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                } catch (_: Exception) {}
-                onCheckedChange(!checked)
-            }
-            .padding(vertical = 3.dp),
-        contentAlignment = Alignment.CenterStart
-    ) {
-        // Sliding Liquid Glass Lens Thumb with Chromatic Aberration Rim
-        Box(
-            modifier = Modifier
-                .offset(x = thumbOffset)
-                .size(width = thumbWidth, height = 24.dp)
-                .shadow(elevation = if (checked) 4.dp else 2.dp, shape = RoundedCornerShape(12.dp))
-                .background(
-                    brush = if (checked) {
-                        Brush.verticalGradient(
-                            listOf(
-                                Color.White,
-                                Color(0xFFF0FDF4)
-                            )
-                        )
-                    } else {
-                        Brush.verticalGradient(
-                            listOf(
-                                Color(0xD0FFFFFF),
-                                Color(0x90F8F6EE)
-                            )
-                        )
-                    },
-                    shape = RoundedCornerShape(12.dp)
-                )
-                .border(
-                    width = 1.0.dp,
-                    brush = chromaticDispersionBrush,
-                    shape = RoundedCornerShape(12.dp)
-                ),
-            contentAlignment = Alignment.TopCenter
-        ) {
-            // Specular Top Highlight Arc (Physical glass refraction depth)
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(9.dp)
-                    .clip(RoundedCornerShape(topStart = 11.dp, topEnd = 11.dp))
-                    .background(
-                        Brush.verticalGradient(
-                            colors = listOf(
-                                Color.White.copy(alpha = 0.70f),
-                                Color.Transparent
-                            )
-                        )
-                    )
-            )
-        }
-    }
 }
 
 // Backward-compatible alias
@@ -271,14 +195,14 @@ fun IosLiquidToggle(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     activeColor: Color = Color(0xFF34C759),
-    inactiveTrackColor: Color = if (GabayColors.isSunlightLightMode) Color(0x28000000) else Color(0x381C251E)
+    inactiveTrackColor: Color = if (GabayColors.isSunlightLightMode) Color(0xFFE2E0D8) else Color(0xFF39393D)
 ) {
-    LiquidToggle(
+    GlassSwitch(
         checked = checked,
         onCheckedChange = onCheckedChange,
         modifier = modifier,
         enabled = enabled,
-        activeColor = activeColor,
+        activeTrackColor = activeColor,
         inactiveTrackColor = inactiveTrackColor
     )
 }
@@ -470,7 +394,7 @@ fun RouteCalculatingIndicator(
             .shadow(8.dp, EarthyLiquidTokens.PillShape),
         shape = EarthyLiquidTokens.PillShape,
         colors = CardDefaults.cardColors(containerColor = EarthyLiquidTokens.glassBg()),
-        border = CardDefaults.outlinedCardBorder().copy(brush = SolidColor(EarthyLiquidTokens.glassBorder()), width = 0.8.dp)
+        border = CardDefaults.outlinedCardBorder().copy(brush = EarthyLiquidTokens.glassBorderBrush(), width = 0.8.dp)
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
@@ -533,7 +457,7 @@ fun TopSearchBar(
                 .shadow(elevation = 12.dp, shape = EarthyLiquidTokens.PillShape),
             shape = EarthyLiquidTokens.PillShape,
             colors = CardDefaults.cardColors(containerColor = EarthyLiquidTokens.glassBg()),
-            border = CardDefaults.outlinedCardBorder().copy(brush = SolidColor(EarthyLiquidTokens.glassBorder()), width = 0.8.dp)
+            border = CardDefaults.outlinedCardBorder().copy(brush = EarthyLiquidTokens.glassBorderBrush(), width = 0.8.dp)
         ) {
             Row(
                 modifier = Modifier
@@ -709,7 +633,7 @@ fun TopSearchBar(
                     .shadow(16.dp, EarthyLiquidTokens.CardShape),
                 shape = EarthyLiquidTokens.CardShape,
                 colors = CardDefaults.cardColors(containerColor = EarthyLiquidTokens.glassBg()),
-                border = CardDefaults.outlinedCardBorder().copy(brush = SolidColor(EarthyLiquidTokens.glassBorder()), width = 0.8.dp)
+                border = CardDefaults.outlinedCardBorder().copy(brush = EarthyLiquidTokens.glassBorderBrush(), width = 0.8.dp)
             ) {
                 LazyColumn(modifier = Modifier.fillMaxWidth()) {
                     items(searchResults) { result ->
@@ -769,7 +693,7 @@ fun TopSearchBar(
                     .shadow(16.dp, EarthyLiquidTokens.CardShape),
                 shape = EarthyLiquidTokens.CardShape,
                 colors = CardDefaults.cardColors(containerColor = EarthyLiquidTokens.glassBg()),
-                border = CardDefaults.outlinedCardBorder().copy(brush = SolidColor(EarthyLiquidTokens.glassBorder()), width = 0.8.dp)
+                border = CardDefaults.outlinedCardBorder().copy(brush = EarthyLiquidTokens.glassBorderBrush(), width = 0.8.dp)
             ) {
                 Column(modifier = Modifier.fillMaxWidth()) {
                     Row(
@@ -863,7 +787,7 @@ fun MiddleBottomSpeedometer(
             .shadow(elevation = 12.dp, shape = EarthyLiquidTokens.PillShape),
         shape = EarthyLiquidTokens.PillShape,
         colors = CardDefaults.cardColors(containerColor = EarthyLiquidTokens.glassBg()),
-        border = CardDefaults.outlinedCardBorder().copy(brush = SolidColor(EarthyLiquidTokens.glassBorder()), width = 0.8.dp)
+        border = CardDefaults.outlinedCardBorder().copy(brush = EarthyLiquidTokens.glassBorderBrush(), width = 0.8.dp)
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
@@ -967,7 +891,7 @@ fun FloatingTelemetryPill(
             .shadow(elevation = 8.dp, shape = EarthyLiquidTokens.PillShape),
         shape = EarthyLiquidTokens.PillShape,
         colors = CardDefaults.cardColors(containerColor = EarthyLiquidTokens.glassBg()),
-        border = CardDefaults.outlinedCardBorder().copy(brush = SolidColor(EarthyLiquidTokens.glassBorder()), width = 0.8.dp)
+        border = CardDefaults.outlinedCardBorder().copy(brush = EarthyLiquidTokens.glassBorderBrush(), width = 0.8.dp)
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
@@ -1030,7 +954,7 @@ fun MapStyleSpeedDial(
             Card(
                 shape = EarthyLiquidTokens.CardShape,
                 colors = CardDefaults.cardColors(containerColor = EarthyLiquidTokens.glassBg()),
-                border = CardDefaults.outlinedCardBorder().copy(brush = SolidColor(EarthyLiquidTokens.glassBorder()), width = 0.8.dp),
+                border = CardDefaults.outlinedCardBorder().copy(brush = EarthyLiquidTokens.glassBorderBrush(), width = 0.8.dp),
                 modifier = Modifier
                     .shadow(16.dp, EarthyLiquidTokens.CardShape)
                     .width(168.dp)
@@ -1233,7 +1157,7 @@ fun RoutePreviewSheet(
             .shadow(elevation = 20.dp, shape = EarthyLiquidTokens.CardShape),
         shape = EarthyLiquidTokens.CardShape,
         colors = CardDefaults.cardColors(containerColor = EarthyLiquidTokens.glassBg()),
-        border = CardDefaults.outlinedCardBorder().copy(brush = SolidColor(EarthyLiquidTokens.glassBorder()), width = 0.8.dp)
+        border = CardDefaults.outlinedCardBorder().copy(brush = EarthyLiquidTokens.glassBorderBrush(), width = 0.8.dp)
     ) {
         Column(
             modifier = Modifier
@@ -1480,7 +1404,7 @@ fun AgentCoPilotSheet(
             .shadow(24.dp, RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)),
         shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
         colors = CardDefaults.cardColors(containerColor = EarthyLiquidTokens.glassBg()),
-        border = CardDefaults.outlinedCardBorder().copy(brush = SolidColor(EarthyLiquidTokens.glassBorder()), width = 0.8.dp)
+        border = CardDefaults.outlinedCardBorder().copy(brush = EarthyLiquidTokens.glassBorderBrush(), width = 0.8.dp)
     ) {
         Column(
             modifier = Modifier
@@ -1675,7 +1599,7 @@ fun AgentCoPilotSheet(
                                 colors = CardDefaults.cardColors(
                                     containerColor = if (isUser) EarthyLiquidTokens.ForestSlate else (if (GabayColors.isSunlightLightMode) Color(0xFFF1F5F9) else Color(0x33FFFFFF))
                                 ),
-                                border = if (isUser) null else CardDefaults.outlinedCardBorder().copy(brush = SolidColor(EarthyLiquidTokens.glassBorder()), width = 0.8.dp),
+                                border = if (isUser) null else CardDefaults.outlinedCardBorder().copy(brush = EarthyLiquidTokens.glassBorderBrush(), width = 0.8.dp),
                                 modifier = Modifier.widthIn(max = 280.dp)
                             ) {
                                 Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
@@ -1708,7 +1632,7 @@ fun AgentCoPilotSheet(
             Card(
                 shape = EarthyLiquidTokens.PillShape,
                 colors = CardDefaults.cardColors(containerColor = if (GabayColors.isSunlightLightMode) Color(0xFFF1F5F9) else Color(0x33FFFFFF)),
-                border = CardDefaults.outlinedCardBorder().copy(brush = SolidColor(EarthyLiquidTokens.glassBorder()), width = 0.8.dp),
+                border = CardDefaults.outlinedCardBorder().copy(brush = EarthyLiquidTokens.glassBorderBrush(), width = 0.8.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Row(
@@ -1804,7 +1728,7 @@ fun TopMenuSheet(
             .shadow(24.dp, RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)),
         shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
         colors = CardDefaults.cardColors(containerColor = EarthyLiquidTokens.glassBg()),
-        border = CardDefaults.outlinedCardBorder().copy(brush = SolidColor(EarthyLiquidTokens.glassBorder()), width = 0.8.dp)
+        border = CardDefaults.outlinedCardBorder().copy(brush = EarthyLiquidTokens.glassBorderBrush(), width = 0.8.dp)
     ) {
         Column(
             modifier = Modifier
@@ -1979,7 +1903,7 @@ fun TopMenuSheet(
                             Card(
                                 shape = EarthyLiquidTokens.SmallPillShape,
                                 colors = CardDefaults.cardColors(containerColor = if (GabayColors.isSunlightLightMode) Color(0xFFF1F5F9) else Color(0x33FFFFFF)),
-                                border = CardDefaults.outlinedCardBorder().copy(brush = SolidColor(EarthyLiquidTokens.glassBorder()), width = 0.8.dp),
+                                border = CardDefaults.outlinedCardBorder().copy(brush = EarthyLiquidTokens.glassBorderBrush(), width = 0.8.dp),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)) {
@@ -2061,62 +1985,141 @@ fun TopMenuSheet(
 
                         // Convx Appearance & Liquid Glass Design System Section
                         item {
+                            val context = LocalContext.current
                             Text("APPEARANCE & LIQUID GLASS", style = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Bold, fontSize = 11.sp, color = EarthyLiquidTokens.textMuted()))
                             Spacer(modifier = Modifier.height(6.dp))
                             Card(
                                 shape = EarthyLiquidTokens.SmallPillShape,
-                                colors = CardDefaults.cardColors(containerColor = if (GabayColors.isSunlightLightMode) Color(0xFFF1F5F9) else Color(0x33FFFFFF)),
-                                border = CardDefaults.outlinedCardBorder().copy(brush = SolidColor(EarthyLiquidTokens.glassBorder()), width = 0.8.dp),
+                                colors = CardDefaults.cardColors(containerColor = EarthyLiquidTokens.glassBg()),
+                                border = CardDefaults.outlinedCardBorder().copy(brush = EarthyLiquidTokens.glassBorderBrush(), width = 0.8.dp),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)) {
-                                    // Glass Style
+                                    // Master Glass Toggle
                                     Row(
                                         modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.SpaceBetween
                                     ) {
-                                        Column {
-                                            Text("Glass Style", style = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = EarthyLiquidTokens.textPrimary()))
-                                            Text("Liquid with chromatic dispersion rim", style = TextStyle(fontFamily = FontFamily.SansSerif, fontSize = 11.sp, color = EarthyLiquidTokens.textMuted()))
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text("Enable Liquid Glass", style = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = EarthyLiquidTokens.textPrimary()))
+                                            Text("Hardware background blur, specular reflection, and translucent iOS materials", style = TextStyle(fontFamily = FontFamily.SansSerif, fontSize = 11.sp, color = EarthyLiquidTokens.textMuted()))
                                         }
-                                        Text("Liquid", style = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Bold, fontSize = 12.sp, color = EarthyLiquidTokens.accent()))
-                                    }
-                                    HorizontalDivider(color = EarthyLiquidTokens.glassBorder(), thickness = 0.5.dp)
-
-                                    // Specular Rim Highlight Toggle
-                                    var specularRimEnabled by remember { mutableStateOf(true) }
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
-                                        Column {
-                                            Text("Specular Rim Highlight", style = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = EarthyLiquidTokens.textPrimary()))
-                                            Text("Prismatic chromatic dispersion rim along card edges", style = TextStyle(fontFamily = FontFamily.SansSerif, fontSize = 11.sp, color = EarthyLiquidTokens.textMuted()))
-                                        }
-                                        LiquidToggle(
-                                            checked = specularRimEnabled,
-                                            onCheckedChange = { specularRimEnabled = it }
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        GlassSwitch(
+                                            checked = GabayGlassSettings.globalEnabled,
+                                            onCheckedChange = {
+                                                GabayGlassSettings.globalEnabled = it
+                                                GabayGlassSettings.save(context)
+                                            }
                                         )
                                     }
-                                    HorizontalDivider(color = EarthyLiquidTokens.glassBorder(), thickness = 0.5.dp)
 
-                                    // Adaptive Contrast Toggle
-                                    var adaptiveContrastEnabled by remember { mutableStateOf(true) }
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
-                                        Column {
-                                            Text("Adaptive Contrast", style = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = EarthyLiquidTokens.textPrimary()))
-                                            Text("Auto-adjust typography contrast over glass backdrop", style = TextStyle(fontFamily = FontFamily.SansSerif, fontSize = 11.sp, color = EarthyLiquidTokens.textMuted()))
+                                    if (GabayGlassSettings.globalEnabled) {
+                                        HorizontalDivider(color = EarthyLiquidTokens.glassBorder(), thickness = 0.5.dp)
+
+                                        // Glass Rendering Style Selector (LIQUID, BLUR, TRANSLUCENT)
+                                        Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+                                            Text("Glass Material Style", style = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = EarthyLiquidTokens.textPrimary()))
+                                            Spacer(modifier = Modifier.height(6.dp))
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                            ) {
+                                                listOf(
+                                                    Triple(GlassStyle.LIQUID, "Liquid", "Refractive + Rim"),
+                                                    Triple(GlassStyle.BLUR, "Frosted", "Blur Only"),
+                                                    Triple(GlassStyle.TRANSLUCENT, "Minimal", "Low GPU")
+                                                ).forEach { (st, label, _) ->
+                                                    val isSel = GabayGlassSettings.style == st
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .weight(1f)
+                                                            .clip(RoundedCornerShape(10.dp))
+                                                            .background(if (isSel) EarthyLiquidTokens.accent().copy(alpha = 0.22f) else (if (GabayColors.isSunlightLightMode) Color(0xFFF1F5F9) else Color(0x33FFFFFF)))
+                                                            .border(0.8.dp, if (isSel) EarthyLiquidTokens.accent() else EarthyLiquidTokens.glassBorder(), RoundedCornerShape(10.dp))
+                                                            .clickable {
+                                                                GabayGlassSettings.style = st
+                                                                GabayGlassSettings.save(context)
+                                                            }
+                                                            .padding(vertical = 8.dp),
+                                                        contentAlignment = Alignment.Center
+                                                    ) {
+                                                        Text(label, style = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal, fontSize = 11.sp, color = if (isSel) EarthyLiquidTokens.accent() else EarthyLiquidTokens.textPrimary()))
+                                                    }
+                                                }
+                                            }
                                         }
-                                        LiquidToggle(
-                                            checked = adaptiveContrastEnabled,
-                                            onCheckedChange = { adaptiveContrastEnabled = it }
-                                        )
+
+                                        HorizontalDivider(color = EarthyLiquidTokens.glassBorder(), thickness = 0.5.dp)
+
+                                        // Specular Rim Highlight Toggle
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text("Specular Rim Highlight", style = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = EarthyLiquidTokens.textPrimary()))
+                                                Text("Top edge specular arc and physical light refraction", style = TextStyle(fontFamily = FontFamily.SansSerif, fontSize = 11.sp, color = EarthyLiquidTokens.textMuted()))
+                                            }
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            GlassSwitch(
+                                                checked = GabayGlassSettings.specularRimEnabled,
+                                                onCheckedChange = {
+                                                    GabayGlassSettings.specularRimEnabled = it
+                                                    GabayGlassSettings.save(context)
+                                                }
+                                            )
+                                        }
+
+                                        HorizontalDivider(color = EarthyLiquidTokens.glassBorder(), thickness = 0.5.dp)
+
+                                        // Surface Opacity Slider
+                                        Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+                                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                                Text("Surface Translucency", style = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = EarthyLiquidTokens.textPrimary()))
+                                                Text("${(GabayGlassSettings.surfaceOpacity * 100).roundToInt()}%", style = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Bold, fontSize = 12.sp, color = EarthyLiquidTokens.accent()))
+                                            }
+                                            Slider(
+                                                value = GabayGlassSettings.surfaceOpacity,
+                                                onValueChange = {
+                                                    GabayGlassSettings.surfaceOpacity = it
+                                                },
+                                                onValueChangeFinished = {
+                                                    GabayGlassSettings.save(context)
+                                                },
+                                                valueRange = 0.30f..0.95f,
+                                                colors = SliderDefaults.colors(
+                                                    thumbColor = EarthyLiquidTokens.accent(),
+                                                    activeTrackColor = EarthyLiquidTokens.accent()
+                                                )
+                                            )
+                                        }
+
+                                        HorizontalDivider(color = EarthyLiquidTokens.glassBorder(), thickness = 0.5.dp)
+
+                                        // Blur Strength Slider
+                                        Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+                                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                                Text("Background Blur Radius", style = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = EarthyLiquidTokens.textPrimary()))
+                                                Text("${GabayGlassSettings.blurRadiusDp.roundToInt()} dp", style = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Bold, fontSize = 12.sp, color = EarthyLiquidTokens.accent()))
+                                            }
+                                            Slider(
+                                                value = GabayGlassSettings.blurRadiusDp,
+                                                onValueChange = {
+                                                    GabayGlassSettings.blurRadiusDp = it
+                                                },
+                                                onValueChangeFinished = {
+                                                    GabayGlassSettings.save(context)
+                                                },
+                                                valueRange = 4f..28f,
+                                                colors = SliderDefaults.colors(
+                                                    thumbColor = EarthyLiquidTokens.accent(),
+                                                    activeTrackColor = EarthyLiquidTokens.accent()
+                                                )
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -2182,7 +2185,7 @@ fun TopMenuSheet(
                                 Card(
                                     shape = EarthyLiquidTokens.SmallPillShape,
                                     colors = CardDefaults.cardColors(containerColor = if (GabayColors.isSunlightLightMode) Color(0xFFF1F5F9) else Color(0x33FFFFFF)),
-                                    border = CardDefaults.outlinedCardBorder().copy(brush = SolidColor(EarthyLiquidTokens.glassBorder()), width = 0.8.dp),
+                                    border = CardDefaults.outlinedCardBorder().copy(brush = EarthyLiquidTokens.glassBorderBrush(), width = 0.8.dp),
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
                                     Row(
@@ -2210,7 +2213,7 @@ fun TopMenuSheet(
                             Card(
                                 shape = EarthyLiquidTokens.SmallPillShape,
                                 colors = CardDefaults.cardColors(containerColor = if (GabayColors.isSunlightLightMode) Color(0xFFF1F5F9) else Color(0x33FFFFFF)),
-                                border = CardDefaults.outlinedCardBorder().copy(brush = SolidColor(EarthyLiquidTokens.glassBorder()), width = 0.8.dp),
+                                border = CardDefaults.outlinedCardBorder().copy(brush = EarthyLiquidTokens.glassBorderBrush(), width = 0.8.dp),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 Column(modifier = Modifier.padding(14.dp)) {
@@ -2228,7 +2231,7 @@ fun TopMenuSheet(
                             Card(
                                 shape = EarthyLiquidTokens.SmallPillShape,
                                 colors = CardDefaults.cardColors(containerColor = if (GabayColors.isSunlightLightMode) Color(0xFFF1F5F9) else Color(0x33FFFFFF)),
-                                border = CardDefaults.outlinedCardBorder().copy(brush = SolidColor(EarthyLiquidTokens.glassBorder()), width = 0.8.dp),
+                                border = CardDefaults.outlinedCardBorder().copy(brush = EarthyLiquidTokens.glassBorderBrush(), width = 0.8.dp),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 Column(modifier = Modifier.padding(14.dp)) {
@@ -2246,7 +2249,7 @@ fun TopMenuSheet(
                             Card(
                                 shape = EarthyLiquidTokens.SmallPillShape,
                                 colors = CardDefaults.cardColors(containerColor = if (GabayColors.isSunlightLightMode) Color(0xFFF1F5F9) else Color(0x33FFFFFF)),
-                                border = CardDefaults.outlinedCardBorder().copy(brush = SolidColor(EarthyLiquidTokens.glassBorder()), width = 0.8.dp),
+                                border = CardDefaults.outlinedCardBorder().copy(brush = EarthyLiquidTokens.glassBorderBrush(), width = 0.8.dp),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 Column(modifier = Modifier.padding(14.dp)) {
@@ -2264,7 +2267,7 @@ fun TopMenuSheet(
                             Card(
                                 shape = EarthyLiquidTokens.SmallPillShape,
                                 colors = CardDefaults.cardColors(containerColor = if (GabayColors.isSunlightLightMode) Color(0xFFF1F5F9) else Color(0x33FFFFFF)),
-                                border = CardDefaults.outlinedCardBorder().copy(brush = SolidColor(EarthyLiquidTokens.glassBorder()), width = 0.8.dp),
+                                border = CardDefaults.outlinedCardBorder().copy(brush = EarthyLiquidTokens.glassBorderBrush(), width = 0.8.dp),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 Column(modifier = Modifier.padding(14.dp)) {

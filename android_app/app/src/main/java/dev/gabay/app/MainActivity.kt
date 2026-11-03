@@ -196,6 +196,7 @@ class MainActivity : ComponentActivity() {
         val settingsPrefs = getSharedPreferences("gabay_settings", android.content.Context.MODE_PRIVATE)
         GabayColors.isSunlightLightMode = settingsPrefs.getBoolean("sunlight_light_mode", false)
         dev.gabay.app.ui.GabayHudSettings.init(this)
+        dev.gabay.app.ui.GabayGlassSettings.init(this)
 
         val isSetupDone = settingsPrefs.getBoolean("has_completed_setup", false)
         hasCompletedSetup = isSetupDone
@@ -266,8 +267,13 @@ class MainActivity : ComponentActivity() {
                             )
                         }
 
-                        // Convx & Apple Design Liquid Glass Animated Splash Transition
-                        AnimatedSplashScreen()
+                        // Convx Cold-Start Animated Splash Transition (unmounts cleanly upon reveal)
+                        var showSplash by remember { mutableStateOf(true) }
+                        if (showSplash) {
+                            AnimatedSplashScreen(
+                                onDismiss = { showSplash = false }
+                            )
+                        }
                     }
 
                 }
@@ -407,6 +413,8 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
 
         super.onDestroy()
+
+        NavigationService.stop(this)
 
         audioController.shutdown()
 
@@ -1842,8 +1850,13 @@ fun CockpitScreen(
 
 
         // LAYER 1: Top Bar (Search Bar / Two-Way Route Header / Non-blocking Loading State)
-
         val statusBarTopPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+
+        // Authentic iOS progressive frosted glass blur header fading downward
+        IosTopBlurFadeHeader(
+            modifier = Modifier.align(Alignment.TopCenter),
+            heightDp = (statusBarTopPadding.value + 84).toInt()
+        )
 
         Column(
 

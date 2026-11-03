@@ -199,6 +199,12 @@ object PoiDatabaseEnricher {
     )
 
     fun enrichPois(context: Context) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        if (prefs.getInt(KEY_ENRICHED_VERSION, 0) >= CURRENT_VERSION) {
+            Log.d(TAG, "POI database already enriched (v$CURRENT_VERSION). Skipping.")
+            return
+        }
+
         val dbFile = File("/sdcard/Documents/Gabay/pois_fts.sqlite")
         if (!dbFile.exists() || !dbFile.canWrite()) {
             return
@@ -231,6 +237,7 @@ object PoiDatabaseEnricher {
                     cur.close()
                 }
                 db.setTransactionSuccessful()
+                prefs.edit().putInt(KEY_ENRICHED_VERSION, CURRENT_VERSION).apply()
                 Log.i(TAG, "Successfully enriched database with ${RICH_POIS.size} landmarks and NEUST campuses.")
             } finally {
                 db.endTransaction()

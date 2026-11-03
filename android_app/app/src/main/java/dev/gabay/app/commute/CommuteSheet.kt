@@ -41,6 +41,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.gabay.app.ui.GabayColors
 import dev.gabay.app.ui.GabayIcons
+import dev.gabay.app.ui.liquidGlass
+import androidx.compose.ui.draw.shadow
 
 @Composable
 fun CommuteSheet(
@@ -51,12 +53,14 @@ fun CommuteSheet(
     onClose: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val sheetShape = RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp)
+
     if (itineraries.isEmpty()) {
         Box(
             modifier = modifier
                 .fillMaxWidth()
-                .background(GabayColors.UiSurfaceElevated, RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp))
-                .border(1.dp, GabayColors.UiBorder, RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp))
+                .shadow(24.dp, sheetShape)
+                .liquidGlass(shape = sheetShape)
                 .padding(24.dp),
             contentAlignment = Alignment.Center
         ) {
@@ -81,8 +85,8 @@ fun CommuteSheet(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .background(GabayColors.UiSurfaceElevated, RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp))
-            .border(1.dp, GabayColors.UiBorder, RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp))
+            .shadow(24.dp, sheetShape)
+            .liquidGlass(shape = sheetShape)
             .padding(16.dp)
     ) {
         // Drag handle

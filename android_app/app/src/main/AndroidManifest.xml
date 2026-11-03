@@ -72,6 +72,8 @@
         <!-- Android Auto Projected Head Unit Service -->
         <service
             android:name=".car.GabayCarAppService"
+            android:label="Gabay"
+            android:icon="@mipmap/ic_launcher"
             android:exported="true">
             <intent-filter>
                 <action android:name="androidx.car.app.CarAppService" />

@@ -50,29 +50,40 @@ object PmTilesServer {
         appContext = context.applicationContext
 
         try {
-            val vecFile = File(vaultDir, "philippines_vector.pmtiles")
-            if (vecFile.exists() && vecFile.length() > 1024) {
-                vectorReader = PmTilesReader(vecFile)
-                Log.i(TAG, "Initialized vector PMTiles reader from ${vecFile.absolutePath}")
-            }
-
-            val topoFile = File(vaultDir, "topography_contours.pmtiles")
-            if (topoFile.exists() && topoFile.length() > 1024) {
-                topoReader = PmTilesReader(topoFile)
-                Log.i(TAG, "Initialized topo PMTiles reader from ${topoFile.absolutePath}")
-            }
-
-            val satFile = File(vaultDir, "satellite_base.pmtiles")
-            if (satFile.exists() && satFile.length() > 1024) {
-                satReader = PmTilesReader(satFile)
-                Log.i(TAG, "Initialized satellite PMTiles reader from ${satFile.absolutePath}")
-            }
-
             serverSocket = ServerSocket(PORT, 50, java.net.InetAddress.getByName("127.0.0.1"))
             isRunning = true
-            Log.i(TAG, "Local tile server started on loopback port $PORT")
+            Log.i(TAG, "Local tile server socket bound on loopback port $PORT")
 
+            // Initialize readers and accept clients in background to guarantee 0ms main-thread stall
             thread(name = "PmTilesServerThread", isDaemon = true) {
+                try {
+                    if (vectorReader == null) {
+                        val vecFile = File(vaultDir, "philippines_vector.pmtiles")
+                        if (vecFile.exists() && vecFile.length() > 1024) {
+                            vectorReader = PmTilesReader(vecFile)
+                            Log.i(TAG, "Initialized vector PMTiles reader from ${vecFile.absolutePath}")
+                        }
+                    }
+
+                    if (topoReader == null) {
+                        val topoFile = File(vaultDir, "topography_contours.pmtiles")
+                        if (topoFile.exists() && topoFile.length() > 1024) {
+                            topoReader = PmTilesReader(topoFile)
+                            Log.i(TAG, "Initialized topo PMTiles reader from ${topoFile.absolutePath}")
+                        }
+                    }
+
+                    if (satReader == null) {
+                        val satFile = File(vaultDir, "satellite_base.pmtiles")
+                        if (satFile.exists() && satFile.length() > 1024) {
+                            satReader = PmTilesReader(satFile)
+                            Log.i(TAG, "Initialized satellite PMTiles reader from ${satFile.absolutePath}")
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Background PMTiles reader initialization notice: ${e.message}")
+                }
+
                 while (isRunning) {
                     try {
                         val client = serverSocket?.accept() ?: break
