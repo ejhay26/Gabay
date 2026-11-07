@@ -22,7 +22,7 @@ gabay-tracker = { path = "../gabay-tracker" }
 gabay-assistant = { path = "../gabay-assistant" }
 gabay-platform = { path = "../gabay-platform" }
 dioxus-native = "=0.7.10"
-dioxus = { version = "=0.7.10", default-features = false, features = ["macro", "hooks", "html", "signals"] }
+dioxus = { version = "=0.7.10", default-features = false, features = ["macro", "hooks", "html", "signals", "document"] }
 log.workspace = true
 
 [target.'cfg(target_os = "android")'.dependencies]

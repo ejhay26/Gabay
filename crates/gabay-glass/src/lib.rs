@@ -145,6 +145,77 @@ impl Panel {
     }
 }
 
+fn lerp(a: f32, b: f32, t: f32) -> f32 {
+    a + (b - a) * t
+}
+
+/// A glass rectangle that can morph between two anchored [`Panel`]s with a
+/// progress `t` (0 = `from`, 1 = `to`; springs may overshoot a little).
+/// The shell and the page both derive their geometry from this one value, so
+/// the glass and the content never drift apart.
+///
+/// Rules: both ends must share the same horizontal anchoring unless both set
+/// `left` and `right`; for a vertical morph either both set `top`, or both set
+/// only `bottom`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Surface {
+    pub from: Panel,
+    pub to: Panel,
+    pub t: f32,
+    pub radius_from: f32,
+    pub radius_to: f32,
+}
+
+impl Surface {
+    pub const fn still(p: Panel, radius: f32) -> Self {
+        Self { from: p, to: p, t: 0.0, radius_from: radius, radius_to: radius }
+    }
+
+    fn t(&self) -> f32 {
+        if self.t.is_finite() { self.t.clamp(-0.25, 1.25) } else { 0.0 }
+    }
+
+    pub fn radius(&self) -> f32 {
+        lerp(self.radius_from, self.radius_to, self.t()).max(0.0)
+    }
+
+    /// `([x, y, w, h], radius)` in logical pixels.
+    pub fn resolve(&self, vw: f32, vh: f32) -> Option<([f32; 4], f32)> {
+        let (a, b) = (self.from.resolve(vw, vh)?, self.to.resolve(vw, vh)?);
+        let t = self.t();
+        let r = [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t), lerp(a[3], b[3], t)];
+        (r.iter().all(|v| v.is_finite()) && r[2] > 0.0 && r[3] > 0.0).then_some((r, self.radius()))
+    }
+
+    pub fn css(&self) -> String {
+        let t = self.t();
+        let (f, g) = (&self.from, &self.to);
+        let mut s = String::from("position:absolute;");
+        let mut edge = |name: &str, a: Option<f32>, b: Option<f32>| match (a, b) {
+            (Some(a), Some(b)) => s += &format!("{name}:{:.2}px;", lerp(a, b, t)),
+            (Some(a), None) => s += &format!("{name}:{a:.2}px;"),
+            _ => {}
+        };
+        edge("left", f.left, g.left);
+        edge("right", f.right, g.right);
+        edge("width", f.width, g.width);
+        if f.top.is_some() && g.top.is_some() {
+            edge("top", f.top, g.top);
+        } else if f.top.is_none() && g.top.is_none() {
+            edge("bottom", f.bottom, g.bottom);
+        }
+        let full = |p: &Panel| p.top.zip(p.bottom).map(|(a, b)| a + b);
+        let h = match (full(f), full(g)) {
+            (None, None) => format!("{:.2}px", lerp(f.height, g.height, t)),
+            (None, Some(b)) => format!("calc({:.2}px + {t:.4} * (100vh - {:.2}px))", f.height, b + f.height),
+            (Some(a), None) => format!("calc({:.2}px + {:.4} * (100vh - {:.2}px))", g.height, 1.0 - t, a + g.height),
+            (Some(a), Some(b)) => format!("calc(100vh - {:.2}px)", lerp(a, b, t)),
+        };
+        s += &format!("height:{h};border-radius:{:.2}px;", self.radius());
+        s
+    }
+}
+
 /// Rust mirror of the shader's geometry, used by tests and by hit-testing.
 pub mod cpu {
     /// Signed distance to a rounded rectangle centred at the origin.
@@ -239,6 +310,43 @@ mod tests {
         assert_eq!(none.resolve(400.0, 800.0), None);
         assert_eq!(p.resolve(20.0, 800.0), None); // negative width
         assert!(p.css().contains("height:50px") && p.css().contains("left:16px"));
+    }
+
+    fn pill() -> Panel {
+        Panel { left: Some(16.0), right: Some(16.0), top: Some(44.0), bottom: None, width: None, height: 52.0 }
+    }
+    fn full() -> Panel {
+        Panel { left: Some(0.0), right: Some(0.0), top: Some(0.0), bottom: Some(0.0), width: None, height: 0.0 }
+    }
+
+    #[test]
+    fn surface_morphs_between_endpoints() {
+        let mut s = Surface { from: pill(), to: full(), t: 0.0, radius_from: 26.0, radius_to: 0.0 };
+        assert_eq!(s.resolve(400.0, 800.0), Some(([16.0, 44.0, 368.0, 52.0], 26.0)));
+        s.t = 1.0;
+        assert_eq!(s.resolve(400.0, 800.0), Some(([0.0, 0.0, 400.0, 800.0], 0.0)));
+        s.t = 0.5;
+        let (r, rad) = s.resolve(400.0, 800.0).unwrap();
+        assert_eq!(r, [8.0, 22.0, 384.0, 426.0]);
+        assert_eq!(rad, 13.0);
+        s.t = 1.2; // spring overshoot never gives a negative radius
+        assert!(s.resolve(400.0, 800.0).unwrap().1 >= 0.0);
+        s.t = f32::NAN;
+        assert_eq!(s.resolve(400.0, 800.0).unwrap().0, [16.0, 44.0, 368.0, 52.0]);
+    }
+
+    #[test]
+    fn surface_css_matches_geometry_forms() {
+        let still = Surface::still(pill(), 26.0).css();
+        assert!(still.contains("top:44.00px") && still.contains("height:52.00px") && still.contains("border-radius:26.00px"));
+        let m = Surface { from: pill(), to: full(), t: 0.5, radius_from: 26.0, radius_to: 0.0 }.css();
+        // height = 52 + 0.5 * (vh - 52)  ->  calc(52px + 0.5 * (100vh - 52px))
+        assert!(m.contains("calc(52.00px + 0.5000 * (100vh - 52.00px))"), "{m}");
+        assert!(m.contains("top:22.00px") && m.contains("left:8.00px"));
+        let sheet_from = Panel { left: Some(16.0), right: Some(16.0), top: None, bottom: Some(-224.0), width: None, height: 200.0 };
+        let sheet_to = Panel { bottom: Some(16.0), ..sheet_from };
+        let c = Surface { from: sheet_from, to: sheet_to, t: 0.5, radius_from: 28.0, radius_to: 28.0 }.css();
+        assert!(c.contains("bottom:-104.00px") && !c.contains("top:"));
     }
 
     #[test]

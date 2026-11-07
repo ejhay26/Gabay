@@ -1,6 +1,6 @@
 //! Draws liquid-glass panels over the finished map texture.
 
-use gabay_glass::{GlassUniform, Panel, Params, SHADER, UNIFORM_BYTES};
+use gabay_glass::{GlassUniform, Params, Surface, SHADER, UNIFORM_BYTES};
 use wgpu::*;
 
 const PARAMS: Params = Params {
@@ -11,7 +11,6 @@ const PARAMS: Params = Params {
     dispersion: 0.0,
     rim: 0.6,
 };
-const RADIUS: f32 = 22.0;
 const FORMAT: TextureFormat = TextureFormat::Rgba8Unorm;
 
 pub struct GlassPass {
@@ -83,12 +82,12 @@ impl GlassPass {
     }
 
     /// `target` must have RENDER_ATTACHMENT and COPY_SRC usage.
-    pub fn draw(&mut self, device: &Device, queue: &Queue, target: &Texture, panels: &[Panel], scale: f32, dark: bool) {
+    pub fn draw(&mut self, device: &Device, queue: &Queue, target: &Texture, panels: &[Surface], scale: f32, dark: bool) {
         let (w, h) = (target.width(), target.height());
-        let rects: Vec<[f32; 4]> = panels
+        let rects: Vec<([f32; 4], f32)> = panels
             .iter()
             .filter_map(|p| p.resolve(w as f32 / scale, h as f32 / scale))
-            .map(|r| r.map(|v| v * scale))
+            .map(|(r, radius)| (r.map(|v| v * scale), radius))
             .collect();
         if rects.is_empty() {
             return;
@@ -106,7 +105,8 @@ impl GlassPass {
             }));
         }
         let Some(backdrop) = &self.backdrop else { return };
-        let (wash, rim) = if dark { ([0.11, 0.11, 0.12, 0.50], [1.0, 1.0, 1.0]) } else { ([0.95, 0.95, 0.97, 0.45], [1.0, 1.0, 1.0]) };
+        // Earthy Minimal: a green-black wash in dark, cream in light; rim is cream.
+        let (wash, rim) = if dark { ([0.106, 0.137, 0.110, 0.52], [0.97, 0.96, 0.93]) } else { ([0.973, 0.965, 0.933, 0.50], [1.0, 1.0, 1.0]) };
 
         let mut enc = device.create_command_encoder(&CommandEncoderDescriptor { label: Some("glass") });
         enc.copy_texture_to_texture(target.as_image_copy(), backdrop.as_image_copy(), Extent3d { width: w, height: h, depth_or_array_layers: 1 });
@@ -114,8 +114,8 @@ impl GlassPass {
         let view = backdrop.create_view(&TextureViewDescriptor::default());
         let groups: Vec<BindGroup> = rects
             .iter()
-            .map(|r| {
-                let u = GlassUniform::new(*r, RADIUS, PARAMS, scale, wash, rim, [w as f32, h as f32], 0.0);
+            .map(|(r, radius)| {
+                let u = GlassUniform::new(*r, *radius, PARAMS, scale, wash, rim, [w as f32, h as f32], 0.0);
                 let buf = device.create_buffer(&BufferDescriptor {
                     label: Some("glass-uniform"),
                     size: UNIFORM_BYTES as u64,

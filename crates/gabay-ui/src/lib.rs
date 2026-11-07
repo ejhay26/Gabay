@@ -3,6 +3,7 @@
 //! Not implemented: satellite and topography layers, route re-planning while
 //! driving, turn-by-turn instructions.
 
+mod anim;
 mod layout;
 
 use std::sync::{mpsc::Sender, Arc};
@@ -14,7 +15,10 @@ use gabay_engine::poi::format_distance;
 use gabay_engine::{SearchHit, Status};
 use gabay_map::{LonLat, Overlays};
 use gabay_platform::{Permission, PermissionBackend, PermissionFlow, Snapshot};
+use gabay_design::motion::Spring;
 use gabay_shell::{MapMsg, MapPaintSource};
+
+use anim::{after, use_anim};
 
 const CSS: &str = include_str!("style.css");
 const MAX_TEXT_CHARS: usize = 120;
@@ -142,6 +146,7 @@ pub fn App() -> Element {
     let step = snap().and_then(|s| if s.required_satisfied() { None } else { flow.read().next_step(&s) });
 
     rsx! {
+        document::Style { "{CSS}" }
         style { {CSS} }
         if let Some(p) = step {
             {
@@ -170,12 +175,38 @@ pub fn App() -> Element {
         } else {
             MapScreen {}
         }
+        Splash {}
+    }
+}
+
+/// Brand intro over the first frames. The system splash is a flat cream
+/// screen, so this picks up from it without a visible seam.
+#[component]
+fn Splash() -> Element {
+    let mark = use_anim(0.0, Spring::morph);
+    let fade = use_anim(1.0, Spring::sheet);
+    use_hook(move || {
+        mark.go(1.0);
+        after(Duration::from_millis(650), move || fade.go(0.0));
+    });
+    let opacity = fade.unit();
+    if opacity < 0.01 {
+        return rsx! {};
+    }
+    let ring = (96.0 * mark.value()).max(0.0);
+    let dot = ring * 0.3;
+    rsx! {
+        div { class: "splash", style: "opacity:{opacity:.3};",
+            div { class: "ring", style: "width:{ring:.1}px;height:{ring:.1}px;",
+                div { class: "dot", style: "width:{dot:.1}px;height:{dot:.1}px;" }
+            }
+            div { class: "word", style: "opacity:{mark.unit():.3};", "GABAY" }
+        }
     }
 }
 
 #[derive(Clone, Copy, PartialEq)]
-enum Sheet {
-    Closed,
+enum Tab {
     Route,
     Ask,
 }
@@ -190,15 +221,20 @@ fn MapScreen() -> Element {
     let mut query = use_signal(String::new);
     let mut selected = use_signal(|| None::<SearchHit>);
     let mut drag = use_signal(|| None::<(f64, f64)>);
-    let mut sheet = use_signal(|| Sheet::Closed);
+    let mut tab = use_signal(|| Tab::Route);
     let mut route = use_signal(|| None::<RouteInfo>);
     let mut note = use_signal(|| None::<String>);
     let mut busy = use_signal(|| false);
     let mut navigating = use_signal(|| false);
     let mut tele = use_signal(|| None::<Telemetry>);
-    let mut dark = use_signal(|| true);
+    let mut dark = use_signal(|| false);
     let mut ask_text = use_signal(String::new);
     let mut reply = use_signal(|| None::<String>);
+    let mut search_open = use_signal(|| false);
+
+    // 0 = pill, 1 = full screen. 0 = sheet hidden, 1 = shown.
+    let search_t = use_anim(0.0, Spring::morph);
+    let sheet_t = use_anim(0.0, Spring::sheet);
 
     let svc = env.services.clone();
     let hits = use_resource({
@@ -215,7 +251,6 @@ fn MapScreen() -> Element {
         }
     });
     let list: Vec<SearchHit> = hits.read().clone().unwrap_or_default();
-    let showing_results = !list.is_empty() && selected().is_none();
 
     // Telemetry while navigating.
     use_future({
@@ -235,12 +270,12 @@ fn MapScreen() -> Element {
         }
     });
 
-    // Keep the GPU glass in step with what the DOM shows.
+    // Keep the GPU glass in step with the animated geometry.
     use_effect({
         let tx = tx.clone();
         move || {
-            let rows = if showing_results { list_len(&hits) } else { 0 };
-            send(&tx, MapMsg::Panels(layout::panels(rows, sheet() != Sheet::Closed, navigating() && tele().is_some())));
+            let hud = navigating() && tele().is_some();
+            send(&tx, MapMsg::Panels(layout::surfaces(search_t.value(), sheet_t.value(), hud)));
         }
     });
     use_effect({
@@ -252,10 +287,24 @@ fn MapScreen() -> Element {
     let sel = selected();
     let rt = route();
     let hud = tele();
-    let tool_bottom = layout::tools(sheet() != Sheet::Closed).css();
+    let st = search_t.value();
+    let sh = sheet_t.value();
+    let search_visible_results = st > layout::EPS;
+    // Content fades in during the second half of the morph.
+    let content = ((st - 0.45) / 0.55).clamp(0.0, 1.0);
+    let status = svc.search_status();
+
+    let mut open_search = move || {
+        search_open.set(true);
+        search_t.go(1.0);
+    };
+    let mut close_search = move || {
+        search_open.set(false);
+        search_t.go(0.0);
+    };
 
     rsx! {
-        div { class: "root",
+        div { class: if dark() { "root dark" } else { "root" },
             div { class: "map",
                 onmousedown: move |e| { let p = e.client_coordinates(); drag.set(Some((p.x, p.y))); },
                 onmouseup: move |_| drag.set(None),
@@ -276,80 +325,30 @@ fn MapScreen() -> Element {
                 canvas { "src": paint_id }
             }
 
-            div { class: "panel search", style: "{layout::SEARCH.css()}",
-                input {
-                    r#type: "text",
-                    placeholder: "Search places",
-                    value: "{query}",
-                    maxlength: "{MAX_TEXT_CHARS}",
-                    oninput: move |e| { selected.set(None); query.set(e.value()); },
+            if st <= layout::EPS {
+                div { class: "glass tools", style: "{layout::tools_surface(sh).css()}",
+                    button { onclick: move |_| send(&tx_d, MapMsg::ZoomAbout { x: -1.0, y: -1.0, delta: 1.0 }), "+" }
+                    button { onclick: move |_| send(&tx_e, MapMsg::ZoomAbout { x: -1.0, y: -1.0, delta: -1.0 }), "\u{2212}" }
+                    button { onclick: move |_| dark.set(!dark()), if dark() { "Light" } else { "Dark" } }
                 }
-            }
-
-            if showing_results {
-                div { class: "panel results", style: "{layout::results(list.len()).css()}",
-                    for hit in list.iter().take(layout::MAX_ROWS).cloned() {
-                        {
-                            let h = hit.clone();
-                            let tx = tx_c.clone();
-                            let sub = hit.poi.subtitle();
-                            let dist = hit.distance_m.and_then(format_distance);
-                            let line = match (sub.is_empty(), dist) {
-                                (_, None) => sub,
-                                (true, Some(d)) => d,
-                                (false, Some(d)) => format!("{sub} \u{b7} {d}"),
-                            };
-                            rsx! {
-                                button { class: "row", key: "{hit.poi.id}",
-                                    onclick: move |_| {
-                                        let at = LonLat::new(h.poi.lon, h.poi.lat);
-                                        send(&tx, MapMsg::Center(at, 16.0));
-                                        send(&tx, MapMsg::Overlays(Overlays { pin: Some(at), ..Overlays::default() }));
-                                        route.set(None);
-                                        note.set(None);
-                                        selected.set(Some(h.clone()));
-                                        sheet.set(Sheet::Route);
-                                    },
-                                    div { class: "name", "{hit.poi.name}" }
-                                    div { class: "sub", "{line}" }
-                                }
-                            }
+                if sh <= layout::EPS && navigating() {
+                    if let Some(t) = hud {
+                        div { class: "glass hud", style: "{layout::HUD.css()} border-radius:22px;",
+                            b { "{t.speed_kmh.round() as i32}" }
+                            div { class: "step", "km/h" }
                         }
                     }
                 }
-            } else if query().trim().chars().count() >= 2 && sel.is_none() && hits.read().is_some() {
-                div { class: "panel results note", style: "{layout::results(1).css()}",
-                    match svc.search_status() {
-                        Status::Loading => "Search index is loading.",
-                        Status::Failed(_) => "Search is unavailable. Check the vault files.",
-                        Status::Ready => "No matches.",
-                    }
-                }
             }
 
-            if !showing_results && navigating() {
-                if let Some(t) = hud {
-                    div { class: "panel hud", style: "{layout::HUD.css()}",
-                        b { "{t.speed_kmh.round() as i32}" }
-                        div { class: "step", "km/h" }
-                    }
-                }
-            }
-
-            div { class: "panel tools", style: "{tool_bottom}",
-                button { onclick: move |_| send(&tx_d, MapMsg::ZoomAbout { x: -1.0, y: -1.0, delta: 1.0 }), "+" }
-                button { onclick: move |_| send(&tx_e, MapMsg::ZoomAbout { x: -1.0, y: -1.0, delta: -1.0 }), "\u{2212}" }
-                button { onclick: move |_| dark.set(!dark()), if dark() { "Light" } else { "Dark" } }
-            }
-
-            if sheet() != Sheet::Closed {
-                div { class: "panel sheet", style: "{layout::SHEET.css()}",
+            if sh > layout::EPS {
+                div { class: "glass sheet", style: "{layout::sheet_surface(sh).css()}",
                     div { class: "tabs",
-                        button { class: if sheet() == Sheet::Route { "on" } else { "" }, onclick: move |_| sheet.set(Sheet::Route), "Route" }
-                        button { class: if sheet() == Sheet::Ask { "on" } else { "" }, onclick: move |_| sheet.set(Sheet::Ask), "Assistant" }
-                        button { onclick: move |_| { sheet.set(Sheet::Closed); navigating.set(false); }, "Close" }
+                        button { class: if tab() == Tab::Route { "on" } else { "" }, onclick: move |_| tab.set(Tab::Route), "Route" }
+                        button { class: if tab() == Tab::Ask { "on" } else { "" }, onclick: move |_| tab.set(Tab::Ask), "Assistant" }
+                        button { onclick: move |_| { sheet_t.go(0.0); navigating.set(false); }, "Close" }
                     }
-                    if sheet() == Sheet::Route {
+                    if tab() == Tab::Route {
                         if let Some(h) = sel.clone() {
                             div { class: "name", "{h.poi.name}" }
                             div { class: "sub", "{h.poi.subtitle()}" }
@@ -423,12 +422,78 @@ fn MapScreen() -> Element {
                     }
                 }
             }
+
+            // The search surface is last so it sits above everything while it grows.
+            div { class: "glass", style: "{layout::search_surface(st).css()}",
+                div { class: "search-row", style: "margin-top:{44.0 * st.clamp(0.0, 1.0):.1}px;",
+                    onclick: move |_| if !search_open() { open_search() },
+                    input {
+                        r#type: "text",
+                        placeholder: "Search places",
+                        value: "{query}",
+                        maxlength: "{MAX_TEXT_CHARS}",
+                        onfocus: move |_| open_search(),
+                        oninput: move |e| { selected.set(None); query.set(e.value()); },
+                    }
+                    if search_open() {
+                        button { class: "cancel",
+                            onclick: move |_| { query.set(String::new()); selected.set(None); close_search(); },
+                            "Cancel"
+                        }
+                    }
+                }
+                if search_visible_results {
+                    div { class: "results", style: "height:calc(100vh - 150px);opacity:{content:.3};",
+                        if list.is_empty() {
+                            div { class: "note",
+                                if query().trim().chars().count() < 2 {
+                                    "Type a place, barangay or road."
+                                } else if hits.read().is_none() {
+                                    "Searching."
+                                } else {
+                                    match status {
+                                        Status::Loading => "Search index is loading.",
+                                        Status::Failed(_) => "Search is unavailable. Check the vault files.",
+                                        Status::Ready => "No matches.",
+                                    }
+                                }
+                            }
+                        }
+                        for hit in list.iter().take(20).cloned() {
+                            {
+                                let h = hit.clone();
+                                let tx = tx_c.clone();
+                                let sub = hit.poi.subtitle();
+                                let dist = hit.distance_m.and_then(format_distance);
+                                let line = match (sub.is_empty(), dist) {
+                                    (_, None) => sub,
+                                    (true, Some(d)) => d,
+                                    (false, Some(d)) => format!("{sub} \u{b7} {d}"),
+                                };
+                                rsx! {
+                                    button { class: "row", key: "{hit.poi.id}",
+                                        onclick: move |_| {
+                                            let at = LonLat::new(h.poi.lon, h.poi.lat);
+                                            send(&tx, MapMsg::Center(at, 16.0));
+                                            send(&tx, MapMsg::Overlays(Overlays { pin: Some(at), ..Overlays::default() }));
+                                            route.set(None);
+                                            note.set(None);
+                                            tab.set(Tab::Route);
+                                            selected.set(Some(h.clone()));
+                                            close_search();
+                                            sheet_t.go(1.0);
+                                        },
+                                        div { class: "name", "{hit.poi.name}" }
+                                        div { class: "sub", "{line}" }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
-}
-
-fn list_len(hits: &Resource<Vec<SearchHit>>) -> usize {
-    hits.read().as_ref().map_or(0, |v| v.len())
 }
 
 #[cfg(test)]

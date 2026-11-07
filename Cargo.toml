@@ -46,3 +46,6 @@ opt-level = 2
 
 [patch.crates-io]
 blitz-net = { path = "crates/blitz-net" }
+wgpu_context = { path = "crates/wgpu_context" }
+wgpu = { path = "crates/wgpu" }
+vello = { path = "crates/vello" }

@@ -55,6 +55,17 @@ impl Spring {
         Self { value, velocity: 0.0, target: value, stiffness: 450.0, damping_ratio: 0.8 }
     }
 
+    /// Sheets sliding in: quick, one small overshoot.
+    pub const fn sheet(value: f32) -> Self {
+        Self { value, velocity: 0.0, target: value, stiffness: 320.0, damping_ratio: 0.86 }
+    }
+
+    /// Shape-to-shape morphs (search pill to full screen): softer, a visible
+    /// wobble at the end, which is what makes the surface feel liquid.
+    pub const fn morph(value: f32) -> Self {
+        Self { value, velocity: 0.0, target: value, stiffness: 230.0, damping_ratio: 0.74 }
+    }
+
     pub fn step(&mut self, dt_seconds: f32) {
         const MAX_SUBSTEP: f32 = 1.0 / 240.0;
         let mut remaining = dt_seconds.clamp(0.0, 0.1);

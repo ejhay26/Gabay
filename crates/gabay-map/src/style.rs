@@ -34,38 +34,40 @@ pub struct MapTheme {
 }
 
 impl MapTheme {
+    /// Earthy Minimal, dark: green-black ground, sage roads, sand labels.
     pub const DARK: MapTheme = MapTheme {
-        background: Color::rgb(0x1C1C1E),
-        land: Color::rgb(0x1C1C1E),
-        park: Color::rgb(0x232925),
-        water: Color::rgb(0x16222F),
-        building: Color::rgb(0x2C2C2E),
-        road_minor: Color::rgb(0x3A3A3C),
-        road_major: Color::rgb(0x636366),
-        road_casing: Color::rgb(0x111113),
-        poi: Color::rgb(0x8E8E93),
-        route: Color::rgb(0x0A84FF),
-        route_casing: Color::rgb(0x0B2A4D),
-        user: Color::rgb(0x0A84FF),
-        user_ring: Color::rgb(0xFFFFFF),
-        pin: Color::rgb(0xFF453A),
+        background: Color::rgb(0x1B231C),
+        land: Color::rgb(0x1B231C),
+        park: Color::rgb(0x243126),
+        water: Color::rgb(0x1A2B33),
+        building: Color::rgb(0x232D24),
+        road_minor: Color::rgb(0x36423A),
+        road_major: Color::rgb(0x5E6E58),
+        road_casing: Color::rgb(0x121812),
+        poi: Color::rgb(0x8FA383),
+        route: Color::rgb(0xD98A6B),
+        route_casing: Color::rgb(0x3B1F14),
+        user: Color::rgb(0xD9C9B2),
+        user_ring: Color::rgb(0xF8F6EE),
+        pin: Color::rgb(0xD98A6B),
     };
 
+    /// Earthy Minimal, light: cream ground, sand casings, terracotta route.
     pub const LIGHT: MapTheme = MapTheme {
-        background: Color::rgb(0xF2F2F7),
-        land: Color::rgb(0xF2F2F7),
-        park: Color::rgb(0xDDE6DB),
-        water: Color::rgb(0xBCD2E6),
-        building: Color::rgb(0xE5E5EA),
-        road_minor: Color::rgb(0xFFFFFF),
+        background: Color::rgb(0xF1EDE0),
+        land: Color::rgb(0xF1EDE0),
+        park: Color::rgb(0xDCE3CF),
+        water: Color::rgb(0xC5D3D6),
+        building: Color::rgb(0xE8E1D0),
+        road_minor: Color::rgb(0xFBF9F2),
         road_major: Color::rgb(0xFFFFFF),
-        road_casing: Color::rgb(0xC7C7CC),
-        poi: Color::rgb(0x8E8E93),
-        route: Color::rgb(0x007AFF),
-        route_casing: Color::rgb(0xFFFFFF),
-        user: Color::rgb(0x007AFF),
-        user_ring: Color::rgb(0xFFFFFF),
-        pin: Color::rgb(0xFF3B30),
+        road_casing: Color::rgb(0xD9C9B2),
+        poi: Color::rgb(0x6B7F5B),
+        route: Color::rgb(0xC96F4F),
+        route_casing: Color::rgb(0xF8F6EE),
+        user: Color::rgb(0x2E3A2F),
+        user_ring: Color::rgb(0xF8F6EE),
+        pin: Color::rgb(0xC96F4F),
     };
 }
 

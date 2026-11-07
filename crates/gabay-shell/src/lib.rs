@@ -5,7 +5,7 @@
 
 mod glass_pass;
 
-pub use gabay_glass::Panel;
+pub use gabay_glass::{Panel, Surface};
 use glass_pass::GlassPass;
 
 use std::path::PathBuf;
@@ -30,7 +30,7 @@ pub enum MapMsg {
     Center(LonLat, f64),
     Overlays(Overlays),
     Dark(bool),
-    Panels(Vec<Panel>),
+    Panels(Vec<Surface>),
 }
 
 pub struct MapPaintSource {
@@ -42,7 +42,7 @@ pub struct MapPaintSource {
     cam: Camera,
     overlays: Overlays,
     dark: bool,
-    panels: Vec<Panel>,
+    panels: Vec<Surface>,
     gpu: Option<Gpu>,
 }
 
@@ -160,6 +160,8 @@ fn paint(scene: &mut Scene, items: &[DrawItem], scale: f64) {
 }
 
 fn make_texture(device: &Device, w: u32, h: u32) -> Texture {
+    let w = w.max(1);
+    let h = h.max(1);
     device.create_texture(&TextureDescriptor {
         label: Some("gabay-map"),
         size: Extent3d { width: w, height: h, depth_or_array_layers: 1 },
