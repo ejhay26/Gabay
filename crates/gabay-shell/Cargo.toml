@@ -1,0 +1,15 @@
+[package]
+name = "gabay-shell"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+gabay-map = { path = "../gabay-map" }
+gabay-vault = { path = "../gabay-vault" }
+gabay-glass = { path = "../gabay-glass" }
+dioxus-native = "=0.7.10"
+vello = "0.6"
+wgpu = "26"
+log.workspace = true

@@ -3,6 +3,8 @@
 local_assets/
 0[1-5]_*.md
 0*.md
+*AGY_BRIEF.md
+docs/*AGY_BRIEF.md
 AGENT_BOOTSTRAP.txt
 
 # Rust & Android Build Artifacts
@@ -22,4 +24,6 @@ vault_output/
 *.log
 *.mvt
 __pycache__/
-*.db
+*.db
+*.sqlite
+

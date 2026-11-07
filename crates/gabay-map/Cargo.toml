@@ -1,0 +1,11 @@
+[package]
+name = "gabay-map"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+gabay-vault = { path = "../gabay-vault" }
+thiserror.workspace = true
+log.workspace = true

@@ -1,0 +1,13 @@
+[package]
+name = "gabay-routing"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+gabay-map = { path = "../gabay-map" }
+bincode = "1.3"
+serde = { version = "1.0", features = ["derive"] }
+thiserror.workspace = true
+log.workspace = true

@@ -82,6 +82,53 @@ struct ParsedWay {
     refs: Vec<i64>,
 }
 
+fn extract_poi_tags<'a>(tags: impl Iterator<Item = (&'a str, &'a str)>) -> Option<(String, String)> {
+    let mut name = None;
+    let mut category = None;
+
+    for (k, v) in tags {
+        if k == "name" && !v.is_empty() {
+            name = Some(v.to_string());
+        } else if k == "amenity" {
+            match v {
+                "fuel" => category = Some("GAS_STATION".to_string()),
+                "hospital" | "clinic" => category = Some("HOSPITAL".to_string()),
+                "pharmacy" => category = Some("PHARMACY".to_string()),
+                "school" => category = Some("SCHOOL".to_string()),
+                "university" => category = Some("UNIVERSITY".to_string()),
+                "college" => category = Some("COLLEGE".to_string()),
+                "restaurant" => category = Some("RESTAURANT".to_string()),
+                "fast_food" => category = Some("FAST_FOOD".to_string()),
+                "cafe" => category = Some("CAFE".to_string()),
+                "townhall" | "courthouse" => category = Some("TOWN_HALL".to_string()),
+                "police" => category = Some("POLICE".to_string()),
+                "bank" | "atm" => category = Some("BANK".to_string()),
+                _ => {}
+            }
+        } else if k == "shop" {
+            match v {
+                "mall" | "department_store" => category = Some("MALL".to_string()),
+                "supermarket" => category = Some("SUPERMARKET".to_string()),
+                "convenience" => category = Some("CONVENIENCE".to_string()),
+                _ => {}
+            }
+        } else if k == "place" {
+            match v {
+                "quarter" | "suburb" | "village" | "town" | "city" | "neighbourhood" | "hamlet" => {
+                    category = Some("BARANGAY".to_string())
+                }
+                _ => {}
+            }
+        }
+    }
+
+    if let (Some(n), Some(c)) = (name, category) {
+        Some((n, c))
+    } else {
+        None
+    }
+}
+
 fn init_sqlite_pois(conn: &Connection) -> anyhow::Result<()> {
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS pois (
@@ -89,7 +136,10 @@ fn init_sqlite_pois(conn: &Connection) -> anyhow::Result<()> {
             name TEXT NOT NULL,
             category TEXT NOT NULL,
             latitude REAL NOT NULL,
-            longitude REAL NOT NULL
+            longitude REAL NOT NULL,
+            barangay TEXT,
+            municipality TEXT,
+            province TEXT
         );
         CREATE INDEX IF NOT EXISTS idx_pois_lat_lon ON pois(latitude, longitude);
         CREATE VIRTUAL TABLE IF NOT EXISTS pois_fts USING fts5(
@@ -283,26 +333,7 @@ fn process_pbf(input: &Path, out_graph: &Path, out_pois: &Path, bbox_filter: Opt
                 }
 
                 if check_bbox(lat, lon) {
-                    let mut name = None;
-                    let mut category = None;
-
-                    for (k, v) in node.tags() {
-                        if k == "name" {
-                            name = Some(v.to_string());
-                        } else if k == "amenity" && v == "fuel" {
-                            category = Some("GAS_STATION".to_string());
-                        } else if k == "amenity" && (v == "hospital" || v == "clinic") {
-                            category = Some("HOSPITAL".to_string());
-                        } else if k == "amenity" && v == "pharmacy" {
-                            category = Some("PHARMACY".to_string());
-                        } else if k == "shop" && (v == "mall" || v == "supermarket" || v == "convenience") {
-                            category = Some("MALL".to_string());
-                        } else if k == "place" && (v == "quarter" || v == "suburb" || v == "village" || v == "town") {
-                            category = Some("BARANGAY".to_string());
-                        }
-                    }
-
-                    if let (Some(n), Some(c)) = (name, category) {
+                    if let Some((n, c)) = extract_poi_tags(node.tags()) {
                         collected_pois.push((n, c, lat, lon));
                     }
                 }
@@ -314,6 +345,12 @@ fn process_pbf(input: &Path, out_graph: &Path, out_pois: &Path, bbox_filter: Opt
 
                 if highway_node_ids.contains(&id) {
                     node_coords.insert(id, (lat, lon));
+                }
+
+                if check_bbox(lat, lon) {
+                    if let Some((n, c)) = extract_poi_tags(dense.tags()) {
+                        collected_pois.push((n, c, lat, lon));
+                    }
                 }
             }
             _ => {}
@@ -450,13 +487,18 @@ fn process_pbf(input: &Path, out_graph: &Path, out_pois: &Path, bbox_filter: Opt
         let _ = std::fs::remove_file(out_pois);
     }
 
-    let conn = Connection::open(out_pois)?;
+    let mut conn = Connection::open(out_pois)?;
     init_sqlite_pois(&conn)?;
 
-    let mut stmt = conn.prepare("INSERT INTO pois (name, category, latitude, longitude) VALUES (?1, ?2, ?3, ?4)")?;
-    for (name, cat, lat, lon) in collected_pois {
-        stmt.execute(params![name, cat, lat, lon])?;
+    let tx = conn.transaction()?;
+    {
+        let mut stmt = tx.prepare("INSERT INTO pois (name, category, latitude, longitude) VALUES (?1, ?2, ?3, ?4)")?;
+        for (name, cat, lat, lon) in collected_pois {
+            stmt.execute(params![name, cat, lat, lon])?;
+        }
     }
+    tx.commit()?;
+
     conn.execute_batch(
         "INSERT INTO pois_fts (rowid, name, category)
          SELECT id, name, category FROM pois;"

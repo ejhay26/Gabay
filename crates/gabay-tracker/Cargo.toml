@@ -1,0 +1,12 @@
+[package]
+name = "gabay-tracker"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+gabay-map = { path = "../gabay-map" }
+gabay-routing = { path = "../gabay-routing" }
+thiserror.workspace = true
+log.workspace = true

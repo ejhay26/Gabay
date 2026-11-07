@@ -1,0 +1,25 @@
+[package]
+name = "blitz-net"
+description = "Blitz networking"
+documentation = "https://docs.rs/blitz-net"
+version = "0.2.1"
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+categories.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[features]
+cookies = ["reqwest/cookies"]
+multipart = ["reqwest/multipart", "reqwest/stream"]
+debug_log = []
+
+[dependencies]
+# Blitz dependencies
+blitz-traits = { workspace = true }
+
+# Networking dependencies
+tokio = { workspace = true }
+reqwest = { workspace = true }
+data-url = { workspace = true }

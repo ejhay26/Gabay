@@ -1,0 +1,12 @@
+[package]
+name = "gabay-search"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+gabay-engine = { path = "../gabay-engine" }
+rusqlite = { version = "0.31", features = ["bundled"] }
+thiserror.workspace = true
+log.workspace = true
