@@ -130,6 +130,10 @@ pub fn run() {
 #[no_mangle]
 fn android_main(app: android_activity::AndroidApp) {
     android_logger::init_once(android_logger::Config::default().with_max_level(log::LevelFilter::Info));
+    std::panic::set_hook(Box::new(|info| {
+        log::error!("CRITICAL RUST PANIC: {info}");
+        eprintln!("CRITICAL RUST PANIC: {info}");
+    }));
     blitz_shell::set_android_app(app);
     run();
 }

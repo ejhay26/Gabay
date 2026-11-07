@@ -56,15 +56,32 @@ fn with_activity<R>(
     f: impl FnOnce(&mut JNIEnv, &JObject) -> JniResult<R>,
 ) -> Result<R, PlatformError> {
     let ctx = ndk_context::android_context();
+    let vm_ptr = ctx.vm();
+    if vm_ptr.is_null() {
+        return Err(PlatformError::Call("JavaVM pointer is null in ndk_context".into()));
+    }
+    let activity_ptr = ctx.context();
+    if activity_ptr.is_null() {
+        return Err(PlatformError::Call("Activity context pointer is null in ndk_context".into()));
+    }
+
     // SAFETY: `ndk_context` guarantees a valid JavaVM pointer for the process lifetime.
-    let vm = unsafe { JavaVM::from_raw(ctx.vm().cast()) }
+    let vm = unsafe { JavaVM::from_raw(vm_ptr.cast()) }
         .map_err(|e| PlatformError::Call(format!("JavaVM: {e}")))?;
-    let mut env = vm
-        .attach_current_thread()
-        .map_err(|e| PlatformError::Call(format!("attach: {e}")))?;
+
+    // CRITICAL: Do NOT call `vm.attach_current_thread()` on an already-attached thread!
+    // Its AttachGuard detaches the thread on Drop, which destroys the main Android UI thread
+    // and causes immediate crash/SIGABRT when Android OS tries to interact with the thread.
+    let mut env = match vm.get_env() {
+        Ok(env) => env,
+        Err(_) => vm
+            .attach_current_thread_permanently()
+            .map_err(|e| PlatformError::Call(format!("attach: {e}")))?,
+    };
+
     // SAFETY: the pointer is the Activity global reference owned by android-activity;
     // `JObject` does not delete it on drop.
-    let activity = unsafe { JObject::from_raw(ctx.context().cast()) };
+    let activity = unsafe { JObject::from_raw(activity_ptr.cast()) };
 
     match f(&mut env, &activity) {
         Ok(value) => Ok(value),

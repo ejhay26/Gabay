@@ -2389,6 +2389,7 @@ version = "0.1.0"
 dependencies = [
  "dioxus",
  "dioxus-native",
+ "futures-channel",
  "gabay-engine",
  "gabay-glass",
  "gabay-map",

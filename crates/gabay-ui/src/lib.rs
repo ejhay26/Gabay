@@ -78,6 +78,34 @@ fn describe(p: Permission) -> (&'static str, &'static str) {
     }
 }
 
+async fn async_sleep(d: std::time::Duration) {
+    let (tx, rx) = futures_channel::oneshot::channel();
+    std::thread::Builder::new()
+        .name("gabay-sleep".into())
+        .spawn(move || {
+            std::thread::sleep(d);
+            let _ = tx.send(());
+        })
+        .ok();
+    let _ = rx.await;
+}
+
+async fn spawn_blocking<F, T>(f: F) -> Option<T>
+where
+    F: FnOnce() -> T + Send + 'static,
+    T: Send + 'static,
+{
+    let (tx, rx) = futures_channel::oneshot::channel();
+    std::thread::Builder::new()
+        .name("gabay-blocking".into())
+        .spawn(move || {
+            let res = f();
+            let _ = tx.send(res);
+        })
+        .ok();
+    rx.await.ok()
+}
+
 #[component]
 pub fn App() -> Element {
     let env = use_context::<Env>();
@@ -94,7 +122,7 @@ pub fn App() -> Element {
             let b = b.clone();
             async move {
                 loop {
-                    tokio::time::sleep(Duration::from_millis(500)).await;
+                    async_sleep(Duration::from_millis(500)).await;
                     match Snapshot::read(&*b) {
                         Ok(s) => {
                             let done = s.required_satisfied();
@@ -122,16 +150,19 @@ pub fn App() -> Element {
                 let retry = flow.read().was_attempted(p);
                 let b = backend.clone();
                 rsx! {
-                    div { class: "gate",
-                        div { class: "step", "{n} of {total}" }
-                        h1 { "{title}" }
-                        p { "{body}" }
-                        button { class: "act",
-                            onclick: move |_| {
-                                flow.write().mark_attempted(p);
-                                let _ = if retry || p.needs_settings_trip() { b.open_app_settings() } else { b.request(p) };
-                            },
-                            if retry { "Open settings" } else { "Allow" }
+                    div { class: "gate-container",
+                        div { class: "gate-card",
+                            div { class: "gate-step", "Step {n} of {total}" }
+                            h1 { "{title}" }
+                            p { "{body}" }
+                            button {
+                                class: "gate-btn",
+                                onclick: move |_| {
+                                    flow.write().mark_attempted(p);
+                                    let _ = if retry || p.needs_settings_trip() { b.open_app_settings() } else { b.request(p) };
+                                },
+                                if retry { "Open settings" } else { "Allow" }
+                            }
                         }
                     }
                 }
@@ -179,7 +210,7 @@ fn MapScreen() -> Element {
                 if q.chars().count() < 2 {
                     return Vec::new();
                 }
-                tokio::task::spawn_blocking(move || svc.search(&q, None)).await.unwrap_or_default()
+                spawn_blocking(move || svc.search(&q, None)).await.unwrap_or_default()
             }
         }
     });
@@ -193,10 +224,10 @@ fn MapScreen() -> Element {
             let svc = svc.clone();
             async move {
                 loop {
-                    tokio::time::sleep(Duration::from_secs(1)).await;
+                    async_sleep(Duration::from_secs(1)).await;
                     if navigating() {
                         let s = svc.clone();
-                        let t = tokio::task::spawn_blocking(move || s.telemetry()).await.ok().flatten();
+                        let t = spawn_blocking(move || s.telemetry()).await.flatten();
                         tele.set(t);
                     }
                 }
@@ -343,14 +374,14 @@ fn MapScreen() -> Element {
                                             let tx = tx.clone();
                                             let to = LonLat::new(h.poi.lon, h.poi.lat);
                                             spawn(async move {
-                                                let out = tokio::task::spawn_blocking(move || svc.route(to)).await;
+                                                let out = spawn_blocking(move || svc.route(to)).await;
                                                 match out {
-                                                    Ok(Ok(r)) => {
+                                                    Some(Ok(r)) => {
                                                         send(&tx, MapMsg::Overlays(Overlays { route: r.points.clone(), pin: Some(to), ..Overlays::default() }));
                                                         route.set(Some(r));
                                                     }
-                                                    Ok(Err(e)) => note.set(Some(e)),
-                                                    Err(_) => note.set(Some("Routing stopped unexpectedly.".into())),
+                                                    Some(Err(e)) => note.set(Some(e)),
+                                                    None => note.set(Some("Routing stopped unexpectedly.".into())),
                                                 }
                                                 busy.set(false);
                                             });
@@ -376,11 +407,11 @@ fn MapScreen() -> Element {
                                     busy.set(true);
                                     let svc = svc.clone();
                                     spawn(async move {
-                                        let out = tokio::task::spawn_blocking(move || svc.ask(&q)).await;
+                                        let out = spawn_blocking(move || svc.ask(&q)).await;
                                         reply.set(Some(match out {
-                                            Ok(Ok(t)) => t,
-                                            Ok(Err(e)) => e,
-                                            Err(_) => "The assistant stopped unexpectedly.".into(),
+                                            Some(Ok(t)) => t,
+                                            Some(Err(e)) => e,
+                                            None => "The assistant stopped unexpectedly.".into(),
                                         }));
                                         busy.set(false);
                                     });
