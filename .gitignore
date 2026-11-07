@@ -8,6 +8,7 @@ docs/*AGY_BRIEF.md
 AGENT_BOOTSTRAP.txt
 
 # Rust & Android Build Artifacts
+.cargo/
 target/
 **/build/
 .gradle/
