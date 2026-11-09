@@ -2,10 +2,10 @@
 :root { --bg:#f8f6ee; --label:#2e3a2f; --label2:#566749; --sep:rgba(46,58,47,.16); --rim:rgba(46,58,47,.20); --accent:#c96f4f; --on-accent:#ffffff; --sand:#d9c9b2; --sage:#6b7f5b; }
 .dark { --bg:#1b231c; --label:#f1ecdf; --label2:#a9b79c; --sep:rgba(241,236,223,.16); --rim:rgba(241,236,223,.22); --accent:#d98a6b; --on-accent:#2a1409; }
 * { box-sizing:border-box; margin:0; padding:0; }
-html, body { background:#f8f6ee; color:#2e3a2f; font-family:system-ui, -apple-system, Roboto, sans-serif; font-size:16px; }
-.root { position:relative; width:100vw; height:100vh; overflow:hidden; background:var(--bg); color:var(--label); }
-.map { position:absolute; inset:0; }
-.map canvas { width:100%; height:100%; }
+html, body { width:100%; height:100%; margin:0; padding:0; background:#f8f6ee; color:#2e3a2f; font-family:system-ui, -apple-system, Roboto, sans-serif; font-size:16px; overflow:hidden; }
+.root { position:absolute; inset:0; width:100%; height:100%; overflow:hidden; background:var(--bg); color:var(--label); }
+.map { position:absolute; inset:0; width:100%; height:100%; }
+.map canvas { position:absolute; inset:0; width:100%; height:100%; display:block; }
 
 /* Glass surfaces: geometry comes inline from gabay-glass; the shader paints behind. */
 .glass { position:absolute; overflow:hidden; background:transparent; border:1px solid var(--rim); color:var(--label); }
@@ -13,16 +13,17 @@ html, body { background:#f8f6ee; color:#2e3a2f; font-family:system-ui, -apple-sy
 .sub { font-size:14px; color:var(--label2); margin-top:2px; }
 .note { padding:14px 20px; color:var(--label2); font-size:15px; }
 
-.search-row { display:flex; align-items:center; height:50px; padding:0 18px; gap:12px; }
+.search-row { display:flex; align-items:center; height:50px; padding:0 18px; gap:12px; position:relative; }
 .search-row input { flex:1; height:44px; background:transparent; border:0; outline:0; color:var(--label); font-size:17px; }
+.search-placeholder { position:absolute; left:18px; color:var(--label2); font-size:17px; pointer-events:none; }
 .search-row .cancel { background:transparent; border:0; color:var(--accent); font-size:16px; font-weight:600; min-height:44px; padding:0 4px; }
 .results { overflow-y:auto; }
 .row { display:block; width:100%; height:64px; padding:10px 20px; text-align:left; background:transparent; border:0; color:var(--label); overflow:hidden; }
 .row + .row { border-top:1px solid var(--sep); }
 .row .name, .row .sub { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 
-.tools { display:flex; flex-direction:column; }
-.tools button { flex:1; background:transparent; border:0; color:var(--label); font-size:16px; }
+.tools { display:flex; flex-direction:column; align-items:stretch; }
+.tools button { flex:1; width:100%; display:flex; justify-content:center; align-items:center; text-align:center; background:transparent; border:0; color:var(--label); font-size:16px; font-weight:600; }
 .tools button + button { border-top:1px solid var(--sep); }
 
 .sheet { padding:10px 20px; display:flex; flex-direction:column; gap:8px; }

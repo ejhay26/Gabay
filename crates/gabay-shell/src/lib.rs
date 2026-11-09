@@ -197,6 +197,8 @@ impl CustomPaintSource for MapPaintSource {
     }
 
     fn render(&mut self, mut ctx: CustomPaintCtx<'_>, width: u32, height: u32, scale: f64) -> Option<TextureHandle> {
+        log::info!("[Gabay Shell] CustomPaintSource::render called! {width}x{height} scale={scale}");
+        eprintln!("[Gabay Shell] CustomPaintSource::render called! {width}x{height} scale={scale}");
         if width == 0 || height == 0 || !scale.is_finite() || scale <= 0.0 {
             return None;
         }

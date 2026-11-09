@@ -4,7 +4,7 @@ if not exist G:\ (
     echo [ERROR] Drive G: is not connected.
     exit /b 1
 )
-set CARGO_HOME=G:\sine_builds\.cargo
+set CARGO_HOME=G:\gabay_cargo
 set CARGO_TARGET_DIR=G:\gabay_builds\ui_target
 set GRADLE_USER_HOME=G:\sine_builds\.gradle
 set TEMP=G:\gabay_builds\temp
@@ -19,4 +19,8 @@ set CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=%NDK_BIN%\aarch64-linux-android26-
 set CC_aarch64_linux_android=%NDK_BIN%\aarch64-linux-android26-clang.cmd
 set CXX_aarch64_linux_android=%NDK_BIN%\aarch64-linux-android26-clang++.cmd
 set AR_aarch64_linux_android=%NDK_BIN%\llvm-ar.exe
+set CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER=%NDK_BIN%\x86_64-linux-android26-clang.cmd
+set CC_x86_64_linux_android=%NDK_BIN%\x86_64-linux-android26-clang.cmd
+set CXX_x86_64_linux_android=%NDK_BIN%\x86_64-linux-android26-clang++.cmd
+set AR_x86_64_linux_android=%NDK_BIN%\llvm-ar.exe
 echo [OK] Gabay UI environment set. Target dir: %CARGO_TARGET_DIR%

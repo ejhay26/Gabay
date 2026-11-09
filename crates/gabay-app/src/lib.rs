@@ -122,7 +122,10 @@ fn root() -> Element {
 }
 
 pub fn run() {
-    let config: Vec<Box<dyn Any>> = Vec::new();
+    let window_attrs = dioxus_native::WindowAttributes::default()
+        .with_title("Gabay Navigation")
+        .with_inner_size(dioxus_native::LogicalSize::new(420.0, 840.0));
+    let config: Vec<Box<dyn Any>> = vec![Box::new(window_attrs)];
     dioxus_native::launch_cfg(root, Vec::new(), config);
 }
 
@@ -134,6 +137,8 @@ fn android_main(app: android_activity::AndroidApp) {
         log::error!("CRITICAL RUST PANIC: {info}");
         eprintln!("CRITICAL RUST PANIC: {info}");
     }));
+    log::info!("android_main started!");
     blitz_shell::set_android_app(app);
     run();
+    log::info!("android_main exited cleanly!");
 }

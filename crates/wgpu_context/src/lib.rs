@@ -78,10 +78,14 @@ impl WGPUContext {
         let surface = self.instance.create_surface(window.into())?;
 
         // Find or create a suitable device for rendering to the surface
-        let dev_id = self
-            .find_or_create_device(Some(&surface))
-            .await
-            .or(Err(WgpuContextError::NoCompatibleDevice))?;
+        let dev_id = match self.find_or_create_device(Some(&surface)).await {
+            Ok(id) => id,
+            Err(e) => {
+                log::error!("[wgpu_context] Failed find_or_create_device for surface: {:?}", e);
+                eprintln!("[wgpu_context] Failed find_or_create_device for surface: {:?}", e);
+                return Err(e);
+            }
+        };
         let device_handle = self.device_pool[dev_id].clone();
 
         SurfaceRenderer::new(
@@ -100,10 +104,14 @@ impl WGPUContext {
         config: BufferRendererConfig,
     ) -> Result<BufferRenderer, WgpuContextError> {
         // Find or create a suitable device for rendering to the surface
-        let dev_id = self
-            .find_or_create_device(None)
-            .await
-            .or(Err(WgpuContextError::NoCompatibleDevice))?;
+        let dev_id = match self.find_or_create_device(None).await {
+            Ok(id) => id,
+            Err(e) => {
+                log::error!("[wgpu_context] Failed find_or_create_device for buffer: {:?}", e);
+                eprintln!("[wgpu_context] Failed find_or_create_device for buffer: {:?}", e);
+                return Err(e);
+            }
+        };
         let device_handle = self.device_pool[dev_id].clone();
 
         Ok(BufferRenderer::new(config, device_handle, dev_id))
@@ -139,9 +147,17 @@ impl WGPUContext {
         compatible_surface: Option<&Surface<'_>>,
     ) -> Result<usize, WgpuContextError> {
         let instance = self.instance.clone();
-        let adapter =
-            wgpu::util::initialize_adapter_from_env_or_default(&instance, compatible_surface)
-                .await?;
+        let adapter = match wgpu::util::initialize_adapter_from_env_or_default(&instance, compatible_surface).await {
+            Ok(a) => a,
+            Err(e) => {
+                log::warn!("[wgpu_context] Failed adapter request with compatible surface ({:?}), retrying without surface constraint...", e);
+                eprintln!("[wgpu_context] Failed adapter request with compatible surface ({:?}), retrying without surface constraint...", e);
+                wgpu::util::initialize_adapter_from_env_or_default(&instance, None).await?
+            }
+        };
+
+        log::info!("[wgpu_context] Adapter selected: {:?}", adapter.get_info());
+        eprintln!("[wgpu_context] Adapter selected: {:?}", adapter.get_info());
 
         // Determine features to request
         // The user may request additional features
@@ -149,9 +165,11 @@ impl WGPUContext {
         let available_features = adapter.features();
         let required_features = requested_features & available_features;
 
-        // Determine limits to request
-        // The user may override the limits
-        let required_limits = self.override_limits.clone().unwrap_or_default();
+        // Determine limits to request: use override if specified, otherwise adapter's own supported limits.
+        let required_limits = self.override_limits.clone().unwrap_or_else(|| adapter.limits());
+
+        log::info!("[wgpu_context] Requesting device with limits: {:?}", required_limits);
+        eprintln!("[wgpu_context] Requesting device with limits: {:?}", required_limits);
 
         // Create the device and the queue
         let descripter = wgpu::DeviceDescriptor {
@@ -161,7 +179,14 @@ impl WGPUContext {
             memory_hints: MemoryHints::MemoryUsage,
             trace: wgpu::Trace::default(),
         };
-        let (device, queue) = adapter.request_device(&descripter).await?;
+        let (device, queue) = match adapter.request_device(&descripter).await {
+            Ok(pair) => pair,
+            Err(e) => {
+                log::error!("[wgpu_context] Failed adapter.request_device: {:?}", e);
+                eprintln!("[wgpu_context] Failed adapter.request_device: {:?}", e);
+                return Err(e.into());
+            }
+        };
 
         // Create the device handle and store in the pool
         let device_handle = DeviceHandle {

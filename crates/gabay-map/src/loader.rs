@@ -1,6 +1,6 @@
 //! Vector tile source: PMTiles archive + decode + a small bounded cache.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex};
 
 use gabay_vault::PmTiles;
@@ -8,23 +8,28 @@ use gabay_vault::PmTiles;
 use crate::geo::{Bounds, TileId};
 use crate::mvt::{self, Layer};
 
-const CACHE_CAPACITY: usize = 128;
+const CACHE_CAPACITY: usize = 256;
 
 struct Cache {
     map: HashMap<TileId, Option<Arc<Vec<Layer>>>>,
     order: VecDeque<TileId>,
+    in_flight: HashSet<TileId>,
 }
 
 pub struct VectorSource {
-    archive: PmTiles,
-    cache: Mutex<Cache>,
+    archive: Arc<PmTiles>,
+    cache: Arc<Mutex<Cache>>,
 }
 
 impl VectorSource {
     pub fn new(archive: PmTiles) -> Self {
         Self {
-            archive,
-            cache: Mutex::new(Cache { map: HashMap::new(), order: VecDeque::new() }),
+            archive: Arc::new(archive),
+            cache: Arc::new(Mutex::new(Cache {
+                map: HashMap::new(),
+                order: VecDeque::new(),
+                in_flight: HashSet::new(),
+            })),
         }
     }
 
@@ -41,30 +46,44 @@ impl VectorSource {
             .unwrap_or(Bounds::PHILIPPINES)
     }
 
-    /// `None` for a missing or undecodable tile. Failures are logged and
-    /// cached so a bad tile is not re-read every frame.
+    /// `None` for a missing or undecodable tile. Loads asynchronously on
+    /// background threads so the UI render thread never blocks on disk I/O or gzip decompression.
     pub fn tile(&self, id: TileId) -> Option<Arc<Vec<Layer>>> {
-        if let Ok(cache) = self.cache.lock() {
+        if let Ok(mut cache) = self.cache.lock() {
             if let Some(hit) = cache.map.get(&id) {
                 return hit.clone();
             }
+            if cache.in_flight.contains(&id) {
+                return None;
+            }
+            cache.in_flight.insert(id);
         }
-        let loaded = self.load(id);
-        if let Ok(mut cache) = self.cache.lock() {
-            if cache.order.len() >= CACHE_CAPACITY {
-                if let Some(old) = cache.order.pop_front() {
-                    cache.map.remove(&old);
+
+        let archive = self.archive.clone();
+        let cache = self.cache.clone();
+        std::thread::Builder::new()
+            .name(format!("tile-{id:?}"))
+            .spawn(move || {
+                let loaded = Self::load_tile(&archive, id);
+                if let Ok(mut c) = cache.lock() {
+                    c.in_flight.remove(&id);
+                    if c.order.len() >= CACHE_CAPACITY {
+                        if let Some(old) = c.order.pop_front() {
+                            c.map.remove(&old);
+                        }
+                    }
+                    if c.map.insert(id, loaded).is_none() {
+                        c.order.push_back(id);
+                    }
                 }
-            }
-            if cache.map.insert(id, loaded.clone()).is_none() {
-                cache.order.push_back(id);
-            }
-        }
-        loaded
+            })
+            .ok();
+
+        None
     }
 
-    fn load(&self, id: TileId) -> Option<Arc<Vec<Layer>>> {
-        match self.archive.get_tile_decoded(id.z, id.x, id.y) {
+    fn load_tile(archive: &PmTiles, id: TileId) -> Option<Arc<Vec<Layer>>> {
+        match archive.get_tile_decoded(id.z, id.x, id.y) {
             Ok(Some(bytes)) => match mvt::decode(&bytes) {
                 Ok(layers) => Some(Arc::new(layers)),
                 Err(e) => {

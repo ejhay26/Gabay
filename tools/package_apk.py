@@ -23,13 +23,25 @@ def main():
     android_jar = r"C:\Android\android-sdk\platforms\android-35\android.jar"
     debug_ks = r"C:\Users\Administrator\.android\debug.keystore"
     
-    so_path = r"G:\gabay_builds\ui_target\aarch64-linux-android\release\libgabay_app.so"
-    if not os.path.exists(so_path):
-        so_path = r"G:\gabay_builds\ui_target\aarch64-linux-android\debug\libgabay_app.so"
-    if not os.path.exists(so_path):
-        sys.exit(f"Native library not found at {so_path}")
+    arm64_so = r"G:\gabay_builds\ui_target\aarch64-linux-android\release\libgabay_app.so"
+    if not os.path.exists(arm64_so):
+        arm64_so = r"G:\gabay_builds\ui_target\aarch64-linux-android\debug\libgabay_app.so"
+    if not os.path.exists(arm64_so):
+        arm64_so = None
 
-    print(f"Using native library: {so_path} ({os.path.getsize(so_path) / 1024 / 1024:.2f} MB)")
+    x86_64_so = r"G:\gabay_builds\ui_target\x86_64-linux-android\release\libgabay_app.so"
+    if not os.path.exists(x86_64_so):
+        x86_64_so = r"G:\gabay_builds\ui_target\x86_64-linux-android\debug\libgabay_app.so"
+    if not os.path.exists(x86_64_so):
+        x86_64_so = None
+
+    if not arm64_so and not x86_64_so:
+        sys.exit("No native library found for aarch64 or x86_64")
+
+    if arm64_so:
+        print(f"Found arm64-v8a: {arm64_so} ({os.path.getsize(arm64_so) / 1024 / 1024:.2f} MB)")
+    if x86_64_so:
+        print(f"Found x86_64: {x86_64_so} ({os.path.getsize(x86_64_so) / 1024 / 1024:.2f} MB)")
 
     out_dir = r"G:\gabay_builds\apk_staging"
     os.makedirs(out_dir, exist_ok=True)
@@ -60,10 +72,13 @@ def main():
     ]
     run_cmd(link_cmd)
 
-    # 3. Add libgabay_app.so into lib/arm64-v8a/
-    print("Adding native shared library into APK...")
+    # 3. Add native shared libraries into APK
+    print("Adding native shared libraries into APK...")
     with zipfile.ZipFile(unaligned_apk, "a", compression=zipfile.ZIP_DEFLATED) as zf:
-        zf.write(so_path, "lib/arm64-v8a/libgabay_app.so")
+        if arm64_so:
+            zf.write(arm64_so, "lib/arm64-v8a/libgabay_app.so")
+        if x86_64_so:
+            zf.write(x86_64_so, "lib/x86_64/libgabay_app.so")
 
     # 4. zipalign 4
     zipalign = os.path.join(build_tools, "zipalign.exe")

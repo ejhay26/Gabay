@@ -144,6 +144,8 @@ pub fn App() -> Element {
 
     // A failed status read never blocks the app.
     let step = snap().and_then(|s| if s.required_satisfied() { None } else { flow.read().next_step(&s) });
+    log::info!("[Gabay UI] App rendering: step={:?}", step);
+    eprintln!("[Gabay UI] App rendering: step={:?}", step);
 
     rsx! {
         document::Style { "{CSS}" }
@@ -175,7 +177,7 @@ pub fn App() -> Element {
         } else {
             MapScreen {}
         }
-        Splash {}
+        // Splash {}
     }
 }
 
@@ -195,6 +197,7 @@ fn Splash() -> Element {
     }
     let ring = (96.0 * mark.value()).max(0.0);
     let dot = ring * 0.3;
+    eprintln!("[Gabay UI] Splash rendering: opacity={:.3}, ring={:.1}", opacity, ring);
     rsx! {
         div { class: "splash", style: "opacity:{opacity:.3};",
             div { class: "ring", style: "width:{ring:.1}px;height:{ring:.1}px;",
@@ -213,14 +216,20 @@ enum Tab {
 
 #[component]
 fn MapScreen() -> Element {
+    log::info!("[Gabay UI] MapScreen rendering!");
+    eprintln!("[Gabay UI] MapScreen rendering!");
     let env = use_context::<Env>();
     let source = MapPaintSource::new(env.vault_dir.clone());
     let tx = use_hook(|| source.sender());
     let paint_id = use_wgpu(move || source);
+    log::info!("[Gabay UI] MapScreen paint_id={paint_id}");
+    eprintln!("[Gabay UI] MapScreen paint_id={paint_id}");
 
     let mut query = use_signal(String::new);
     let mut selected = use_signal(|| None::<SearchHit>);
     let mut drag = use_signal(|| None::<(f64, f64)>);
+    let mut redraw_seq = use_signal(|| 0u64);
+    let _ = redraw_seq();
     let mut tab = use_signal(|| Tab::Route);
     let mut route = use_signal(|| None::<RouteInfo>);
     let mut note = use_signal(|| None::<String>);
@@ -313,6 +322,7 @@ fn MapScreen() -> Element {
                     if let Some((x, y)) = drag() {
                         send(&tx_a, MapMsg::Pan { dx: p.x - x, dy: p.y - y });
                         drag.set(Some((p.x, p.y)));
+                        redraw_seq.set(redraw_seq().wrapping_add(1));
                     }
                 },
                 onwheel: move |e| {
@@ -320,6 +330,7 @@ fn MapScreen() -> Element {
                     let dy = e.delta().strip_units().y;
                     if dy.is_finite() {
                         send(&tx_b, MapMsg::ZoomAbout { x: p.x, y: p.y, delta: (-dy / 240.0).clamp(-1.0, 1.0) });
+                        redraw_seq.set(redraw_seq().wrapping_add(1));
                     }
                 },
                 canvas { "src": paint_id }
@@ -327,8 +338,8 @@ fn MapScreen() -> Element {
 
             if st <= layout::EPS {
                 div { class: "glass tools", style: "{layout::tools_surface(sh).css()}",
-                    button { onclick: move |_| send(&tx_d, MapMsg::ZoomAbout { x: -1.0, y: -1.0, delta: 1.0 }), "+" }
-                    button { onclick: move |_| send(&tx_e, MapMsg::ZoomAbout { x: -1.0, y: -1.0, delta: -1.0 }), "\u{2212}" }
+                    button { onclick: move |_| { send(&tx_d, MapMsg::ZoomAbout { x: -1.0, y: -1.0, delta: 1.0 }); redraw_seq.set(redraw_seq().wrapping_add(1)); }, "+" }
+                    button { onclick: move |_| { send(&tx_e, MapMsg::ZoomAbout { x: -1.0, y: -1.0, delta: -1.0 }); redraw_seq.set(redraw_seq().wrapping_add(1)); }, "\u{2212}" }
                     button { onclick: move |_| dark.set(!dark()), if dark() { "Light" } else { "Dark" } }
                 }
                 if sh <= layout::EPS && navigating() {
@@ -427,6 +438,9 @@ fn MapScreen() -> Element {
             div { class: "glass", style: "{layout::search_surface(st).css()}",
                 div { class: "search-row", style: "margin-top:{44.0 * st.clamp(0.0, 1.0):.1}px;",
                     onclick: move |_| if !search_open() { open_search() },
+                    if query().is_empty() && !search_open() {
+                        span { class: "search-placeholder", "Search places" }
+                    }
                     input {
                         r#type: "text",
                         placeholder: "Search places",
